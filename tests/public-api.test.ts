@@ -8,6 +8,8 @@ describe('public API surface', () => {
     expect(exportedNames).toContain('executeMemoryWrite');
     expect(exportedNames).toContain('computePayloadDigest');
     expect(exportedNames).toContain('executeExtensionRegistration');
+    expect(exportedNames).toContain('executeExtensionActivation');
+    expect(exportedNames).toContain('executeWebhookIngress');
     expect(exportedNames).toContain('resolveExtensionPermissions');
     expect(exportedNames).toContain('authorizeWebhookIngress');
     expect(exportedNames).toContain('validateVoiceProfile');
@@ -41,6 +43,13 @@ describe('public API surface', () => {
       'fixedClock',
       'analyzeExecuteMemoryWrite',
       'collectDirectCalls',
+      'sealExtensionRegistryEntry',
+      'sealActiveExtensionRegistration',
+      'sealTrustedActivationDecision',
+      'sealAuthorizedWebhookIngress',
+      'sealRawWebhookPayloadHandle',
+      'sealPayloadBoundSignature',
+      'computeWebhookPayloadDigest',
     ])
       expect(exportedNames).not.toContain(forbidden);
   });

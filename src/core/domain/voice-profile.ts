@@ -3,6 +3,30 @@ export const VOICE_PROFILE_SCHEMA_VERSION = '1.0' as const;
 export const GENDER_PRESENTATIONS = Object.freeze(['masculine', 'feminine', 'neutral'] as const);
 export type GenderPresentation = (typeof GENDER_PRESENTATIONS)[number];
 
+export const NEO_VOICE_PROFILE_ID = 'neo' as const;
+
+/** Controlled semantic style tags required for the Neo voice profile. */
+export const NEO_REQUIRED_STYLE_TAGS = Object.freeze([
+  'calm',
+  'intelligent',
+  'confident',
+  'restrained',
+  'slightly-futuristic',
+  'good-russian-diction',
+  'not-call-center',
+  'not-pompous-announcer',
+] as const);
+
+export const NEO_FORBIDDEN_STYLE_TAGS = Object.freeze([
+  'feminine',
+  'cross-gender',
+  'celebrity',
+  'actor-imitation',
+  'identity-imitation',
+  'voice-clone',
+  'cloned-voice',
+] as const);
+
 export interface LogicalVoiceSelector {
   readonly language: string;
   readonly genderPresentation: GenderPresentation;
@@ -31,6 +55,20 @@ export interface VoiceProfile {
   readonly enabled: boolean;
 }
 
+/**
+ * Future adapter evidence. Core remains provider-independent; missing or mismatched evidence
+ * forces text-only.
+ */
+export interface VoiceProviderMatchEvidence {
+  readonly language: string;
+  readonly genderPresentation: GenderPresentation;
+  readonly compatibleWithSelector: boolean;
+  readonly actorOrCelebrityIdentity: boolean;
+  readonly clonedVoice: boolean;
+  readonly identityImitation: boolean;
+  readonly metadataVerified: boolean;
+}
+
 export type VoiceProfileFailureCode =
   | 'INVALID_PROFILE'
   | 'UNSUPPORTED_SCHEMA_VERSION'
@@ -41,7 +79,14 @@ export type VoiceProfileFailureCode =
   | 'CROSS_GENDER_FALLBACK_FORBIDDEN'
   | 'VOICE_CLONING_FORBIDDEN'
   | 'IDENTITY_IMITATION_FORBIDDEN'
-  | 'PROVIDER_SPECIFIC_SELECTOR';
+  | 'PROVIDER_SPECIFIC_SELECTOR'
+  | 'NEO_LANGUAGE_REQUIRED'
+  | 'NEO_MASCULINE_REQUIRED'
+  | 'NEO_FALLBACK_REQUIRED'
+  | 'NEO_STYLE_TAG_REQUIRED'
+  | 'NEO_FORBIDDEN_STYLE_TAG'
+  | 'NEO_ENABLED_REQUIRED'
+  | 'NEO_IDENTITY_FORBIDDEN';
 
 export type VoiceAvailabilityDecision =
   | { readonly mode: 'voice'; readonly selector: LogicalVoiceSelector }

@@ -1,5 +1,8 @@
 import {
   GENDER_PRESENTATIONS,
+  NEO_FORBIDDEN_STYLE_TAGS,
+  NEO_REQUIRED_STYLE_TAGS,
+  NEO_VOICE_PROFILE_ID,
   VOICE_PROFILE_SCHEMA_VERSION,
   type GenderPresentation,
   type LogicalVoiceSelector,
@@ -7,6 +10,7 @@ import {
   type VoiceAvailabilityDecision,
   type VoiceProfile,
   type VoiceProfileFailureCode,
+  type VoiceProviderMatchEvidence,
 } from '../domain/index.js';
 import { sealValidatedVoiceProfile } from '../domain/voice-profile.internal.js';
 
@@ -43,7 +47,20 @@ const PROVIDER_FIELDS = Object.freeze([
   'voiceId',
   'endpoint',
   'apiKey',
+  'model',
+  'api_key',
 ] as const);
+const IDENTITY_FRAGMENTS = Object.freeze([
+  'celebrity',
+  'actor',
+  'actress',
+  'impersonat',
+  'clone-of',
+  'voice-id-',
+  'https://',
+  'http://',
+  'sk-',
+]);
 
 const invalid = (code: VoiceProfileFailureCode, reason: string): VoiceProfileValidation => ({
   valid: false,
@@ -79,6 +96,9 @@ const parseSelector = (
     return invalid('UNKNOWN_GENDER_PRESENTATION', 'Voice selector gender is unknown.');
   if (!isStringArray(value.styleTags))
     return invalid('INVALID_PROFILE', 'Voice selector style tags must be strings.');
+  const joined = value.styleTags.join(' ').toLowerCase();
+  if (IDENTITY_FRAGMENTS.some((fragment) => joined.includes(fragment)))
+    return invalid('NEO_IDENTITY_FORBIDDEN', 'Selector contains identity imitation material.');
   return {
     selector: {
       language: value.language,
@@ -86,6 +106,47 @@ const parseSelector = (
       styleTags: Object.freeze([...value.styleTags]),
     },
   };
+};
+
+const validateNeoInvariants = (
+  candidate: Record<string, unknown>,
+): VoiceProfileValidation | null => {
+  if (candidate.id !== NEO_VOICE_PROFILE_ID) return null;
+  if (candidate.language !== 'ru-RU')
+    return invalid('NEO_LANGUAGE_REQUIRED', 'Neo voice profile must use ru-RU.');
+  if (candidate.genderPresentation !== 'masculine')
+    return invalid('NEO_MASCULINE_REQUIRED', 'Neo voice profile must be masculine.');
+  if (candidate.fallbackMode !== 'text-only')
+    return invalid('NEO_FALLBACK_REQUIRED', 'Neo fallback must be text-only.');
+  if (candidate.allowCrossGenderFallback !== false)
+    return invalid('CROSS_GENDER_FALLBACK_FORBIDDEN', 'Neo forbids cross-gender fallback.');
+  if (candidate.allowVoiceCloning !== false)
+    return invalid('VOICE_CLONING_FORBIDDEN', 'Neo forbids voice cloning.');
+  if (candidate.allowIdentityImitation !== false)
+    return invalid('IDENTITY_IMITATION_FORBIDDEN', 'Neo forbids identity imitation.');
+  if (!isStringArray(candidate.styleTags))
+    return invalid('INVALID_PROFILE', 'Neo style tags must be strings.');
+  for (const required of NEO_REQUIRED_STYLE_TAGS)
+    if (!candidate.styleTags.includes(required))
+      return invalid('NEO_STYLE_TAG_REQUIRED', 'Neo profile is missing a required style tag.');
+  for (const tag of candidate.styleTags)
+    if (NEO_FORBIDDEN_STYLE_TAGS.some((forbidden) => forbidden === tag))
+      return invalid('NEO_FORBIDDEN_STYLE_TAG', 'Neo profile contains a forbidden style tag.');
+  const searchable = [
+    candidate.tone,
+    candidate.styleTags.join(' '),
+    JSON.stringify(candidate.primaryVoiceSelector),
+    JSON.stringify(candidate.fallbackVoiceSelectors),
+  ]
+    .join(' ')
+    .toLowerCase();
+  if (
+    ['celebrity', 'actor-imitation', 'impersonat', 'clone-of', 'https://', 'http://', 'sk-'].some(
+      (fragment) => searchable.includes(fragment),
+    )
+  )
+    return invalid('NEO_IDENTITY_FORBIDDEN', 'Neo profile contains identity or provider material.');
+  return null;
 };
 
 export function validateVoiceProfile(candidate: unknown): VoiceProfileValidation {
@@ -125,6 +186,10 @@ export function validateVoiceProfile(candidate: unknown): VoiceProfileValidation
     return invalid('VOICE_CLONING_FORBIDDEN', 'Voice cloning is forbidden.');
   if (candidate.allowIdentityImitation)
     return invalid('IDENTITY_IMITATION_FORBIDDEN', 'Identity imitation is forbidden.');
+
+  const neoFailure = validateNeoInvariants(candidate);
+  if (neoFailure !== null) return neoFailure;
+
   const primary = parseSelector(candidate.primaryVoiceSelector);
   if (!('selector' in primary)) return primary;
   if (
@@ -146,6 +211,8 @@ export function validateVoiceProfile(candidate: unknown): VoiceProfileValidation
         'CROSS_GENDER_FALLBACK_FORBIDDEN',
         'Cross-gender voice fallback is forbidden.',
       );
+    if (candidate.id === NEO_VOICE_PROFILE_ID && parsed.selector.genderPresentation !== 'masculine')
+      return invalid('NEO_MASCULINE_REQUIRED', 'Neo fallback selectors must be masculine.');
     fallbacks.push(parsed.selector);
   }
   if (candidate.allowCrossGenderFallback)
@@ -178,7 +245,24 @@ export function resolveVoiceAvailability(
   profile: ValidatedVoiceProfile,
   primaryAvailable: boolean,
   availableFallbackIndexes: readonly number[] = [],
+  providerEvidence: VoiceProviderMatchEvidence | null = null,
 ): VoiceAvailabilityDecision {
+  if (!profile.enabled) return { mode: 'text-only', reason: 'Voice profile is disabled.' };
+  if (providerEvidence === null)
+    return { mode: 'text-only', reason: 'Provider metadata is unverified.' };
+  if (!providerEvidence.metadataVerified)
+    return { mode: 'text-only', reason: 'Provider metadata is unverified.' };
+  if (providerEvidence.language !== profile.language)
+    return { mode: 'text-only', reason: 'Provider language does not match the profile.' };
+  if (providerEvidence.genderPresentation !== profile.genderPresentation)
+    return { mode: 'text-only', reason: 'Provider gender presentation does not match.' };
+  if (providerEvidence.actorOrCelebrityIdentity || providerEvidence.identityImitation)
+    return { mode: 'text-only', reason: 'Identity imitation is forbidden.' };
+  if (providerEvidence.clonedVoice)
+    return { mode: 'text-only', reason: 'Cloned voices are forbidden.' };
+  if (!providerEvidence.compatibleWithSelector)
+    return { mode: 'text-only', reason: 'Provider voice is incompatible with the selector.' };
+
   if (primaryAvailable) return { mode: 'voice', selector: profile.primaryVoiceSelector };
   if (profile.fallbackMode === 'same-gender-only')
     for (const index of availableFallbackIndexes) {

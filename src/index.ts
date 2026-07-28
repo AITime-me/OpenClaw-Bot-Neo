@@ -18,8 +18,32 @@ export type {
   ExtensionRegistrationFailure,
   ExtensionRegistrationOutcome,
 } from './core/application/extension-registration.service.js';
+export {
+  executeExtensionActivation,
+  toActiveExtensionRegistration,
+} from './core/application/extension-activation.service.js';
+export type {
+  ExtensionActivationCommand,
+  ExtensionActivationDeps,
+  ExtensionActivationFailure,
+} from './core/application/extension-activation.service.js';
+export { executeWebhookIngress } from './core/application/webhook-ingress.service.js';
+export type {
+  WebhookIngressDeps,
+  WebhookIngressFailure,
+  WebhookIngressOutcome,
+} from './core/application/webhook-ingress.service.js';
 export { resolveExtensionPermissions } from './core/policy/extension-permissions.js';
-export { authorizeWebhookIngress } from './core/policy/webhook-ingress.js';
-export type { WebhookIngressLimits } from './core/policy/webhook-ingress.js';
+export {
+  authorizeWebhookIngress,
+  validateWebhookEnvelope,
+  validateWebhookIngressLimits,
+} from './core/policy/webhook-ingress.js';
+export type { WebhookIngressLimits } from './core/domain/webhook.js';
 export { resolveVoiceAvailability, validateVoiceProfile } from './core/policy/voice-profile.js';
 export type { VoiceProfileValidation } from './core/policy/voice-profile.js';
+export {
+  resolveEffectiveExtensionRisk,
+  requiredApprovalEffectFor,
+  PERMISSION_APPROVAL_EFFECT_MAP,
+} from './core/domain/extension-risk.js';

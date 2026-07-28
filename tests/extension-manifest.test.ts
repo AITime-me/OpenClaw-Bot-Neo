@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { err, ok } from '../src/core/domain/index.js';
+import { err, ok, type SealedExtensionRegistryEntry } from '../src/core/domain/index.js';
 import { executeExtensionRegistration } from '../src/core/application/index.js';
 import type { ExtensionRegistryPort } from '../src/core/ports/index.js';
 import { validateExtensionManifest } from '../src/core/policy/extension-manifest.js';
-import { operationContext } from './support/fixtures.js';
+import { fixedClock, operationContext } from './support/fixtures.js';
 
 const manifest = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
   schemaVersion: '1.0',
@@ -41,6 +41,7 @@ describe('extension manifest validation', () => {
     ['UNKNOWN_KIND', { kind: 'plugin' }],
     ['UNKNOWN_PERMISSION', { requestedPermissions: ['root-access'] }],
     ['MISSING_APPROVAL_POLICY', { approvalPolicy: undefined }],
+    ['UNKNOWN_RISK_CLASS', { riskClass: 'critical' }],
   ])('refuses %s', (code, overrides) => {
     const candidate = manifest(overrides);
     if (Object.hasOwn(overrides, 'approvalPolicy')) delete candidate.approvalPolicy;
@@ -53,6 +54,28 @@ describe('extension manifest validation', () => {
     const result = validateExtensionManifest(manifest({ requestedPermissions: ['external-send'] }));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('APPROVAL_POLICY_REQUIRED');
+  });
+
+  it('requires matching approval effects for dangerous permissions', () => {
+    const result = validateExtensionManifest(
+      manifest({
+        requestedPermissions: ['memory-write'],
+        approvalPolicy: { mode: 'required-for-dangerous', effects: [] },
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('APPROVAL_EFFECT_MISMATCH');
+  });
+
+  it('rejects a wrong approval effect for external-send', () => {
+    const result = validateExtensionManifest(
+      manifest({
+        requestedPermissions: ['external-send'],
+        approvalPolicy: { mode: 'required-for-dangerous', effects: ['write'] },
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('APPROVAL_EFFECT_MISMATCH');
   });
 
   it('rejects secret-like content without echoing it', () => {
@@ -95,10 +118,20 @@ describe('extension manifest validation', () => {
   });
 });
 
+const entries: SealedExtensionRegistryEntry[] = [];
 const registry = (conflict: boolean): ExtensionRegistryPort => ({
-  register: () => Promise.resolve(ok(undefined)),
-  get: () => Promise.resolve(err({ code: 'NOT_CONFIGURED', component: 'registry' })),
-  listEnabled: () => Promise.resolve(ok([])),
+  register: (entry) => {
+    entries.push(entry);
+    return Promise.resolve(ok(undefined));
+  },
+  getByIdVersion: () => Promise.resolve(err({ code: 'NOT_CONFIGURED', component: 'registry' })),
+  listActive: () =>
+    Promise.resolve(ok(entries.filter((entry) => entry.activationState === 'active'))),
+  listPending: () =>
+    Promise.resolve(ok(entries.filter((entry) => entry.activationState === 'pending-policy'))),
+  getActivationState: () => Promise.resolve(err({ code: 'NOT_CONFIGURED', component: 'registry' })),
+  updateActivationState: () =>
+    Promise.resolve(err({ code: 'NOT_CONFIGURED', component: 'registry' })),
   hasConflict: () => Promise.resolve(ok(conflict)),
   getDeclaredCapabilities: () => Promise.resolve(ok([])),
   getRequestedPermissions: () => Promise.resolve(ok([])),
@@ -107,7 +140,7 @@ const registry = (conflict: boolean): ExtensionRegistryPort => ({
 describe('trusted registration flow', () => {
   it('detects duplicate ID and version before registration', async () => {
     const result = await executeExtensionRegistration(
-      { registry: registry(true) },
+      { registry: registry(true), clock: fixedClock() },
       manifest(),
       operationContext(),
     );
@@ -116,23 +149,34 @@ describe('trusted registration flow', () => {
   });
 
   it('registers but never activates a disabled manifest', async () => {
+    entries.length = 0;
     const result = await executeExtensionRegistration(
-      { registry: registry(false) },
+      { registry: registry(false), clock: fixedClock() },
       manifest({ enabled: false }),
       operationContext(),
     );
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value.activation).toBe('disabled');
+    if (result.ok) {
+      expect(result.value.activation).toBe('disabled');
+      expect(result.value.entry.activationState).toBe('disabled');
+      expect(result.value.entry.manifest.enabled).toBe(false);
+    }
   });
 
   it('leaves an enabled manifest pending policy instead of activating it', async () => {
+    entries.length = 0;
     const result = await executeExtensionRegistration(
-      { registry: registry(false) },
+      { registry: registry(false), clock: fixedClock() },
       manifest(),
       operationContext(),
     );
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value.activation).toBe('pending-policy');
+    if (result.ok) {
+      expect(result.value.activation).toBe('pending-policy');
+      expect(result.value.entry.activationState).toBe('pending-policy');
+    }
+    const active = await registry(false).listActive(operationContext());
+    expect(active.ok && active.value).toEqual([]);
   });
 
   it('fails safely when the registry is unavailable', async () => {
@@ -141,7 +185,7 @@ describe('trusted registration flow', () => {
       hasConflict: () => Promise.resolve(err({ code: 'NOT_CONFIGURED', component: 'registry' })),
     };
     const result = await executeExtensionRegistration(
-      { registry: unavailable },
+      { registry: unavailable, clock: fixedClock() },
       manifest(),
       operationContext(),
     );

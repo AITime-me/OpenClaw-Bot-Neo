@@ -20,6 +20,12 @@ export const APPROVAL_EFFECTS = Object.freeze([
   'execute',
   'external-send',
   'privilege-change',
+  'memory-write',
+  'integration-write',
+  'exec',
+  'schedule-write',
+  'notifications-send',
+  'secrets-read',
 ] as const);
 export type ApprovalEffect = (typeof APPROVAL_EFFECTS)[number];
 export const isApprovalEffect = (value: unknown): value is ApprovalEffect =>

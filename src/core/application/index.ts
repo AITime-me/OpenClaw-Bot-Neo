@@ -12,3 +12,18 @@ export type {
   ExtensionRegistrationFailure,
   ExtensionRegistrationOutcome,
 } from './extension-registration.service.js';
+export {
+  executeExtensionActivation,
+  toActiveExtensionRegistration,
+} from './extension-activation.service.js';
+export type {
+  ExtensionActivationCommand,
+  ExtensionActivationDeps,
+  ExtensionActivationFailure,
+} from './extension-activation.service.js';
+export { executeWebhookIngress } from './webhook-ingress.service.js';
+export type {
+  WebhookIngressDeps,
+  WebhookIngressFailure,
+  WebhookIngressOutcome,
+} from './webhook-ingress.service.js';

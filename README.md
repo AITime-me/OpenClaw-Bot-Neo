@@ -30,7 +30,7 @@ Multimodal workflow — общая техническая capability обраб�
 
 ## Статус
 
-**Build №2 + Security Remediation 2.1A/2.1C + Extensibility Contracts 2.1B: verifiable core.**
+**Build №2 + Security Remediation 2.1A/2.1C + Extensibility 2.1B/2.1D: verifiable core.**
 Build 2.1B добавляет versioned declarative manifests, default-deny permission composition,
 provider-independent registry/webhook contracts, отключённые examples для call-analysis и external
 call service, а также мужской VoiceProfile Нео. Manifest не является кодом и не выдаёт полномочия;
@@ -38,7 +38,12 @@ call service, а также мужской VoiceProfile Нео. Manifest не я
 
 Build 2.1C закрывает OCN-001/002/003/006: approval binding к фактической memory operation и trusted
 clock, scanner newline/metadata-key policy, target-specific memory AST order и запрет computed
-`import`/`require`. B21-001—B21-004 остаются отдельным этапом.
+`import`/`require`.
+
+Build 2.1D закрывает B21-001—B21-004: effective risk + approval-effect mapping, sealed registry
+activation state, webhook orchestration с payload-bound signature evidence, Neo-specific
+VoiceProfile invariants и `enabled` → text-only. Реальных adapters/providers/runtime по-прежнему
+нет.
 
 Runtime, plugin loader, адаптеры, providers, реальные integrations/webhooks, TTS, бот, deployment и
 рабочая конфигурация по-прежнему отсутствуют. Текущая URL policy не является полной SSRF-защитой:

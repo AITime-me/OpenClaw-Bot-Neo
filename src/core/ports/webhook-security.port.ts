@@ -4,6 +4,10 @@ import type {
   SafeWebhookAuditEvent,
   WebhookEnvelope,
 } from '../domain/index.js';
+import type {
+  PayloadBoundSignatureEvidence,
+  RawWebhookPayloadHandle,
+} from '../domain/webhook.internal.js';
 import type { OperationContext } from './operation-context.js';
 
 export interface WebhookSourceAuthenticationPort {
@@ -14,14 +18,15 @@ export interface WebhookSourceAuthenticationPort {
 }
 
 /**
- * The raw signature and verification secret never enter the core envelope. A future implementation
- * resolves protected evidence from the authenticated ingress boundary using correlation metadata.
+ * Signature verification is bound to a sealed raw payload handle and its computed digest.
+ * Callers cannot pass an unbound digest as proof.
  */
 export interface WebhookSignatureVerificationPort {
   verify(
     envelope: WebhookEnvelope,
+    payload: RawWebhookPayloadHandle,
     context: OperationContext,
-  ): Promise<Result<boolean, DomainError>>;
+  ): Promise<Result<PayloadBoundSignatureEvidence | null, DomainError>>;
 }
 
 export interface WebhookReplayProtectionPort {

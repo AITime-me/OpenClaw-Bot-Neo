@@ -29,10 +29,22 @@ Manifest:
 - отклоняется при неизвестном поле, kind, permission, port или schema version;
 - после проверки глубоко замораживается, поэтому risk class нельзя изменить;
 - регистрируется только доверенным application/deployment flow;
-- `enabled: false` может быть зарегистрирован как metadata, но не активируется.
+- `enabled: false` может быть зарегистрирован как metadata со state `disabled`, но не становится
+  `active`; `enabled: true` после регистрации даёт только `pending-policy`, не permissions.
 
 Capabilities имеют форму `namespace.name@major`. Permissions принадлежат фиксированному каталогу
 security primitives. Новая capability не создаёт новый permission.
+
+Dangerous permissions (`memory-write`, `secrets-read`, `exec`, `external-send`, `integration-write`,
+`schedule-write`, `notifications-send`) требуют matching approval effects. Пустой или неверный
+список effects — deny. Manifest risk нельзя понизить runtime-параметром: effective risk = max
+(manifest, trusted runtime).
+
+## Registry activation
+
+Sealed registry entry хранит `activationState`: `disabled` | `pending-policy` | `active` |
+`rejected`. Permissions выдаются только sealed active evidence. `manifest.enabled` не означает
+active. Trusted activation — отдельный service; ordinary boolean `registered` удалён.
 
 ## Permission composition
 

@@ -57,7 +57,7 @@ module.exports = {
       comment: 'Only the sealing owners may import a *.internal module.',
       from: {
         pathNot:
-          '^src/core/(domain/(index|extension-permission)\\.ts|policy/(confirmation-gate|extension-manifest|voice-profile)\\.ts|application/memory-write\\.service\\.ts)$',
+          '^src/core/(domain/(index|extension-permission|extension-registry-entry|extension-registry-entry\\.internal)\\.ts|policy/(confirmation-gate|extension-manifest|extension-permissions|voice-profile|webhook-ingress)\\.ts|ports/webhook-security\\.port\\.ts|application/(memory-write|extension-registration|extension-activation|webhook-ingress)\\.service\\.ts)$',
       },
       to: { path: '\\.internal\\.ts$' },
     },

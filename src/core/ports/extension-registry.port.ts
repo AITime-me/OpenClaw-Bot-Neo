@@ -1,29 +1,47 @@
 import type {
   DomainError,
+  ExtensionActivationState,
   ExtensionPermission,
   Result,
-  VerifiedExtensionManifest,
+  SealedExtensionRegistryEntry,
+  TrustedActivationDecision,
 } from '../domain/index.js';
 import type { OperationContext } from './operation-context.js';
 
 /**
- * Provider-independent registry contract. Implementations live outside core and may only be called
- * by a trusted deployment/application registration flow after manifest validation.
+ * Provider-independent registry contract. Implementations live outside core and never load code,
+ * packages, marketplace artifacts or executable paths.
  */
 export interface ExtensionRegistryPort {
-  /** Implementation must reject an ID/version conflict atomically even after a prior check. */
+  /** Persist a sealed registry entry. Must reject ID/version conflicts atomically. */
   register(
-    manifest: VerifiedExtensionManifest,
+    entry: SealedExtensionRegistryEntry,
     context: OperationContext,
   ): Promise<Result<void, DomainError>>;
-  get(
+  getByIdVersion(
     id: string,
     version: string,
     context: OperationContext,
-  ): Promise<Result<VerifiedExtensionManifest, DomainError>>;
-  listEnabled(
+  ): Promise<Result<SealedExtensionRegistryEntry, DomainError>>;
+  listActive(
     context: OperationContext,
-  ): Promise<Result<readonly VerifiedExtensionManifest[], DomainError>>;
+  ): Promise<Result<readonly SealedExtensionRegistryEntry[], DomainError>>;
+  listPending(
+    context: OperationContext,
+  ): Promise<Result<readonly SealedExtensionRegistryEntry[], DomainError>>;
+  getActivationState(
+    id: string,
+    version: string,
+    context: OperationContext,
+  ): Promise<Result<ExtensionActivationState, DomainError>>;
+  /**
+   * Apply a sealed trusted activation transition. Implementations must enforce
+   * EXTENSION_ACTIVATION_TRANSITIONS and refuse unknown states.
+   */
+  updateActivationState(
+    decision: TrustedActivationDecision,
+    context: OperationContext,
+  ): Promise<Result<SealedExtensionRegistryEntry, DomainError>>;
   hasConflict(
     id: string,
     version: string,

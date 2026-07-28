@@ -7,7 +7,10 @@ import {
   EXTENSION_MANIFEST_SCHEMA_VERSION,
   EXTENSION_PERMISSIONS,
   EXTENSION_PORTS,
+  EXTENSION_RISK_CLASSES,
+  isDangerousExtensionPermission,
   ok,
+  requiredApprovalEffectFor,
   type ExtensionManifest,
   type ExtensionManifestFailure,
   type Result,
@@ -46,7 +49,6 @@ const PRIVACY_CLASSES = Object.freeze([
   'commercial-secret',
   'security-restricted',
 ] as const);
-const RISKS = Object.freeze(['low', 'medium', 'high', 'untrusted-input'] as const);
 const VERSION_PATTERN = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
 const ID_PATTERN = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
 const CAPABILITY_PATTERN = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*@[1-9]\d*$/;
@@ -122,8 +124,8 @@ export function validateExtensionManifest(
     !unique(candidate.requestedPermissions)
   )
     return fail('UNKNOWN_PERMISSION', 'Requested permissions must be unique identifiers.');
-  if (!isKnownValue(RISKS, candidate.riskClass))
-    return fail('INVALID_MANIFEST', 'Risk class is unknown.');
+  if (!isKnownValue(EXTENSION_RISK_CLASSES, candidate.riskClass))
+    return fail('UNKNOWN_RISK_CLASS', 'Risk class is unknown.');
   if (!isRecord(candidate.approvalPolicy))
     return fail('MISSING_APPROVAL_POLICY', 'Approval policy is required.');
   if (!hasExactFields(candidate.approvalPolicy, APPROVAL_FIELDS))
@@ -131,22 +133,33 @@ export function validateExtensionManifest(
   const approvalMode = candidate.approvalPolicy.mode;
   const approvalEffects = candidate.approvalPolicy.effects;
   if (
-    (approvalMode !== 'none' &&
-      approvalMode !== 'required-for-dangerous' &&
-      approvalMode !== 'always') ||
-    !isKnownArray(APPROVAL_EFFECTS, approvalEffects) ||
-    !unique(approvalEffects) ||
-    !approvalEffects.every((value) => isKnownValue(APPROVAL_EFFECTS, value))
+    approvalMode !== 'none' &&
+    approvalMode !== 'required-for-dangerous' &&
+    approvalMode !== 'always'
   )
-    return fail('MISSING_APPROVAL_POLICY', 'Approval policy is malformed.');
+    return fail('MISSING_APPROVAL_POLICY', 'Approval policy mode is malformed.');
+  if (!Array.isArray(approvalEffects) || !unique(approvalEffects as string[]))
+    return fail('MISSING_APPROVAL_POLICY', 'Approval policy effects are malformed.');
+  if (!approvalEffects.every((value) => isKnownValue(APPROVAL_EFFECTS, value)))
+    return fail('UNKNOWN_APPROVAL_EFFECT', 'Approval policy contains an unknown effect.');
+
   const requestsDangerous = candidate.requestedPermissions.some((permission) =>
     isKnownValue(DANGEROUS_EXTENSION_PERMISSIONS, permission),
   );
-  if (
-    (candidate.requestedPermissions.includes('external-send') || requestsDangerous) &&
-    approvalMode === 'none'
-  )
+  if (requestsDangerous && approvalMode === 'none')
     return fail('APPROVAL_POLICY_REQUIRED', 'Dangerous permissions require approval policy.');
+  if (requestsDangerous && approvalEffects.length === 0)
+    return fail('APPROVAL_EFFECT_MISMATCH', 'Dangerous permissions require approval effects.');
+  for (const permission of candidate.requestedPermissions) {
+    if (!isDangerousExtensionPermission(permission)) continue;
+    const required = requiredApprovalEffectFor(permission);
+    if (required === null || !approvalEffects.includes(required))
+      return fail(
+        'APPROVAL_EFFECT_MISMATCH',
+        'Dangerous permission lacks the matching approval effect.',
+      );
+  }
+
   if (
     !isKnownArray(PRIVACY_CLASSES, candidate.dataClassifications) ||
     candidate.dataClassifications.length === 0 ||

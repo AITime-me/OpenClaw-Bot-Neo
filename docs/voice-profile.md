@@ -13,11 +13,13 @@ voice ID, API endpoint/key или имени реального актёра. Б
 - `allowCrossGenderFallback: false`;
 - `allowVoiceCloning: false`;
 - `allowIdentityImitation: false`;
-- `fallbackMode: text-only`.
+- `fallbackMode: text-only`;
+- обязательные semantic style tags (`calm`, `intelligent`, `confident`, `restrained`,
+  `slightly-futuristic`, `good-russian-diction`, `not-call-center`, `not-pompous-announcer`).
 
-Если подходящий мужской голос недоступен, ответ остаётся текстовым. Автоматический переход на
-женский голос запрещён. Voice cloning и имитация реального актёра/личности запрещены для любого
-валидного профиля.
+Если `enabled: false`, результат всегда text-only: `primaryAvailable`/`fallbackAvailable` не
+включают voice. При отсутствии verified provider metadata, mismatch языка/gender, cloned voice или
+identity imitation — text-only. Автоматический переход на женский голос запрещён.
 
 Конкретный TTS provider не выбран и не реализован. Example:
-[`config/voice/neo.example.json`](../config/voice/neo.example.json).
+[`config/voice/neo.example.json`](../config/voice/neo.example.json) проходит тот же Neo validator.

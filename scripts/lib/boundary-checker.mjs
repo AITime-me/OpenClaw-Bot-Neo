@@ -41,7 +41,22 @@ export const INTERNAL_MODULE_ALLOWLIST = {
   'core/domain/extension-manifest.internal.ts': [
     'core/domain/index.ts',
     'core/domain/extension-permission.ts',
+    'core/domain/extension-registry-entry.ts',
+    'core/domain/extension-registry-entry.internal.ts',
     'core/policy/extension-manifest.ts',
+  ],
+  'core/domain/extension-registry-entry.internal.ts': [
+    'core/domain/index.ts',
+    'core/domain/extension-permission.ts',
+    'core/policy/extension-permissions.ts',
+    'core/application/extension-registration.service.ts',
+    'core/application/extension-activation.service.ts',
+  ],
+  'core/domain/webhook.internal.ts': [
+    'core/domain/index.ts',
+    'core/policy/webhook-ingress.ts',
+    'core/ports/webhook-security.port.ts',
+    'core/application/webhook-ingress.service.ts',
   ],
   'core/domain/voice-profile.internal.ts': ['core/domain/index.ts', 'core/policy/voice-profile.ts'],
   'core/domain/sanitized.internal.ts': [

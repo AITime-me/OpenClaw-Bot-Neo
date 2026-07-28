@@ -1,8 +1,22 @@
 import { describe, expect, it } from 'vitest';
+import type { VoiceProviderMatchEvidence } from '../src/core/domain/index.js';
 import {
   resolveVoiceAvailability,
   validateVoiceProfile,
 } from '../src/core/policy/voice-profile.js';
+import { readFileSync } from 'node:fs';
+import * as publicApi from '../src/index.js';
+
+const neoStyleTags = [
+  'calm',
+  'intelligent',
+  'confident',
+  'restrained',
+  'slightly-futuristic',
+  'good-russian-diction',
+  'not-call-center',
+  'not-pompous-announcer',
+];
 
 const neo = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
   id: 'neo',
@@ -12,11 +26,11 @@ const neo = (overrides: Record<string, unknown> = {}): Record<string, unknown> =
   tone: 'calm-confident-intellectual',
   pace: 'moderate',
   expressiveness: 'restrained',
-  styleTags: ['calm', 'clear-russian-diction', 'slightly-futuristic'],
+  styleTags: neoStyleTags,
   primaryVoiceSelector: {
     language: 'ru-RU',
     genderPresentation: 'masculine',
-    styleTags: ['calm', 'restrained'],
+    styleTags: ['calm', 'restrained', 'good-russian-diction'],
   },
   fallbackVoiceSelectors: [],
   fallbackMode: 'text-only',
@@ -24,6 +38,19 @@ const neo = (overrides: Record<string, unknown> = {}): Record<string, unknown> =
   allowVoiceCloning: false,
   allowIdentityImitation: false,
   enabled: true,
+  ...overrides,
+});
+
+const verifiedProvider = (
+  overrides: Partial<VoiceProviderMatchEvidence> = {},
+): VoiceProviderMatchEvidence => ({
+  language: 'ru-RU',
+  genderPresentation: 'masculine',
+  compatibleWithSelector: true,
+  actorOrCelebrityIdentity: false,
+  clonedVoice: false,
+  identityImitation: false,
+  metadataVerified: true,
   ...overrides,
 });
 
@@ -39,6 +66,47 @@ describe('provider-independent Neo voice profile', () => {
     }
   });
 
+  it('validates config/voice/neo.example.json with the same policy', () => {
+    const config = JSON.parse(readFileSync('config/voice/neo.example.json', 'utf8')) as unknown;
+    const result = validateVoiceProfile(config);
+    expect(result.valid).toBe(true);
+  });
+
+  it.each([
+    [
+      'NEO_LANGUAGE_REQUIRED',
+      {
+        language: 'en-US',
+        primaryVoiceSelector: {
+          language: 'en-US',
+          genderPresentation: 'masculine',
+          styleTags: ['calm'],
+        },
+      },
+    ],
+    [
+      'NEO_MASCULINE_REQUIRED',
+      {
+        genderPresentation: 'feminine',
+        primaryVoiceSelector: {
+          language: 'ru-RU',
+          genderPresentation: 'feminine',
+          styleTags: ['calm'],
+        },
+      },
+    ],
+    ['NEO_FALLBACK_REQUIRED', { fallbackMode: 'same-gender-only' }],
+    ['CROSS_GENDER_FALLBACK_FORBIDDEN', { allowCrossGenderFallback: true }],
+    ['VOICE_CLONING_FORBIDDEN', { allowVoiceCloning: true }],
+    ['IDENTITY_IMITATION_FORBIDDEN', { allowIdentityImitation: true }],
+    ['NEO_STYLE_TAG_REQUIRED', { styleTags: ['calm'] }],
+    ['NEO_FORBIDDEN_STYLE_TAG', { styleTags: [...neoStyleTags, 'celebrity'] }],
+  ])('denies Neo invariant %s', (code, overrides) => {
+    const result = validateVoiceProfile(neo(overrides));
+    expect(result.valid).toBe(false);
+    if (!result.valid) expect(result.code).toBe(code);
+  });
+
   it('rejects a feminine fallback for Neo', () => {
     const result = validateVoiceProfile(
       neo({
@@ -48,34 +116,56 @@ describe('provider-independent Neo voice profile', () => {
       }),
     );
     expect(result.valid).toBe(false);
-    if (!result.valid) expect(result.code).toBe('CROSS_GENDER_FALLBACK_FORBIDDEN');
+    if (!result.valid)
+      expect(['CROSS_GENDER_FALLBACK_FORBIDDEN', 'NEO_MASCULINE_REQUIRED']).toContain(result.code);
   });
 
-  it('rejects enabling cross-gender fallback', () => {
-    const result = validateVoiceProfile(neo({ allowCrossGenderFallback: true }));
-    expect(result.valid).toBe(false);
-    if (!result.valid) expect(result.code).toBe('CROSS_GENDER_FALLBACK_FORBIDDEN');
+  it('returns text-only when Neo is disabled', () => {
+    const result = validateVoiceProfile(neo({ enabled: false }));
+    expect(result.valid).toBe(true);
+    if (!result.valid) return;
+    expect(resolveVoiceAvailability(result.profile, true, [], verifiedProvider())).toEqual({
+      mode: 'text-only',
+      reason: 'Voice profile is disabled.',
+    });
   });
 
-  it('rejects voice cloning', () => {
-    const result = validateVoiceProfile(neo({ allowVoiceCloning: true }));
-    expect(result.valid).toBe(false);
-    if (!result.valid) expect(result.code).toBe('VOICE_CLONING_FORBIDDEN');
-  });
-
-  it('rejects identity imitation', () => {
-    const result = validateVoiceProfile(neo({ allowIdentityImitation: true }));
-    expect(result.valid).toBe(false);
-    if (!result.valid) expect(result.code).toBe('IDENTITY_IMITATION_FORBIDDEN');
-  });
-
-  it('falls back to text-only when a suitable voice is unavailable', () => {
+  it('returns text-only without verified provider metadata', () => {
     const result = validateVoiceProfile(neo());
     expect(result.valid).toBe(true);
     if (!result.valid) return;
-    expect(resolveVoiceAvailability(result.profile, false)).toEqual({
+    expect(resolveVoiceAvailability(result.profile, true)).toEqual({
       mode: 'text-only',
-      reason: 'No policy-compatible voice is available.',
+      reason: 'Provider metadata is unverified.',
+    });
+  });
+
+  it.each([
+    ['language mismatch', { language: 'en-US' }, 'Provider language does not match the profile.'],
+    [
+      'gender mismatch',
+      { genderPresentation: 'feminine' as const },
+      'Provider gender presentation does not match.',
+    ],
+    ['cloned voice', { clonedVoice: true }, 'Cloned voices are forbidden.'],
+    ['identity imitation', { identityImitation: true }, 'Identity imitation is forbidden.'],
+  ])('returns text-only for %s', (_name, override, reason) => {
+    const result = validateVoiceProfile(neo());
+    expect(result.valid).toBe(true);
+    if (!result.valid) return;
+    expect(resolveVoiceAvailability(result.profile, true, [], verifiedProvider(override))).toEqual({
+      mode: 'text-only',
+      reason,
+    });
+  });
+
+  it('allows voice only with verified masculine ru-RU provider evidence', () => {
+    const result = validateVoiceProfile(neo());
+    expect(result.valid).toBe(true);
+    if (!result.valid) return;
+    expect(resolveVoiceAvailability(result.profile, true, [], verifiedProvider())).toEqual({
+      mode: 'voice',
+      selector: result.profile.primaryVoiceSelector,
     });
   });
 
@@ -112,5 +202,9 @@ describe('provider-independent Neo voice profile', () => {
     const result = validateVoiceProfile(candidate);
     expect(result.valid).toBe(false);
     if (!result.valid) expect(result.code).toBe('MISSING_FALLBACK_POLICY');
+  });
+
+  it('does not export sealed voice factories', () => {
+    expect(Object.keys(publicApi)).not.toContain('sealValidatedVoiceProfile');
   });
 });

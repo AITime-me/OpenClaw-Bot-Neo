@@ -8,20 +8,20 @@
   "expressiveness": "restrained",
   "styleTags": [
     "calm",
+    "intelligent",
     "confident",
-    "intellectual",
     "restrained",
     "slightly-futuristic",
-    "clear-russian-diction",
-    "no-announcer-pathos",
-    "no-call-center-intonation"
+    "good-russian-diction",
+    "not-call-center",
+    "not-pompous-announcer"
   ],
   "primaryVoiceSelector": {
     "language": "ru-RU",
     "genderPresentation": "masculine",
     "styleTags": [
       "calm",
-      "clear-russian-diction",
+      "good-russian-diction",
       "restrained"
     ]
   },

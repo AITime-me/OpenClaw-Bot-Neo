@@ -1,7 +1,9 @@
 # Будущие integrations
 
-Build 2.1B содержит только provider-independent contracts и отключённые example manifests. Реальных
-adapter, integration, webhook endpoint и сетевого вызова нет.
+Build 2.1B/2.1D содержат только provider-independent contracts и отключённые example manifests.
+Реальных adapter, integration, webhook endpoint, cryptographic verifier и сетевого вызова нет.
+Webhook orchestration в core связывает raw payload digest с signature evidence, но не реализует
+HTTP server или crypto provider.
 
 ## Webhook boundary
 

@@ -112,7 +112,10 @@
 - Tool profile ограничивает capabilities/targets/time/size; elevated tools запрещены.
 - Public sharing private/restricted data запрещён; cross-border передача минимизируется и требует policy/approval.
 - Safe refusal сообщает класс блокировки и следующий безопасный шаг без секрета.
-- Build 2.1C закрывает OCN-001, OCN-002, OCN-003 и OCN-006; B21-001—B21-004 остаются отдельным этапом.
+- Build 2.1C закрывает OCN-001, OCN-002, OCN-003 и OCN-006.
+- Build 2.1D закрывает B21-001—B21-004: effective risk, registry activation, webhook orchestration,
+  Neo voice invariants. Registry storage, HTTP webhook server, cryptography и TTS provider не
+  реализованы — только contracts и deterministic policies.
 
 ## Deployment
 

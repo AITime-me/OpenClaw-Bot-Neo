@@ -1,4 +1,5 @@
 import type { ApprovalEffect } from './approval.js';
+import type { ExtensionRiskClass } from './extension-risk.js';
 import type { PrivacyClassification } from './privacy.js';
 
 export const EXTENSION_MANIFEST_SCHEMA_VERSION = '1.0' as const;
@@ -26,14 +27,6 @@ export const EXTENSION_PERMISSIONS = Object.freeze([
   'integration-write',
 ] as const);
 export type ExtensionPermission = (typeof EXTENSION_PERMISSIONS)[number];
-
-export const DANGEROUS_EXTENSION_PERMISSIONS = Object.freeze([
-  'memory-write',
-  'secrets-read',
-  'exec',
-  'external-send',
-  'integration-write',
-] as const satisfies readonly ExtensionPermission[]);
 
 export const EXTENSION_PORTS = Object.freeze([
   'audio-analysis@1',
@@ -84,7 +77,8 @@ export interface ExtensionOwnerScope {
 
 /**
  * Declarative metadata only. It deliberately has no executable path, command, credential or
- * provider configuration field.
+ * provider configuration field. `enabled` only means the extension may be considered for
+ * registration — never that it is active or permission-granted.
  */
 export interface ExtensionManifest {
   readonly schemaVersion: typeof EXTENSION_MANIFEST_SCHEMA_VERSION;
@@ -96,7 +90,7 @@ export interface ExtensionManifest {
   readonly declaredCapabilities: readonly string[];
   readonly requiredPorts: readonly ExtensionPortId[];
   readonly requestedPermissions: readonly ExtensionPermission[];
-  readonly riskClass: 'low' | 'medium' | 'high' | 'untrusted-input';
+  readonly riskClass: ExtensionRiskClass;
   readonly approvalPolicy: ExtensionApprovalPolicy;
   readonly dataClassifications: readonly PrivacyClassification[];
   readonly supportedInputKinds: readonly ExtensionInputKind[];
@@ -118,9 +112,12 @@ export type ExtensionManifestFailureCode =
   | 'INVALID_VERSION'
   | 'MISSING_APPROVAL_POLICY'
   | 'APPROVAL_POLICY_REQUIRED'
+  | 'APPROVAL_EFFECT_MISMATCH'
+  | 'UNKNOWN_APPROVAL_EFFECT'
   | 'SECRET_LIKE_CONTENT'
   | 'EXECUTABLE_CONTENT'
-  | 'MUTABLE_MANIFEST';
+  | 'MUTABLE_MANIFEST'
+  | 'UNKNOWN_RISK_CLASS';
 
 export interface ExtensionManifestFailure {
   readonly code: ExtensionManifestFailureCode;

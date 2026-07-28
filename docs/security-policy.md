@@ -89,29 +89,33 @@ Safe refusal содержит класс блокировки, затронут�
 ## Extensions и permissions
 
 Manifest является декларацией, не кодом и не источником доверия. Неизвестные schema/kind/field,
-permission, port или extension запрещены; disabled extension не активируется. Manifest не содержит
-import path, shell command или secret value и после валидации глубоко замораживается.
+permission, port, risk class или extension запрещены. Manifest не содержит import path, shell
+command или secret value и после валидации глубоко замораживается.
 
-Requested permission — запрос. Итог определяется пересечением deployment allowlist, role policy,
-Security Guard policy и runtime risk policy. Deny приоритетнее allow; Director не обходит Security
-Guard, а модель не может изменить tool/permission profile. `memory-write`, `secrets-read`, `exec`,
-`external-send`, `integration-write` требуют явного deployment grant; external send также требует
-scoped approval policy. Integration/channel/skill не получают memory, credentials, exec или
-business permissions по своему kind.
+`manifest.enabled` означает только право рассматривать extension для регистрации. Enabled
+manifest регистрируется как `pending-policy`; disabled — как `disabled`. Permissions выдаются
+только sealed `active` evidence. Pending/disabled/rejected — deny.
+
+Requested permission — запрос. Итог — пересечение manifest request, deployment, role, Security Guard
+и risk policy. Effective risk = наиболее строгий из immutable manifest risk и trusted runtime risk;
+caller не может понизить risk. Deny приоритетнее allow; Director не обходит Security Guard; модель
+не меняет permissions или risk. Dangerous permissions требуют matching approval effects и явного
+deployment grant.
 
 ## Webhook ingress
 
-Raw signature и verification secret не входят в envelope/audit. Unknown source, failed/unavailable
-signature verifier, invalid timestamp, replay, duplicate event ID, oversized payload и rate-limit
-deny приводят к отказу. Idempotency и replay check предшествуют исполнению. Payload сканируется до
-memory/audit sinks; webhook никогда не регистрирует и не активирует extension.
+Authorization формируется только `executeWebhookIngress`: trusted clock → limits → raw payload
+digest → envelope validation → authenticate → payload-bound signature → timestamp → replay →
+rate limit → scanner → sealed evidence → safe audit. Ordinary boolean verification state не
+является proof. Signature evidence связано с digest фактических bytes. Audit содержит только
+безопасные identifiers/digest prefix; raw payload, signature и secrets отсутствуют. Webhook не
+активирует extension и не пишет в memory.
 
 ## Voice safety
 
-VoiceProfile provider-independent. Для Нео разрешена только masculine presentation; cross-gender
-fallback, voice cloning и identity imitation запрещены. Если подходящий мужской голос недоступен,
-результат остаётся text-only. Core не содержит provider voice ID, endpoint, API key или имени
-реального актёра.
+VoiceProfile provider-independent. Для Нео обязательны `ru-RU`, masculine, `fallbackMode:
+text-only`, запрет cross-gender/cloning/imitation и контролируемые style tags. Disabled Neo и
+неопределённые provider metadata всегда дают text-only; feminine fallback запрещён.
 
 ## Память и данные
 
@@ -146,5 +150,5 @@ target-specific; это не полноценное interprocedural доказа
 независимого review. Build 2.1B добавил fail-closed extension, permission, webhook и voice
 contracts без loader или integrations. Build 2.1C закрывает OCN-001 (approval binding), OCN-002
 (scanner newline/metadata keys), OCN-003 (target-specific memory AST) и OCN-006 (computed
-import/require). Эти gates действуют только внутри ядра и не означают, что OpenClaw runtime или
-adapters уже их используют.
+import/require). Build 2.1D закрывает B21-001—B21-004. Эти gates действуют только внутри ядра и не
+означают, что OpenClaw runtime или adapters уже их используют.

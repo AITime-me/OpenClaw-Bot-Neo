@@ -72,6 +72,10 @@ provider: если совместимого мужского голоса нет
 - Build 2.1C закрывает security findings OCN-001/002/003/006: approval binding к фактической
   memory operation и trusted clock, scanner newline/metadata-key policy, target-specific memory AST
   order и запрет computed module specifiers. B21-001—B21-004 намеренно не закрываются на этом этапе.
+- Build 2.1D закрывает B21-001—B21-004: effective extension risk нельзя понизить runtime-параметром;
+  dangerous permissions требуют matching approval effects; registry хранит activation state
+  (`pending-policy` ≠ active); webhook authorization только через orchestration evidence;
+  Neo VoiceProfile — только `ru-RU` masculine text-only fallback, disabled → text-only.
 - Следующий этап: локальные адаптеры и runtime policy enforcement после отдельного утверждения.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.
