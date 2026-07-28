@@ -1,0 +1,10 @@
+declare const brand: unique symbol;
+export type Brand<T, Name extends string> = T & { readonly [brand]: Name };
+export type ISO8601 = Brand<string, 'ISO8601'>;
+export type OwnerId = Brand<string, 'OwnerId'>;
+export type MessageId = Brand<string, 'MessageId'>;
+export type JobId = Brand<string, 'JobId'>;
+export type MemoryRecordId = Brand<string, 'MemoryRecordId'>;
+export type ReminderId = Brand<string, 'ReminderId'>;
+export type ScheduledJobId = Brand<string, 'ScheduledJobId'>;
+export type IdempotencyKey = Brand<string, 'IdempotencyKey'>;

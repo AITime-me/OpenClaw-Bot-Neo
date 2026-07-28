@@ -1,0 +1,12 @@
+# Build №1 architecture foundation is preserved as approved.
+docs/**
+config/**
+README.md
+AGENTS.md
+SOUL.md
+
+# Generated and runtime artifacts.
+node_modules/**
+dist/**
+coverage/**
+package-lock.json

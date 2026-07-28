@@ -2,6 +2,8 @@
 
 Это проект профилей, не реализация. Channel-specific детали запрещены: skill получает только общий envelope. Допустимы только namespaces `tvoe-vremya`, `ai-my-time`, `personal`, `shared-public`, `security-restricted`.
 
+Указанный ниже role tool profile описывает допустимые возможности роли. Runtime risk profile из `src/core/routing/` накладывается поверх него как дополнительное ограничение; итоговый профиль является пересечением разрешений, а deny всегда имеет приоритет. Модель не может изменить ни один из профилей.
+
 - **AI Director / AI-директор над проектами → `director`**: capabilities — portfolio planning, dependency/risk synthesis; external systems — approved project-read facades; risk — medium/high; tool profile — planning-readonly; memory access — project summaries and provenance; approval — reprioritization, sharing, every cross-namespace query; namespaces — `tvoe-vremya` or `ai-my-time`, never both without explicit cross-project approval.
 - **Tech Watchdog / Технический сторож → `tech-watchdog`**: capabilities — health/version/quota observation and alerts; external systems — allowlisted read-only telemetry; risk — high; tool profile — observer-no-shell; memory access — operational summaries only; approval — any mutation or disclosure; namespace — `ai-my-time`.
 - **Integration Engineer → `integration-engineer`**: capabilities — schema mapping, contract drafts/tests; external systems — schemas and mocks, no live connection by default; risk — high; tool profile — sandbox-contract-readonly; memory access — integration metadata without credentials; approval — endpoint, external call, write or credential scope; namespace — `ai-my-time`.

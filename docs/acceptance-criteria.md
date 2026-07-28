@@ -2,11 +2,11 @@
 
 ## Repository safety
 
-- Scope содержит только согласованные foundation-документы и draft JSON; `.gitattributes` не изменён, новых runtime/source/scripts/Docker файлов нет.
+- Build №1 foundation сохранён; Build №2 добавляет только согласованные TypeScript core, tests, architectural scripts и draft skills. Адаптеры, providers, integrations, monitors, Docker и runtime отсутствуют.
 - Draft config валиден как JSON, явно не deployable и не выдаётся за подтверждённый OpenClaw config.
 - Config не полагается на unsafe defaults: deny/read-only/scanner/provider/embedding/paid behavior заданы явно.
 - Internal Markdown links разрешаются; likely-secret scan, active-key scan, `git diff --check` и allowlist scope проходят.
-- Compile, lint и format являются **future/not-applicable to this architecture foundation**, потому что executable source отсутствует; на будущем этапе они обязательны.
+- Strict compile, lint, formatting, unit tests, dependency boundaries и secret-pattern checks проходят через `npm run check`.
 
 ## LLM authentication and billing
 
@@ -28,7 +28,7 @@
 
 - Multimodal workflow — capability, не девятая роль; media facade отделён от LLM и channels.
 - MIME определяется по содержимому и allowlist, а не только extension/header; MIME spoofing блокируется.
-- URL fetch запрещает loopback, link-local, private/internal ranges, unsafe schemes, DNS rebinding и credential-bearing URL; каждый redirect повторно проходит SSRF policy.
+- Build №2 синтаксически блокирует loopback/private/link-local literals, unsafe schemes и credential-bearing URL. Проверка resolved IP, каждого redirect и защита от DNS rebinding обязательны для будущего runtime adapter и пока не считаются реализованными.
 - PDF/DOCX и архивные inputs имеют size/page/entry/decompression limits; decompression bombs и malformed payloads блокируются.
 - Media jobs имеют idempotency key, cancel, cleanup и expiry; повтор не создаёт второй external action.
 - External/paid processing выключен, пока capability/provider/privacy не подтверждены.
@@ -66,7 +66,7 @@
 - Сканируются API keys, bearer credentials, Telegram bot tokens, passwords, cookies, private keys, recovery codes, URL credentials, connection strings и arbitrary text.
 - Scanner unavailable => write denied; маскирование не раскрывает совпавшее значение.
 - Prompt injection и memory poisoning не меняют policy, approvals, provenance или trusted instructions.
-- SSRF, path traversal, MIME spoofing и decompression bombs покрыты негативными тестами.
+- Build №2 покрывает негативными тестами синтаксическую URL policy. Полноценные SSRF resolved-IP/redirect checks, path containment, MIME parsing и decompression-bomb protection остаются обязательными runtime gates и не имитируются текущими заглушками.
 - Tool profile ограничивает capabilities/targets/time/size; elevated tools запрещены.
 - Public sharing private/restricted data запрещён; cross-border передача минимизируется и требует policy/approval.
 - Safe refusal сообщает класс блокировки и следующий безопасный шаг без секрета.
@@ -85,4 +85,4 @@
 - Проверить effective auth profiles: любой API-key auth profile — critical error.
 - Проверить effective config на unsafe defaults, provider/registry fallback, explicit memory embedding provider и paid providers off.
 - Выполнить adversarial tests scanner sinks, policy bypass/replay, channel boundary, tool profiles, SSRF redirects, media jobs, memory isolation/delete и scheduler idempotency.
-- Future source stage обязан пройти compile, lint, format, unit/contract/security tests; для текущего foundation это not applicable.
+- Build №2 проходит strict compile, lint, format, unit tests, dependency boundaries и secret-pattern checks через `npm run check`; runtime/integration/adversarial проверки остаются post-install gates.

@@ -9,7 +9,7 @@
 - **OpenClaw runtime** — предполагаемый заменяемый runtime; возможности UNVERIFIED до проверки.
 - **Role** — профиль цели, tools, memory, риска и approvals. Всего восемь.
 - **Capability** — сквозное умение; multimodal workflow не является ролью.
-- **Namespace** — изолированная область памяти owner/role/project.
+- **Namespace** — одна из пяти изолированных областей памяти: `tvoe-vremya`, `ai-my-time`, `personal`, `shared-public` или `security-restricted`. Роль и provenance хранятся в metadata записи, а не кодируются в имени namespace.
 - **Provenance** — источник, время наблюдения, confidence и цепочка преобразований.
 - **Classification** — категория чувствительности данных, управляющая sinks и retention.
 - **Sensitive data scan** — детерминированная runtime-проверка перед memory/log/external/audit.

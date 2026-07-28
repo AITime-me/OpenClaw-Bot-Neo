@@ -1,8 +1,18 @@
 {
   "status": "draft",
   "defaultAccess": "deny",
-  "namespaceTemplate": "owner/<owner-placeholder>/<role>/<project-placeholder>",
+  "namespaces": [
+    "tvoe-vremya",
+    "ai-my-time",
+    "personal",
+    "shared-public",
+    "security-restricted"
+  ],
+  "activeNamespaceRequired": true,
   "crossNamespaceAccess": false,
+  "crossProjectAccessRequiresOwnerApproval": true,
+  "securityRestrictedIsolated": true,
+  "personalIsolatedFromProjects": true,
   "requiredMetadata": [
     "source",
     "observedAt",

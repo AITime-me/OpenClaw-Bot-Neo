@@ -30,6 +30,8 @@ Multimodal workflow — общая техническая capability обраб�
 
 ## Статус
 
-**Architecture foundation only.** Созданы только документы и нерабочие примеры политик. Runtime, интеграции, бот, deployment и рабочая конфигурация отсутствуют.
+**Build №2: verifiable core.** Добавлены strict TypeScript-домен, порты, детерминированные политики безопасности, risk routing, pipeline-контракты, девять draft skills и локальные тесты. Runtime, адаптеры, providers, интеграции, бот, deployment и рабочая конфигурация по-прежнему отсутствуют.
 
 Навигация: [архитектура](docs/architecture.md), [роли](docs/roles.md), [безопасность](docs/security-policy.md), [критерии приёмки](docs/acceptance-criteria.md), [совместимость OpenClaw](docs/openclaw-compatibility.md).
+
+Проверка ядра: `npm run check`. Публичные контракты экспортируются из `src/index.ts`; security boundary сканирования определён в `SensitiveDataScannerPort`.

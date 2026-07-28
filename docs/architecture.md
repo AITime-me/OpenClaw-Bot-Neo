@@ -43,9 +43,9 @@ flowchart LR
 
 ## Границы этапов
 
-- Сейчас: документы, ADR и нерабочие примеры JSON.
-- Следующий этап: контракты и тестовые заглушки без внешних соединений.
-- Затем: локальные адаптеры, scanner и policy enforcement.
+- Build №1 завершён: документы, ADR и нерабочие примеры JSON.
+- Build №2 завершён: TypeScript domain, ports, детерминированные policy/routing, pipeline-контракты, draft skills и автоматические проверки без внешних соединений.
+- Следующий этап: локальные адаптеры и runtime policy enforcement после отдельного утверждения.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.
 
