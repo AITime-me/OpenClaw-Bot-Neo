@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "1.0",
+  "id": "call-analysis",
+  "version": "0.1.0",
+  "kind": "business-skill",
+  "displayName": "Future Call Analysis",
+  "description": "UNVERIFIED future skill for analysing an already authenticated transcript: client needs, objections, agreements, manager errors, follow-up need, structured findings and recommendations. It does not fetch audio, contact clients, write to CRM or retain audio.",
+  "declaredCapabilities": [
+    "analysis.call-transcript@1",
+    "recommendation.call-follow-up@1"
+  ],
+  "requiredPorts": [
+    "sensitive-data-scanner@1"
+  ],
+  "requestedPermissions": [],
+  "riskClass": "high",
+  "approvalPolicy": {
+    "mode": "none",
+    "effects": []
+  },
+  "dataClassifications": [
+    "confidential"
+  ],
+  "supportedInputKinds": [
+    "text",
+    "structured-data"
+  ],
+  "supportedOutputKinds": [
+    "structured-data",
+    "text"
+  ],
+  "configurationSchemaVersion": "1.0.0",
+  "enabled": false,
+  "provenance": {
+    "status": "unverified",
+    "source": "project",
+    "note": "No implementation or service compatibility has been verified."
+  },
+  "ownerScope": {
+    "mode": "deployment-owner",
+    "ownerReference": "authenticated-deployment-owner"
+  }
+}

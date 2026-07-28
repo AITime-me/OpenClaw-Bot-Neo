@@ -18,6 +18,10 @@ export * from './memory-access.js';
 export * from './approval.js';
 export * from './sensitive-data.js';
 export * from './audit-event.js';
+export * from './extension-manifest.js';
+export * from './extension-permission.js';
+export * from './webhook.js';
+export * from './voice-profile.js';
 export * from './scheduled-job.js';
 export * from './reminder.js';
 export * from './quota-window.js';
@@ -28,6 +32,8 @@ export * from './action-plan.js';
 export * from './errors.js';
 export * from './result.js';
 export type { ValidatedApproval } from './approval.internal.js';
+export type { VerifiedExtensionManifest } from './extension-manifest.internal.js';
+export type { ValidatedVoiceProfile } from './voice-profile.internal.js';
 export type {
   SanitizedMetadata,
   SanitizedText,

@@ -7,6 +7,10 @@ describe('public API surface', () => {
   it('exposes the memory-write boundary and the digest helper', () => {
     expect(exportedNames).toContain('executeMemoryWrite');
     expect(exportedNames).toContain('computePayloadDigest');
+    expect(exportedNames).toContain('executeExtensionRegistration');
+    expect(exportedNames).toContain('resolveExtensionPermissions');
+    expect(exportedNames).toContain('authorizeWebhookIngress');
+    expect(exportedNames).toContain('validateVoiceProfile');
   });
 
   it('never exposes a sealing factory, scanner internals or a raw pattern', () => {
@@ -23,6 +27,13 @@ describe('public API surface', () => {
       'scanSensitiveMetadata',
       'maskSecrets',
       'analyzeBoundaries',
+      'sealVerifiedExtensionManifest',
+      'verifiedExtensionManifestBrand',
+      'sealValidatedVoiceProfile',
+      'validatedVoiceProfileBrand',
+      'validateExtensionManifest',
+      'loadExtension',
+      'discoverExtensions',
     ])
       expect(exportedNames).not.toContain(forbidden);
   });

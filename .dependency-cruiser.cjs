@@ -57,7 +57,7 @@ module.exports = {
       comment: 'Only the sealing owners may import a *.internal module.',
       from: {
         pathNot:
-          '^src/core/(domain/index\\.ts|policy/confirmation-gate\\.ts|application/memory-write\\.service\\.ts)$',
+          '^src/core/(domain/(index|extension-permission)\\.ts|policy/(confirmation-gate|extension-manifest|voice-profile)\\.ts|application/memory-write\\.service\\.ts)$',
       },
       to: { path: '\\.internal\\.ts$' },
     },

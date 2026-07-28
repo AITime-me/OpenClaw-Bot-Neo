@@ -45,13 +45,33 @@ flowchart LR
 
 Зависимости между слоями заданы allowlist-ом и проверяются структурным анализом AST (`npm run check:boundaries`), а не совпадением имён каталогов.
 
+## Extension contracts
+
+Core знает только декларативный `ExtensionManifest`, fixed security primitives и
+`ExtensionRegistryPort`. Skill отвечает за capability/business analysis; channel или integration
+отвечает за source authentication, protocol mapping и delivery. Ни одна сторона не наследует
+полномочия другой.
+
+Manifest не содержит code/import path и не является loader. Проверенный manifest замораживается,
+затем доверенный application/deployment flow может передать его registry implementation вне core.
+Фактические permissions — пересечение deployment, role, Security Guard и risk policy с deny
+priority. Dynamic import из core запрещён checker независимо от target.
+
+Webhook contracts и VoiceProfile также provider-independent. Мужской профиль Нео не выбирает TTS
+provider: если совместимого мужского голоса нет, применяется text-only, не женский fallback.
+
 ## Границы этапов
 
 - Build №1 завершён: документы, ADR и нерабочие примеры JSON.
 - Build №2 завершён: TypeScript domain, ports, детерминированные policy/routing, pipeline-контракты, draft skills и автоматические проверки без внешних соединений.
 - Build 2.1A завершён: scoped/expiring/single-use approval, исполняемый memory-write boundary в `src/core/application/`, authenticated memory access context, усиленные scanner и URL policy, allowlist-based architecture checker. Это исправление Build №2, а не новый этап; adapters, providers, runtime и сеть по-прежнему отсутствуют.
+- Build 2.1B добавляет только extensibility/registry/webhook/voice contracts, deterministic policies,
+  отключённые example manifests и call-recording pipeline. Реального plugin loader, integration,
+  webhook server, call service или TTS provider нет.
 - Следующий этап: локальные адаптеры и runtime policy enforcement после отдельного утверждения.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.
 
-Связанные документы: [каналы](channels.md), [безопасность](security-policy.md), [deployment](deployment.md), [ADR runtime](adr/0001-openclaw-as-runtime.md).
+Связанные документы: [расширяемость](extensibility.md), [интеграции](integrations.md),
+[VoiceProfile](voice-profile.md), [каналы](channels.md), [безопасность](security-policy.md),
+[deployment](deployment.md), [ADR runtime](adr/0001-openclaw-as-runtime.md).

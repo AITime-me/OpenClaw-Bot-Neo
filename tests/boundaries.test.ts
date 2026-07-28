@@ -38,6 +38,7 @@ describe('allowlist-based layer rules', () => {
     ['forbidden-static', 'FORBIDDEN_DEPENDENCY'],
     ['forbidden-export-from', 'FORBIDDEN_DEPENDENCY'],
     ['forbidden-dynamic', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-dynamic', 'DYNAMIC_IMPORT_FORBIDDEN'],
     ['forbidden-renamed', 'FORBIDDEN_DEPENDENCY'],
     ['forbidden-external', 'EXTERNAL_DEPENDENCY'],
     ['forbidden-internal', 'INTERNAL_MODULE_LEAK'],

@@ -13,4 +13,14 @@
 - **Personal Assistant / Личный ассистент → `personal-assistant`**: capabilities — summaries, drafts, calendar and reminder proposals; external systems — approved calendar/contact/scheduler facades; risk — medium/high; tool profile — personal-read-draft; memory access — minimum personal context; approval — every write/send/share/automation change; namespace — `personal`.
 - **Security Guard → `security-guard`**: capabilities — classification, scanning, policy, redaction and audit verification; external systems — policy/audit facades only; risk — critical; tool profile — security-enforcement-no-elevated-tools; memory access — redacted findings, never raw secrets; approval — policy weakening requires owner review; namespace — `security-restricted`.
 
-Memory access всегда минимален, наследование между namespaces запрещено. Sensitive-data scan выполняется до записи. Multimodal workflow — capability, не skill-роль. Подробнее: [роли](roles.md), [архитектура](architecture.md).
+Memory access всегда минимален, наследование между namespaces запрещено. Sensitive-data scan выполняется до записи.
+
+`multimodal-workflow` — девятый текущий technical skill/capability, но не девятая business role.
+Список из восьми business-role skills и одного technical skill не является закрытым enum. Будущий
+skill описывается декларативным versioned manifest и проходит доверенную регистрацию; manifest не
+создаёт каталог `skills/`, не изменяет код и не выдаёт permission автоматически. Skill не содержит
+service authentication, webhook parsing, provider API mapping, URL, secret names, Telegram fields
+или provider-specific voice IDs. Integration/channel не получает его бизнес-логику.
+
+Подробнее: [роли](roles.md), [расширяемость](extensibility.md),
+[архитектура](architecture.md).

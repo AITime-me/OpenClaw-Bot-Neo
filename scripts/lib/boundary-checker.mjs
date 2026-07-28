@@ -35,6 +35,12 @@ export const REQUIRED_CORE_LAYERS = [
 /** Sealed factories stay reachable only from the modules that are allowed to create sealed values. */
 export const INTERNAL_MODULE_ALLOWLIST = {
   'core/domain/approval.internal.ts': ['core/domain/index.ts', 'core/policy/confirmation-gate.ts'],
+  'core/domain/extension-manifest.internal.ts': [
+    'core/domain/index.ts',
+    'core/domain/extension-permission.ts',
+    'core/policy/extension-manifest.ts',
+  ],
+  'core/domain/voice-profile.internal.ts': ['core/domain/index.ts', 'core/policy/voice-profile.ts'],
   'core/domain/sanitized.internal.ts': [
     'core/domain/index.ts',
     'core/application/memory-write.service.ts',
@@ -165,6 +171,11 @@ export function analyzeBoundaries(options = {}) {
     graph.set(fileRelative, []);
     for (const reference of extractReferences(readFileSync(file, 'utf8'), file)) {
       const where = `${fileRelative}:${String(reference.line)} (${reference.kind})`;
+      if (reference.kind === 'dynamic-import')
+        violations.push({
+          code: 'DYNAMIC_IMPORT_FORBIDDEN',
+          message: `${where} uses dynamic import; core cannot load executable extensions.`,
+        });
       if (isBuiltin(reference.specifier)) continue;
       if (!reference.specifier.startsWith('.')) {
         violations.push({

@@ -18,7 +18,32 @@ const jsonFiles = files.filter((path) => path.endsWith('.json'));
 if (jsonFiles.length === 0) failures.push('ZERO_FILES: no JSON configuration files found.');
 for (const file of jsonFiles) {
   try {
-    JSON.parse(readFileSync(file, 'utf8'));
+    const parsed = JSON.parse(readFileSync(file, 'utf8'));
+    if (file.replaceAll('\\', '/').startsWith('config/extensions/')) {
+      const forbiddenExtensionKeys = new Set([
+        'entrypoint',
+        'importPath',
+        'modulePath',
+        'executablePath',
+        'command',
+        'shell',
+        'script',
+      ]);
+      const inspect = (value, path = '$') => {
+        if (value === null || typeof value !== 'object') return;
+        for (const [key, nested] of Object.entries(value)) {
+          if (forbiddenExtensionKeys.has(key))
+            failures.push(`EXECUTABLE_MANIFEST: ${file} contains forbidden ${path}.${key}.`);
+          inspect(nested, `${path}.${key}`);
+        }
+      };
+      inspect(parsed);
+    }
+    if (file.replaceAll('\\', '/').startsWith('config/voice/')) {
+      const serialized = JSON.stringify(parsed);
+      if (/"(?:provider|providerId|voiceId|endpoint|apiKey)"\s*:/.test(serialized))
+        failures.push(`PROVIDER_SPECIFIC_VOICE: ${file} contains a provider-specific field.`);
+    }
   } catch {
     failures.push(`INVALID_JSON: ${file} is not parseable.`);
   }

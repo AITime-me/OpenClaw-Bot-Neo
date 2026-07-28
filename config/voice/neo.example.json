@@ -1,0 +1,34 @@
+{
+  "id": "neo",
+  "schemaVersion": "1.0",
+  "language": "ru-RU",
+  "genderPresentation": "masculine",
+  "tone": "calm-confident-intellectual",
+  "pace": "moderate",
+  "expressiveness": "restrained",
+  "styleTags": [
+    "calm",
+    "confident",
+    "intellectual",
+    "restrained",
+    "slightly-futuristic",
+    "clear-russian-diction",
+    "no-announcer-pathos",
+    "no-call-center-intonation"
+  ],
+  "primaryVoiceSelector": {
+    "language": "ru-RU",
+    "genderPresentation": "masculine",
+    "styleTags": [
+      "calm",
+      "clear-russian-diction",
+      "restrained"
+    ]
+  },
+  "fallbackVoiceSelectors": [],
+  "fallbackMode": "text-only",
+  "allowCrossGenderFallback": false,
+  "allowVoiceCloning": false,
+  "allowIdentityImitation": false,
+  "enabled": true
+}

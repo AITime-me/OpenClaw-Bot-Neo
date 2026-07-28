@@ -8,6 +8,32 @@
 - Internal Markdown links разрешаются; likely-secret scan, active-key scan, `git diff --check` и allowlist scope проходят.
 - Strict compile, lint, formatting, unit tests, dependency boundaries, secret-pattern и repository-hygiene checks проходят через `npm run check`.
 - Build 2.1A закрывает HIGH findings OCN-001—OCN-006 и не добавляет adapters, providers, integrations, monitors, runtime, сеть, БД, scheduler или платёжные функции.
+- Build 2.1B добавляет contracts/policies/examples, но не plugin loader, adapter, integration,
+  webhook server, call-service connection или TTS provider.
+
+## Extensibility
+
+- Business/technical skill, channel и integration описываются versioned declarative manifest без
+  executable/import path, shell command или secrets.
+- Unknown schema/kind/field/permission/port/extension и disabled extension дают deny.
+- Manifest request не является grant; effective permissions — пересечение deployment, role,
+  Security Guard и risk policy с deny priority. Модель и Director не повышают permissions.
+- Dangerous permissions имеют explicit deployment grant; external send имеет approval policy.
+- Registry принимает только sealed verified manifest, выявляет ID/version conflict, возвращает
+  enabled-only listing и не выполняет auto-discovery/dynamic loading.
+- Восемь business skills и technical `multimodal-workflow` остаются валидными, но не образуют
+  закрытый enum.
+
+## Webhooks, call analysis and voice
+
+- Webhook envelope не хранит raw signature/secret; unknown source, invalid timestamp, replay,
+  duplicate event, oversized payload и unavailable verifier fail closed.
+- Payload проходит scanner до sinks; webhook не активирует extension.
+- Call-analysis skill отделён от external-call-service integration. Audio, transcript и analysis
+  имеют раздельные provenance/retention/cleanup; временное audio удаляется.
+- «Мои звонки» остаётся UNVERIFIED возможным примером, а не поддерживаемой integration.
+- VoiceProfile Нео `ru-RU`, masculine и provider-independent. Feminine/cross-gender fallback,
+  voice cloning и identity imitation запрещены; unavailable compatible voice даёт text-only.
 
 ## LLM authentication and billing
 

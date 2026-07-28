@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "1.0",
+  "id": "external-call-service",
+  "version": "0.1.0",
+  "kind": "integration",
+  "displayName": "Future External Call Service",
+  "description": "UNVERIFIED integration metadata only. Service capabilities must be checked before an Integration Build. Possible ingestion modes are authenticated webhook, API polling, signed file delivery or manual upload. This manifest does not confirm compatibility with any real service.",
+  "declaredCapabilities": [
+    "ingestion.call-recording@1",
+    "provenance.external-call@1"
+  ],
+  "requiredPorts": [
+    "webhook-source-authentication@1",
+    "webhook-signature-verification@1",
+    "webhook-replay-protection@1",
+    "webhook-rate-limit@1",
+    "media-validation@1",
+    "temporary-media-storage@1"
+  ],
+  "requestedPermissions": [
+    "webhook-ingest",
+    "file-ingest",
+    "external-read",
+    "media-process"
+  ],
+  "riskClass": "untrusted-input",
+  "approvalPolicy": {
+    "mode": "none",
+    "effects": []
+  },
+  "dataClassifications": [
+    "confidential"
+  ],
+  "supportedInputKinds": [
+    "event",
+    "audio"
+  ],
+  "supportedOutputKinds": [
+    "audio",
+    "structured-data"
+  ],
+  "configurationSchemaVersion": "1.0.0",
+  "enabled": false,
+  "provenance": {
+    "status": "unverified",
+    "source": "project",
+    "note": "No real API, webhook or vendor documentation has been verified."
+  },
+  "ownerScope": {
+    "mode": "deployment-owner",
+    "ownerReference": "authenticated-deployment-owner"
+  }
+}

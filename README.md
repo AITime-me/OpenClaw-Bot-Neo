@@ -30,10 +30,21 @@ Multimodal workflow — общая техническая capability обраб�
 
 ## Статус
 
-**Build №2 + Security Remediation 2.1A: verifiable core.** Добавлены strict TypeScript-домен, порты, детерминированные политики безопасности, risk routing, pipeline-контракты, девять draft skills и локальные тесты. Remediation 2.1A закрыла шесть HIGH findings независимого review: approval стал scoped, expiring и одноразовым; порядок «scanner → policy → approval → sinks» реализован исполняемым memory-write сервисом в `src/core/application/`; доступ к памяти требует authenticated context; scanner полностью редактирует quoted-значения и определяет URL credentials каноническим парсингом; URL policy расширена структурной проверкой IP-диапазонов; проверка архитектурных границ переведена на allowlist и анализ AST.
+**Build №2 + Security Remediation 2.1A + Extensibility Contracts 2.1B: verifiable core.**
+Build 2.1B добавляет versioned declarative manifests, default-deny permission composition,
+provider-independent registry/webhook contracts, отключённые examples для call-analysis и external
+call service, а также мужской VoiceProfile Нео. Manifest не является кодом и не выдаёт полномочия;
+подходящий мужской голос недоступен — используется text-only, без женского fallback.
 
-Runtime, адаптеры, providers, интеграции, бот, deployment и рабочая конфигурация по-прежнему отсутствуют. Текущая URL policy не является полной SSRF-защитой: DNS resolution, проверка resolved IP, повторная проверка redirect и защита от DNS rebinding остаются runtime gates.
+Runtime, plugin loader, адаптеры, providers, реальные integrations/webhooks, TTS, бот, deployment и
+рабочая конфигурация по-прежнему отсутствуют. Текущая URL policy не является полной SSRF-защитой:
+DNS resolution, проверка resolved IP, повторная проверка redirect и защита от DNS rebinding остаются
+runtime gates.
 
-Навигация: [архитектура](docs/architecture.md), [роли](docs/roles.md), [безопасность](docs/security-policy.md), [критерии приёмки](docs/acceptance-criteria.md), [совместимость OpenClaw](docs/openclaw-compatibility.md).
+Навигация: [архитектура](docs/architecture.md), [расширяемость](docs/extensibility.md),
+[интеграции](docs/integrations.md), [VoiceProfile](docs/voice-profile.md),
+[роли](docs/roles.md), [безопасность](docs/security-policy.md),
+[критерии приёмки](docs/acceptance-criteria.md),
+[совместимость OpenClaw](docs/openclaw-compatibility.md).
 
 Проверка ядра: `npm run check`. Публичные контракты экспортируются из `src/index.ts`; security boundary сканирования определён в `SensitiveDataScannerPort`.

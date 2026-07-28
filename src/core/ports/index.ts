@@ -4,6 +4,8 @@ export * from './notifier.port.js';
 export * from './approval.port.js';
 export * from './secrets.port.js';
 export * from './capability-registry.port.js';
+export * from './extension-registry.port.js';
+export * from './webhook-security.port.js';
 export * from './monitor.port.js';
 export * from './integration.port.js';
 export * from './media-policy.port.js';

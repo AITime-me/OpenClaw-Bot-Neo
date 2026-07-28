@@ -59,6 +59,33 @@ Tool profile ограничивает capability, target allowlist, read/write m
 
 Safe refusal содержит класс блокировки, затронутую операцию и безопасный следующий шаг; не содержит raw payload, credential fragment, internal path или лишние персональные данные.
 
+## Extensions и permissions
+
+Manifest является декларацией, не кодом и не источником доверия. Неизвестные schema/kind/field,
+permission, port или extension запрещены; disabled extension не активируется. Manifest не содержит
+import path, shell command или secret value и после валидации глубоко замораживается.
+
+Requested permission — запрос. Итог определяется пересечением deployment allowlist, role policy,
+Security Guard policy и runtime risk policy. Deny приоритетнее allow; Director не обходит Security
+Guard, а модель не может изменить tool/permission profile. `memory-write`, `secrets-read`, `exec`,
+`external-send`, `integration-write` требуют явного deployment grant; external send также требует
+scoped approval policy. Integration/channel/skill не получают memory, credentials, exec или
+business permissions по своему kind.
+
+## Webhook ingress
+
+Raw signature и verification secret не входят в envelope/audit. Unknown source, failed/unavailable
+signature verifier, invalid timestamp, replay, duplicate event ID, oversized payload и rate-limit
+deny приводят к отказу. Idempotency и replay check предшествуют исполнению. Payload сканируется до
+memory/audit sinks; webhook никогда не регистрирует и не активирует extension.
+
+## Voice safety
+
+VoiceProfile provider-independent. Для Нео разрешена только masculine presentation; cross-gender
+fallback, voice cloning и identity imitation запрещены. Если подходящий мужской голос недоступен,
+результат остаётся text-only. Core не содержит provider voice ID, endpoint, API key или имени
+реального актёра.
+
 ## Память и данные
 
 Namespace изолирован по владельцу, роли и проекту; записи имеют source, observedAt, confidence, classification, retention и consent basis. Непроверенные выводы не становятся фактами. Embeddings по умолчанию отсутствуют; внешняя embedding-служба не разрешена. Retention применяется отдельно к сырью, derived notes и audit.
@@ -73,4 +100,7 @@ Namespace изолирован по владельцу, роли и проект
 
 Границы слоёв проверяются структурно: зависимости читаются из TypeScript AST, поэтому static import, `export ... from`, dynamic `import()` и `require()` распознаются одинаково. Каждый core-слой имеет allowlist разрешённых зависимостей; неизвестный каталог внутри `src`, внешний npm-пакет в core, цикл, sealed-модуль вне allowlist и отсутствие ожидаемого слоя или файлов считаются нарушением. Проверка не опирается на конкретные имена `adapters/providers/integrations/monitors`, поэтому переименование implementation layer не обходит правило.
 
-Локальные проверки запускаются командой `npm run check`. Build 2.1A закрывает HIGH findings OCN-001—OCN-006 независимого review; эти gates действуют только внутри ядра и не означают, что OpenClaw runtime или adapters уже их используют.
+Локальные проверки запускаются командой `npm run check`. Build 2.1A закрывает HIGH findings
+OCN-001—OCN-006 независимого review. Build 2.1B добавляет fail-closed extension, permission,
+webhook и voice contracts без loader или integrations. Эти gates действуют только внутри ядра и не
+означают, что OpenClaw runtime или adapters уже их используют.
