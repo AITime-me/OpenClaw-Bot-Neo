@@ -55,7 +55,8 @@ Core знает только декларативный `ExtensionManifest`, fix
 Manifest не содержит code/import path и не является loader. Проверенный manifest замораживается,
 затем доверенный application/deployment flow может передать его registry implementation вне core.
 Фактические permissions — пересечение deployment, role, Security Guard и risk policy с deny
-priority. Dynamic import из core запрещён checker независимо от target.
+priority. Dynamic import из core запрещён checker независимо от target; computed
+`import(expression)` / `require(expression)` также fail-closed.
 
 Webhook contracts и VoiceProfile также provider-independent. Мужской профиль Нео не выбирает TTS
 provider: если совместимого мужского голоса нет, применяется text-only, не женский fallback.
@@ -68,6 +69,9 @@ provider: если совместимого мужского голоса нет
 - Build 2.1B добавляет только extensibility/registry/webhook/voice contracts, deterministic policies,
   отключённые example manifests и call-recording pipeline. Реального plugin loader, integration,
   webhook server, call service или TTS provider нет.
+- Build 2.1C закрывает security findings OCN-001/002/003/006: approval binding к фактической
+  memory operation и trusted clock, scanner newline/metadata-key policy, target-specific memory AST
+  order и запрет computed module specifiers. B21-001—B21-004 намеренно не закрываются на этом этапе.
 - Следующий этап: локальные адаптеры и runtime policy enforcement после отдельного утверждения.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.

@@ -6,7 +6,6 @@ export type { ToolProfile } from './core/routing/tool-profile.js';
 export type { RouteResolverPort } from './core/routing/route-resolver.port.js';
 export { executeMemoryWrite } from './core/application/memory-write.service.js';
 export type {
-  MemoryWriteApproval,
   MemoryWriteCommand,
   MemoryWriteDeps,
   MemoryWriteFailure,

@@ -7,6 +7,9 @@ import ts from 'typescript';
  * Structural architecture checker. Module references are read from the TypeScript AST, so static
  * imports, `export ... from`, dynamic `import()` and `require()` are all recognised, and every
  * core layer is validated against an explicit allowlist instead of a directory-name blacklist.
+ *
+ * Non-literal (computed) module specifiers are fail-closed violations: the checker never evaluates
+ * expressions and does not act as a runtime sandbox.
  */
 
 export const CORE_LAYER_RULES = {
@@ -57,29 +60,49 @@ const listFiles = (root) => {
   });
 };
 
-/** @returns {{ specifier: string, kind: string, line: number }[]} */
+const isStaticStringSpecifier = (node) =>
+  !!node && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node));
+
+/**
+ * @returns {{ specifier: string, kind: string, line: number, computed?: boolean }[]}
+ */
 export function extractReferences(sourceText, fileName) {
   const source = ts.createSourceFile(fileName, sourceText, ts.ScriptTarget.ES2022, true);
   const references = [];
-  const add = (specifierNode, kind) => {
-    if (!specifierNode || !ts.isStringLiteralLike(specifierNode)) return;
+  const addLiteral = (specifierNode, kind) => {
+    if (!specifierNode || !isStaticStringSpecifier(specifierNode)) return false;
     const { line } = source.getLineAndCharacterOfPosition(specifierNode.getStart(source));
-    references.push({ specifier: specifierNode.text, kind, line: line + 1 });
+    references.push({ specifier: specifierNode.text, kind, line: line + 1, computed: false });
+    return true;
+  };
+  const addComputed = (expressionNode, kind) => {
+    const position = expressionNode?.getStart(source) ?? 0;
+    const { line } = source.getLineAndCharacterOfPosition(position);
+    references.push({
+      specifier: '<computed>',
+      kind,
+      line: line + 1,
+      computed: true,
+    });
   };
   const visit = (node) => {
-    if (ts.isImportDeclaration(node)) add(node.moduleSpecifier, 'import');
-    else if (ts.isExportDeclaration(node)) add(node.moduleSpecifier, 'export-from');
+    if (ts.isImportDeclaration(node)) addLiteral(node.moduleSpecifier, 'import');
+    else if (ts.isExportDeclaration(node)) addLiteral(node.moduleSpecifier, 'export-from');
     else if (
       ts.isImportEqualsDeclaration(node) &&
       ts.isExternalModuleReference(node.moduleReference)
-    )
-      add(node.moduleReference.expression, 'require');
-    else if (ts.isCallExpression(node)) {
+    ) {
+      const expression = node.moduleReference.expression;
+      if (!addLiteral(expression, 'require')) addComputed(expression, 'computed-require');
+    } else if (ts.isCallExpression(node)) {
       const [firstArgument] = node.arguments;
-      if (node.expression.kind === ts.SyntaxKind.ImportKeyword)
-        add(firstArgument, 'dynamic-import');
-      else if (ts.isIdentifier(node.expression) && node.expression.text === 'require')
-        add(firstArgument, 'require');
+      if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        if (!addLiteral(firstArgument, 'dynamic-import'))
+          addComputed(firstArgument ?? node, 'computed-import');
+      } else if (ts.isIdentifier(node.expression) && node.expression.text === 'require') {
+        if (!addLiteral(firstArgument, 'require'))
+          addComputed(firstArgument ?? node, 'computed-require');
+      }
     }
     ts.forEachChild(node, visit);
   };
@@ -171,6 +194,13 @@ export function analyzeBoundaries(options = {}) {
     graph.set(fileRelative, []);
     for (const reference of extractReferences(readFileSync(file, 'utf8'), file)) {
       const where = `${fileRelative}:${String(reference.line)} (${reference.kind})`;
+      if (reference.computed === true) {
+        violations.push({
+          code: 'COMPUTED_MODULE_SPECIFIER',
+          message: `${where} uses a computed module specifier; only static string specifiers are allowed.`,
+        });
+        continue;
+      }
       if (reference.kind === 'dynamic-import')
         violations.push({
           code: 'DYNAMIC_IMPORT_FORBIDDEN',

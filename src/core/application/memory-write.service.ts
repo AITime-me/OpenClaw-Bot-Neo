@@ -12,8 +12,12 @@ import type {
   MemorySource,
   MemoryTrustLevel,
   PrivacyClassification,
+  ProjectScope,
+  ResourceRef,
   SafeMemoryAuditEvent,
   SafeScanDecision,
+  SanitizedMetadata,
+  SanitizedText,
   SensitiveCategory,
 } from '../domain/index.js';
 import {
@@ -30,11 +34,13 @@ import {
 } from '../policy/index.js';
 import type {
   ApprovalPort,
+  ClockPort,
   MemoryAuditPort,
   MemoryPolicyPort,
   MemoryPort,
   SensitiveDataScannerPort,
 } from '../ports/index.js';
+import { computePayloadDigest } from './payload-digest.js';
 
 const MAX_CONTENT_LENGTH = 65_536;
 
@@ -44,13 +50,15 @@ export interface MemoryWriteDeps {
   readonly approvals: ApprovalPort;
   readonly memory: MemoryPort;
   readonly audit: MemoryAuditPort;
+  /** Trusted clock; callers never supply the approval-validation timestamp. */
+  readonly clock: ClockPort;
 }
 
-export interface MemoryWriteApproval {
-  readonly approvalId: ApprovalId;
-  readonly demand: ApprovalDemand;
-}
-
+/**
+ * External memory command. Callers may supply only operation data, authenticated access context
+ * (separately) and an optional approvalId. They must not supply a ready-made approval demand,
+ * payload digest or validation timestamp.
+ */
 export interface MemoryWriteCommand {
   readonly recordId: MemoryRecordId;
   readonly targetNamespace: MemoryNamespace;
@@ -58,8 +66,7 @@ export interface MemoryWriteCommand {
   readonly rawMetadata: Readonly<Record<string, unknown>>;
   readonly source: MemorySource;
   readonly retentionPolicy: MemoryRetentionPolicy;
-  readonly approval: MemoryWriteApproval | null;
-  readonly now: ISO8601;
+  readonly approvalId: ApprovalId | null;
 }
 
 export interface MemoryWriteOutcome {
@@ -81,7 +88,8 @@ export type MemoryWriteFailure =
   | { readonly code: 'APPROVAL_INVALID'; readonly reason: ApprovalFailureCode }
   | { readonly code: 'CONSUMPTION_FAILED' }
   | { readonly code: 'MEMORY_UNAVAILABLE' }
-  | { readonly code: 'AUDIT_FAILED' };
+  | { readonly code: 'AUDIT_FAILED' }
+  | { readonly code: 'DIGEST_FAILED' };
 
 const trustFor = (source: MemorySource): MemoryTrustLevel =>
   source.kind === 'owner'
@@ -105,22 +113,76 @@ const classificationFor = (
 const worstDecision = (left: SafeScanDecision, right: SafeScanDecision): SafeScanDecision =>
   left === 'redact' || right === 'redact' ? 'redact' : 'allow';
 
+/** Single trusted timestamp for the whole memory-write operation. */
+export function readTrustedTimestamp(clock: ClockPort): Date {
+  return clock.now();
+}
+
+export function memoryWriteTarget(
+  namespace: MemoryNamespace,
+  recordId: MemoryRecordId,
+): ResourceRef {
+  return `memory/${namespace}/${recordId}` as ResourceRef;
+}
+
 /**
- * Executable memory-write boundary. The order below is the security contract: the sensitive-data
- * scanner runs before any classification, authorization, policy check or sink call, and neither
- * the memory sink nor the audit sink can be reached with unscanned content.
+ * Builds the approval demand from the authenticated context and the actual operation that is about
+ * to be written. Callers never construct this object.
+ */
+export function deriveMemoryWriteApprovalDemand(input: {
+  readonly access: MemoryAccessContext;
+  readonly targetNamespace: MemoryNamespace;
+  readonly recordId: MemoryRecordId;
+  readonly content: SanitizedText;
+  readonly metadata: SanitizedMetadata;
+  readonly projectScope: ProjectScope;
+}): ApprovalDemand {
+  const target = memoryWriteTarget(input.targetNamespace, input.recordId);
+  const payloadDigest = computePayloadDigest({
+    effect: 'write',
+    content: input.content.value,
+    metadata: input.metadata.entries,
+    namespace: input.targetNamespace,
+    target,
+    recordId: input.recordId,
+    projectScope: {
+      primary: input.projectScope.primary,
+      permitted: [...input.projectScope.permitted].sort(),
+      crossProjectPermitted: input.projectScope.crossProjectPermitted,
+    },
+  });
+  return {
+    ownerId: input.access.ownerId,
+    actorId: input.access.actorId,
+    effect: 'write',
+    target,
+    namespace: input.targetNamespace,
+    projectScope: input.projectScope,
+    payloadDigest,
+  };
+}
+
+const toIso = (instant: Date): ISO8601 => instant.toISOString() as ISO8601;
+
+/**
+ * Executable memory-write boundary. The order below is the security contract and is verified
+ * structurally against this function body by scripts/verify-memory-isolation.mjs.
  */
 export async function executeMemoryWrite(
   deps: MemoryWriteDeps,
   access: MemoryAccessContext,
   command: MemoryWriteCommand,
 ): Promise<Result<MemoryWriteOutcome, MemoryWriteFailure>> {
-  // 1. Validate the operation context.
+  // 1. Validate the authenticated operation context.
   const contextFailure = validateOperationContext(access.operation);
   if (contextFailure !== null)
     return err({ code: 'INVALID_OPERATION_CONTEXT', detail: contextFailure.code });
 
-  // 2. Normalize input.
+  // Trusted clock is read once for this operation; callers cannot supply command.now.
+  const trustedNow = readTrustedTimestamp(deps.clock);
+  const trustedIso = toIso(trustedNow);
+
+  // 2. Normalize input and 3. classify source / 4. mark untrusted content.
   if (typeof command.rawContent !== 'string')
     return err({ code: 'INVALID_CONTENT', detail: 'Content must be a string.' });
   const normalized = command.rawContent.normalize('NFC');
@@ -129,7 +191,6 @@ export async function executeMemoryWrite(
   if (normalized.length > MAX_CONTENT_LENGTH)
     return err({ code: 'INVALID_CONTENT', detail: 'Content exceeds the supported size.' });
 
-  // 3. Classify the source and 4. mark untrusted content before it is inspected.
   const trustLevel = trustFor(command.source);
   const candidate = trustLevel === 'owner-stated' ? normalized : markUntrusted(normalized).value;
 
@@ -137,7 +198,7 @@ export async function executeMemoryWrite(
   const textScan = await deps.scanner.scanText(candidate, access.operation);
   if (!textScan.ok) return err({ code: 'SCANNER_UNAVAILABLE' });
 
-  // 6. Scan metadata.
+  // 6. Scan metadata keys and values.
   const metadataScan = await deps.scanner.scanMetadata(command.rawMetadata, access.operation);
   if (!metadataScan.ok) return err({ code: 'SCANNER_UNAVAILABLE' });
 
@@ -168,7 +229,7 @@ export async function executeMemoryWrite(
     return err({ code: 'AUTHORIZATION_DENIED', reason: authorization.code });
 
   const provenance: MemoryProvenance = {
-    capturedAt: command.now,
+    capturedAt: trustedIso,
     initiatedBy: access.ownerId,
     transformation: trustLevel === 'owner-stated' ? 'owner-stated' : 'untrusted-source-summary',
     ownerApproved: false,
@@ -193,24 +254,37 @@ export async function executeMemoryWrite(
   if (policyResult.value.decision === 'deny')
     return err({ code: 'POLICY_DENIED', reason: policyResult.value.reason });
 
-  // 11. Validate and consume the approval when one is required.
+  // 11–13. Derive approval demand from the actual operation, validate, then consume atomically.
   let approvalId: ApprovalId | null = null;
   if (policyResult.value.decision === 'approval-required') {
-    if (!command.approval) return err({ code: 'APPROVAL_REQUIRED' });
-    const grant = await deps.approvals.lookup(command.approval.approvalId, access.operation);
+    if (command.approvalId === null) return err({ code: 'APPROVAL_REQUIRED' });
+    let demand: ApprovalDemand;
+    try {
+      demand = deriveMemoryWriteApprovalDemand({
+        access,
+        targetNamespace: command.targetNamespace,
+        recordId: command.recordId,
+        content,
+        metadata,
+        projectScope: access.projectScope,
+      });
+    } catch {
+      return err({ code: 'DIGEST_FAILED' });
+    }
+    const grant = await deps.approvals.lookup(command.approvalId, access.operation);
     if (!grant.ok) return err({ code: 'APPROVAL_UNAVAILABLE' });
-    const validated = validateApproval(grant.value, command.approval.demand, new Date(command.now));
+    const validated = validateApproval(grant.value, demand, trustedNow);
     if (!validated.ok) return err({ code: 'APPROVAL_INVALID', reason: validated.error.code });
     const consumed = await deps.approvals.consume(
       validated.value.approvalId,
-      command.approval.demand.nonce,
+      grant.value.nonce,
       access.operation,
     );
     if (!consumed.ok) return err({ code: 'CONSUMPTION_FAILED' });
     approvalId = validated.value.approvalId;
   }
 
-  // 12. Write through the memory port using the sealed contract only.
+  // 14. Write through the memory port using the sealed contract only.
   const written = await deps.memory.write(
     sealVerifiedMemoryWrite({
       recordId: command.recordId,
@@ -224,14 +298,14 @@ export async function executeMemoryWrite(
       trustLevel,
       retentionPolicy: command.retentionPolicy,
       approvalId,
-      createdAt: command.now,
-      updatedAt: command.now,
+      createdAt: trustedIso,
+      updatedAt: trustedIso,
     }),
     access,
   );
   if (!written.ok) return err({ code: 'MEMORY_UNAVAILABLE' });
 
-  // 13. Record safe audit metadata.
+  // 15. Record safe audit metadata (no raw user-controlled metadata key names).
   const event: SafeMemoryAuditEvent = {
     correlationId: access.correlationId,
     ownerId: access.ownerId,
@@ -247,9 +321,9 @@ export async function executeMemoryWrite(
     findingCategories: [...textScan.value.findings, ...metadataScan.value.findings].map(
       (finding) => finding.category,
     ),
-    metadataKeys: Object.keys(metadataScan.value.redactedEntries),
+    metadataFieldCount: Object.keys(metadata.entries).length,
     approvalId,
-    occurredAt: command.now,
+    occurredAt: trustedIso,
   };
   const audited = await deps.audit.record(event, access);
   if (!audited.ok) return err({ code: 'AUDIT_FAILED' });

@@ -2,6 +2,7 @@ export * from './operation-context.js';
 export * from './channel.port.js';
 export * from './notifier.port.js';
 export * from './approval.port.js';
+export * from './clock.port.js';
 export * from './secrets.port.js';
 export * from './capability-registry.port.js';
 export * from './extension-registry.port.js';

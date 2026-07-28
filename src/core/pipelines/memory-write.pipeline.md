@@ -3,37 +3,53 @@
 ## Input
 
 Authenticated memory access context, candidate content, candidate metadata, explicit target
-namespace and an optional owner grant.
+namespace and an optional `approvalId`. Callers never supply an approval demand, payload digest or
+validation timestamp.
 
 ## Ordered flow
 
 This order is implemented by `executeMemoryWrite` in `src/core/application/memory-write.service.ts`
-and verified structurally by `scripts/verify-memory-isolation.mjs`.
+and verified structurally by `scripts/verify-memory-isolation.mjs` against that function body only.
 
 1. validate operation context
-2. normalize input
-3. classify source
-4. mark untrusted content
+2. read one trusted timestamp from the application clock port
+3. normalize input and classify source
+4. mark untrusted content when the source is not owner-stated
 5. scan text with SensitiveDataScanner
-6. scan metadata with SensitiveDataScanner
+6. scan metadata keys and values with SensitiveDataScanner
 7. deny or redact
 8. classify privacy
 9. resolve and authorize namespace from the authenticated context
 10. apply MemoryPolicy
-11. validate and consume the approval when one is required
-12. write through MemoryPort
-13. write safe metadata through MemoryAuditPort
+11. when approval is required: derive the approval demand from the actual sanitized operation
+12. validate the looked-up grant against that demand using the trusted timestamp
+13. consume the grant atomically through ApprovalPort
+14. write through MemoryPort
+15. write safe metadata through MemoryAuditPort (`metadataFieldCount`, never raw user key names)
 
 ## Invariants
 
 - Policy gates run before side effects; approval gates cannot be bypassed.
+- Approval demand is built inside the trusted application boundary from the actual operation
+  (owner, actor, effect, target, namespace, project scope, payload digest over content/metadata).
+- Callers cannot pass `command.now`; expiry is checked against the trusted operation timestamp.
+- Atomic approval consumption is a port-contract requirement: two concurrent consumes must not both
+  succeed. This repository does not ship a transactional store implementation.
 - Every job has an idempotency key, explicit timeout and cancellation signal.
 - Cancellation stops downstream work; failure and cancellation both trigger cleanup.
-- Audit stores provenance, policy decisions, provider class and redacted errors, never raw secrets or content.
+- Audit stores provenance, policy decisions, finding categories and field counts, never raw secrets,
+  raw content or raw user-controlled metadata key names.
 - An unavailable capability returns an explicit safe failure and never imitates success.
 - A scanner failure, policy deny, authorization deny or approval failure stops the flow before any sink.
 - An audit failure is reported as a failure and never converted into a success.
 - Forbidden shortcuts: hidden provider selection, paid fallback, writes before validation, retries without a finite limit, and cleanup omission.
+
+## Checker guarantee (honest)
+
+`scripts/verify-memory-isolation.mjs` confirms the structural order of known security calls inside
+the single `executeMemoryWrite` function. It is target-specific and fail-closed on ambiguity, but it
+is not a full interprocedural TypeScript control-flow proof. Dead helpers and other functions cannot
+satisfy the order. Future pipeline changes must update the checker and its mutation self-tests.
 
 Writing to MemoryPort before SensitiveDataScanner is forbidden, and the sink accepts only the
 sealed write contract produced by this pipeline.

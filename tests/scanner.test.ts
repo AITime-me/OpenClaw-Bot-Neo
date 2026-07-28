@@ -163,8 +163,42 @@ describe('failure modes', () => {
   });
 });
 
+describe('newline after separator', () => {
+  it.each([
+    ['LF unquoted', `password =\n${UNQUOTED_PASSWORD_VALUE}`, UNQUOTED_PASSWORD_VALUE],
+    ['CRLF unquoted', `password =\r\n${UNQUOTED_PASSWORD_VALUE}`, UNQUOTED_PASSWORD_VALUE],
+    ['LF quoted', `password =\n"${QUOTED_PASSWORD_VALUE}"`, 'staple'],
+    ['CRLF quoted', `password =\r\n"${QUOTED_PASSWORD_VALUE}"`, 'staple'],
+    ['JSON-like LF', `"password":\n"${QUOTED_PASSWORD_VALUE}"`, 'staple'],
+    ['JSON-like CRLF', `"password":\r\n"${QUOTED_PASSWORD_VALUE}"`, 'staple'],
+    ['spaces around LF', `password = \t\n\t"${QUOTED_PASSWORD_VALUE}"`, 'staple'],
+    ['single-quoted LF', `client_secret=\n'${SINGLE_QUOTED_VALUE}'`, 'quoted'],
+  ])('covers %s assignment', (_label, input, fragment) => {
+    const result = scanSensitiveData(input);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.decision).not.toBe('allow');
+    expect(result.value.redacted).not.toContain(fragment);
+    expect(JSON.stringify(result.value.findings)).not.toContain(fragment);
+  });
+
+  it('denies an empty value after separator instead of allowing', () => {
+    const result = scanSensitiveData('password =');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.decision).toBe('deny');
+  });
+
+  it('denies multiple consecutive newlines after a separator', () => {
+    const result = scanSensitiveData(`password =\n\n${UNQUOTED_PASSWORD_VALUE}`);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.decision).toBe('deny');
+  });
+});
+
 describe('metadata scanning', () => {
-  it('redacts a sensitive key by name and reports a safe location', () => {
+  it('denies a sensitive key by name without echoing the key or value', () => {
     const result = scanSensitiveMetadata({
       note: 'обычный текст',
       password: QUOTED_PASSWORD_VALUE,
@@ -176,8 +210,12 @@ describe('metadata scanning', () => {
     const serialized = JSON.stringify(result.value);
     expect(serialized).not.toContain('staple');
     expect(serialized).not.toContain('QwErTyU');
-    expect(result.value.redactedEntries['note']).toBe('обычный текст');
-    expect(result.value.findings.map((finding) => finding.location)).toContain('nested.api_key');
+    expect(serialized).not.toContain('password');
+    expect(serialized).not.toContain('api_key');
+    expect(result.value.redactedEntries).toEqual({});
+    expect(result.value.findings.every((finding) => finding.location === '[redacted-key]')).toBe(
+      true,
+    );
   });
 
   it('scans values that contain a secret even when the key looks harmless', () => {
@@ -188,8 +226,37 @@ describe('metadata scanning', () => {
     expect(JSON.stringify(result.value.redactedEntries)).not.toContain('wonderland');
   });
 
-  it('is idempotent over already redacted metadata', () => {
-    const first = scanSensitiveMetadata({ password: QUOTED_PASSWORD_VALUE });
+  it('denies token-shaped metadata keys at every nesting level', () => {
+    const tokenKey = TELEGRAM_BOT_TOKEN;
+    const top = scanSensitiveMetadata({ [tokenKey]: 'x' });
+    expect(top.ok && top.value.decision).toBe('deny');
+    expect(JSON.stringify(top)).not.toContain(tokenKey);
+
+    const nested = scanSensitiveMetadata({ wrapper: { [tokenKey]: 'x' } });
+    expect(nested.ok && nested.value.decision).toBe('deny');
+    expect(JSON.stringify(nested)).not.toContain(tokenKey);
+
+    const inArray = scanSensitiveMetadata({ items: [{ [tokenKey]: 'x' }] });
+    expect(inArray.ok && inArray.value.decision).toBe('deny');
+    expect(JSON.stringify(inArray)).not.toContain(tokenKey);
+  });
+
+  it('denies control characters or newlines inside metadata keys', () => {
+    const result = scanSensitiveMetadata({ 'safe\nname': 'value' });
+    expect(result.ok && result.value.decision).toBe('deny');
+    expect(JSON.stringify(result)).not.toContain('safe');
+  });
+
+  it('keeps safe metadata keys working', () => {
+    const result = scanSensitiveMetadata({ origin: 'owner-note', comment: 'safe' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.decision).toBe('allow');
+    expect(result.value.redactedEntries).toEqual({ origin: 'owner-note', comment: 'safe' });
+  });
+
+  it('is idempotent over already redacted safe metadata', () => {
+    const first = scanSensitiveMetadata({ origin: '[REDACTED#password]' });
     expect(first.ok).toBe(true);
     if (!first.ok) return;
     const second = scanSensitiveMetadata(first.value.redactedEntries);

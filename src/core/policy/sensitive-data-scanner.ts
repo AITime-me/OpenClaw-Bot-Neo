@@ -108,6 +108,29 @@ const skipInlineSpace = (input: string, from: number): number => {
 };
 
 /**
+ * After a sensitive-key separator, tolerate inline spaces/tabs and exactly one LF or CRLF plus
+ * trailing spaces/tabs. Multiple consecutive newlines are treated as an ambiguous multiline
+ * assignment and must fail closed rather than produce an empty allow range.
+ */
+const skipAssignmentWhitespace = (
+  input: string,
+  from: number,
+): { readonly index: number; readonly ambiguous: boolean } => {
+  let index = skipInlineSpace(input, from);
+  if (index < input.length && input[index] === '\r') {
+    index += 1;
+    if (index < input.length && input[index] === '\n') index += 1;
+    index = skipInlineSpace(input, index);
+  } else if (index < input.length && input[index] === '\n') {
+    index += 1;
+    index = skipInlineSpace(input, index);
+  }
+  if (index < input.length && (input[index] === '\n' || input[index] === '\r'))
+    return { index, ambiguous: true };
+  return { index, ambiguous: false };
+};
+
+/**
  * Resolves the end of an assignment value. Quoted values are consumed up to the matching quote
  * (escaped quotes included) and unquoted values extend to the end of the line, which is the
  * documented wide boundary used whenever the real end is ambiguous.
@@ -172,19 +195,57 @@ const mergeFindings = (findings: readonly RawFinding[]): readonly RawFinding[] =
   return merged;
 };
 
-const collectFindings = (input: string): readonly RawFinding[] => {
+const collectFindings = (
+  input: string,
+): { readonly findings: readonly RawFinding[]; readonly forceDeny: boolean } => {
   const protectedRanges = collectProtectedRanges(input);
   const findings: RawFinding[] = [];
+  let forceDeny = false;
   const push = (finding: RawFinding): void => {
-    if (finding.end <= finding.start) return;
+    if (finding.end <= finding.start) {
+      // An empty range after a sensitive assignment must never collapse to allow.
+      forceDeny = true;
+      return;
+    }
     if (isProtected(protectedRanges, finding)) return;
     findings.push(finding);
   };
 
   for (const detector of ASSIGNMENT_DETECTORS)
     for (const match of input.matchAll(detector.keyPattern)) {
-      const valueStart = skipInlineSpace(input, match.index + match[0].length);
+      const afterSeparator = skipAssignmentWhitespace(input, match.index + match[0].length);
+      if (afterSeparator.ambiguous) {
+        forceDeny = true;
+        push({
+          start: match.index,
+          end: Math.min(input.length, afterSeparator.index + 1),
+          category: detector.category,
+          severity: detector.severity === 'critical' ? 'critical' : 'high',
+        });
+        continue;
+      }
+      const valueStart = afterSeparator.index;
+      if (valueStart >= input.length) {
+        forceDeny = true;
+        push({
+          start: match.index,
+          end: input.length === match.index ? match.index + match[0].length : input.length,
+          category: detector.category,
+          severity: detector.severity === 'critical' ? 'critical' : 'high',
+        });
+        continue;
+      }
       const end = assignmentValueEnd(input, valueStart);
+      if (end <= valueStart) {
+        forceDeny = true;
+        push({
+          start: match.index,
+          end: Math.max(valueStart + 1, match.index + match[0].length),
+          category: detector.category,
+          severity: detector.severity === 'critical' ? 'critical' : 'high',
+        });
+        continue;
+      }
       if (containsOnlyRedactionMarker(input.slice(valueStart, end))) continue;
       push({ start: valueStart, end, category: detector.category, severity: detector.severity });
     }
@@ -230,7 +291,7 @@ const collectFindings = (input: string): readonly RawFinding[] => {
     push({ ...range, category, severity: 'critical' });
   }
 
-  return mergeFindings(findings);
+  return { findings: mergeFindings(findings), forceDeny };
 };
 
 const toFindings = (raw: readonly RawFinding[], location: string): readonly SensitiveFinding[] =>
@@ -255,9 +316,10 @@ const applyRedaction = (input: string, raw: readonly RawFinding[]): string => {
 
 /**
  * Critical categories deny the sink outright; lower severities are redacted so ordinary text can
- * still flow with the secret removed.
+ * still flow with the secret removed. Ambiguous empty assignment ranges force deny.
  */
-const decide = (raw: readonly RawFinding[]): 'allow' | 'redact' | 'deny' => {
+const decide = (raw: readonly RawFinding[], forceDeny: boolean): 'allow' | 'redact' | 'deny' => {
+  if (forceDeny) return 'deny';
   if (raw.length === 0) return 'allow';
   return raw.some((finding) => finding.severity === 'critical') ? 'deny' : 'redact';
 };
@@ -269,22 +331,47 @@ export function scanSensitiveData(input: string): Result<ScanReport, ScannerFail
     return err({ code: 'INPUT_TOO_LARGE', reason: 'Scanner input exceeds the supported size.' });
   try {
     if (input.length === 0) return ok({ decision: 'allow', findings: [], redacted: '' });
-    const raw = collectFindings(input);
+    const collected = collectFindings(input);
     return ok({
-      decision: decide(raw),
-      findings: toFindings(raw, 'text'),
-      redacted: applyRedaction(input, raw),
+      decision: decide(collected.findings, collected.forceDeny),
+      findings: toFindings(collected.findings, 'text'),
+      redacted: applyRedaction(input, collected.findings),
     });
   } catch {
     return err({ code: 'SCANNER_FAILURE', reason: 'Sensitive-data scan failed; sink denied.' });
   }
 }
 
+const hasControlOrNewline = (value: string): boolean => {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+};
+
+/**
+ * Metadata keys are scanned independently of values. A secret-like or control-bearing key denies
+ * the whole metadata object; the raw key never appears in findings, redacted entries, audit or
+ * errors.
+ */
+export const isUnsafeMetadataKey = (key: string): boolean => {
+  if (typeof key !== 'string' || key.length === 0) return true;
+  if (hasControlOrNewline(key)) return true;
+  if (SENSITIVE_KEY_NAME_PATTERN.test(key)) return true;
+  const scanned = scanSensitiveData(key);
+  if (!scanned.ok) return true;
+  return scanned.value.findings.length > 0 || scanned.value.decision !== 'allow';
+};
+
+const SAFE_KEY_LOCATION = '[redacted-key]';
+
 const flattenMetadata = (
   value: unknown,
   path: string,
   depth: number,
   sink: Map<string, string>,
+  keys: string[],
 ): boolean => {
   if (sink.size > MAX_METADATA_ENTRIES) return false;
   if (depth > MAX_METADATA_DEPTH) return false;
@@ -302,12 +389,19 @@ const flattenMetadata = (
   }
   if (Array.isArray(value))
     return value.every((item, index) =>
-      flattenMetadata(item, `${path}[${String(index)}]`, depth + 1, sink),
+      flattenMetadata(item, `${path}[${String(index)}]`, depth + 1, sink, keys),
     );
   if (typeof value === 'object')
-    return Object.entries(value).every(([key, item]) =>
-      flattenMetadata(item, path.length === 0 ? key : `${path}.${key}`, depth + 1, sink),
-    );
+    return Object.entries(value).every(([key, item]) => {
+      keys.push(key);
+      return flattenMetadata(
+        item,
+        path.length === 0 ? key : `${path}.${key}`,
+        depth + 1,
+        sink,
+        keys,
+      );
+    });
   return false;
 };
 
@@ -315,14 +409,34 @@ export function scanSensitiveMetadata(input: unknown): Result<MetadataScanReport
   if (input === null || typeof input !== 'object' || Array.isArray(input))
     return err({ code: 'SCANNER_FAILURE', reason: 'Metadata input was not an object.' });
   const flat = new Map<string, string>();
-  if (!flattenMetadata(input, '', 0, flat))
+  const keys: string[] = [];
+  if (!flattenMetadata(input, '', 0, flat, keys))
     return err({ code: 'METADATA_TOO_COMPLEX', reason: 'Metadata exceeds scan limits.' });
+
+  for (const key of keys)
+    if (isUnsafeMetadataKey(key))
+      return ok({
+        decision: 'deny',
+        findings: [
+          {
+            category: 'unknown-sensitive-pattern',
+            start: 0,
+            end: 0,
+            maskedPreview: redactionMarker('unknown-sensitive-pattern'),
+            severity: 'critical',
+            location: SAFE_KEY_LOCATION,
+          },
+        ],
+        redactedEntries: {},
+      });
 
   const findings: SensitiveFinding[] = [];
   const redactedEntries: Record<string, string> = {};
   let decision: 'allow' | 'redact' | 'deny' = 'allow';
   for (const [path, value] of flat) {
-    const lastSegment = path.split('.').pop() ?? path;
+    const lastSegment = path.includes('.')
+      ? (path.split('.').pop() ?? path)
+      : path.replace(/\[\d+\]/g, '');
     if (SENSITIVE_KEY_NAME_PATTERN.test(lastSegment) && value.length > 0) {
       if (!containsOnlyRedactionMarker(value)) {
         findings.push({
@@ -331,22 +445,25 @@ export function scanSensitiveMetadata(input: unknown): Result<MetadataScanReport
           end: value.length,
           maskedPreview: redactionMarker('unknown-sensitive-pattern'),
           severity: 'critical',
-          location: path,
+          location: SAFE_KEY_LOCATION,
         });
-        redactedEntries[path] = redactionMarker('unknown-sensitive-pattern');
         decision = 'deny';
         continue;
       }
-      redactedEntries[path] = value;
       continue;
     }
     const scanned = scanSensitiveData(value);
     if (!scanned.ok) return err(scanned.error);
     redactedEntries[path] = scanned.value.redacted;
-    for (const finding of scanned.value.findings) findings.push({ ...finding, location: path });
+    for (const finding of scanned.value.findings)
+      findings.push({
+        ...finding,
+        location: SAFE_KEY_LOCATION === finding.location ? finding.location : path,
+      });
     if (scanned.value.decision === 'deny') decision = 'deny';
     else if (scanned.value.decision === 'redact' && decision === 'allow') decision = 'redact';
   }
+  if (decision === 'deny') return ok({ decision, findings, redactedEntries: {} });
   return ok({ decision, findings, redactedEntries });
 }
 

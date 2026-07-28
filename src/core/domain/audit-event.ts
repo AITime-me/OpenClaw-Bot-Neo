@@ -32,7 +32,8 @@ export interface SafeMemoryAuditEvent {
   readonly trustLevel: MemoryTrustLevel;
   readonly scanDecision: SafeScanDecision;
   readonly findingCategories: readonly SensitiveCategory[];
-  readonly metadataKeys: readonly string[];
+  /** Count of metadata fields that passed scanning. Raw user-controlled key names are never stored. */
+  readonly metadataFieldCount: number;
   readonly approvalId: ApprovalId | null;
   readonly occurredAt: ISO8601;
 }

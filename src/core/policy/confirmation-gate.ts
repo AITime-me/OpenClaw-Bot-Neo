@@ -1,4 +1,11 @@
-import { err, isApprovalEffect, isApprovalStatus, ok, type Result } from '../domain/index.js';
+import {
+  err,
+  isApprovalEffect,
+  isApprovalStatus,
+  ok,
+  projectScopesEqual,
+  type Result,
+} from '../domain/index.js';
 import type {
   ApprovalDemand,
   ApprovalEffect,
@@ -36,7 +43,8 @@ const filled = (value: string | undefined): boolean =>
 
 /**
  * Deterministic, fail-closed validation of a single grant against the action being attempted.
- * Nothing here reads model-produced text: every compared field is an identifier or a digest.
+ * The demand must be derived inside the trusted application boundary from the actual operation.
+ * Nothing here reads model-produced text: every compared field is an identifier, scope or digest.
  */
 export function validateApproval(
   grant: ApprovalGrant | null | undefined,
@@ -52,9 +60,12 @@ export function validateApproval(
     !filled(grant.actorId) ||
     !filled(grant.target) ||
     !filled(grant.payloadDigest) ||
-    !filled(grant.nonce)
+    !filled(grant.nonce) ||
+    !filled(grant.namespace) ||
+    typeof grant.projectScope.primary !== 'string' ||
+    !Array.isArray(grant.projectScope.permitted)
   )
-    return fail('INVALID_TIMESTAMP', 'Grant is structurally incomplete.');
+    return fail('MALFORMED_GRANT', 'Grant is structurally incomplete.');
 
   const issuedAt = instant(grant.issuedAt);
   const expiresAt = instant(grant.expiresAt);
@@ -77,9 +88,12 @@ export function validateApproval(
     return fail('EFFECT_MISMATCH', 'Grant covers another effect.');
   if (grant.target !== demand.target)
     return fail('TARGET_MISMATCH', 'Grant covers another target.');
+  if (grant.namespace !== demand.namespace)
+    return fail('NAMESPACE_MISMATCH', 'Grant covers another namespace.');
+  if (!projectScopesEqual(grant.projectScope, demand.projectScope))
+    return fail('PROJECT_SCOPE_MISMATCH', 'Grant covers another project scope.');
   if (grant.payloadDigest !== demand.payloadDigest)
     return fail('PAYLOAD_DIGEST_MISMATCH', 'Payload changed after approval.');
-  if (grant.nonce !== demand.nonce) return fail('NONCE_MISMATCH', 'Grant nonce does not match.');
 
   return ok(sealValidatedApproval(grant.approvalId, grant.effect, grant.target));
 }

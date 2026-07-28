@@ -49,7 +49,7 @@ describe('memory-write orchestration order', () => {
     expect(JSON.stringify(harness.writes)).not.toContain(QUOTED_PASSWORD_VALUE);
   });
 
-  it('keeps raw secrets out of the audit sink', async () => {
+  it('keeps raw secrets out of the audit sink and stores no raw metadata key list', async () => {
     const harness = createHarness();
     await executeMemoryWrite(
       harness.deps,
@@ -62,7 +62,8 @@ describe('memory-write orchestration order', () => {
     const serialized = JSON.stringify(harness.auditEvents);
     expect(serialized).not.toContain('staple');
     expect(serialized).toContain('password');
-    expect(harness.auditEvents[0]?.metadataKeys).toEqual(['origin', 'comment']);
+    expect(harness.auditEvents[0]?.metadataFieldCount).toBe(2);
+    expect(serialized).not.toContain('metadataKeys');
   });
 });
 

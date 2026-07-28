@@ -15,9 +15,24 @@
 
 ## Owner approval
 
-Approval является типизированным grant, а не булевым флагом и не свободной строкой. Grant связывает `ownerId`, `actorId`, effect, target, `payloadDigest`, `issuedAt`, `expiresAt`, `nonce` и одноразовое consumption state. Валидация детерминирована и не зависит от текста, созданного моделью.
+Approval является типизированным grant, а не булевым флагом и не свободной строкой. Grant связывает
+`ownerId`, `actorId`, effect, target, namespace, project scope, `payloadDigest`, `issuedAt`,
+`expiresAt`, `nonce` и одноразовое consumption state. Валидация детерминирована и не зависит от
+текста, созданного моделью.
 
-Grant отклоняется, если не совпадает владелец, actor, effect, target, digest или nonce, если истёк срок, если timestamps некорректны, если grant отозван или уже использован, либо если effect неизвестен. Изменение payload меняет digest и делает grant недействительным. Consumption выполняется через `ApprovalPort` один раз; недоступность или сбой consumption означают отказ, а не продолжение. Payment-подобные effects отсутствуют в модели и не могут быть одобрены.
+Для memory-write caller передаёт только `approvalId` (или его отсутствие). Approval demand строится
+внутри trusted application boundary из фактической операции: authenticated owner/actor, effect,
+namespace, project scope, operation target, record id и canonical digest sanitized content/metadata.
+Caller не передаёт готовый demand, digest или время проверки. Один trusted timestamp берётся из
+`ClockPort` на всю операцию; expiry сверяется с ним, а не с caller-supplied `now`.
+
+Grant отклоняется при несовпадении владельца, actor, effect, target, namespace, project scope или
+digest, при истечении срока, некорректных timestamps, отзыве, повторном использовании, malformed
+state или неизвестном effect. Изменение content или metadata после выдачи grant меняет digest и
+делает grant недействительным. Consumption выполняется через `ApprovalPort` атомарно: два
+параллельных consume не могут оба завершиться успехом. Это требование контракта порта, а не
+реализованное transactional storage в этом репозитории. Недоступность или сбой consumption означают
+отказ до MemoryPort write. Payment-подобные effects отсутствуют в модели и не могут быть одобрены.
 
 ## Sensitive data scanning
 
@@ -34,9 +49,21 @@ Grant отклоняется, если не совпадает владелец,
 - database и service connection strings;
 - произвольный текст, содержащий секретоподобные шаблоны или персональные данные.
 
-Scanner возвращает только классификацию, диапазон, severity, безопасный masked preview и путь для metadata; исходное значение и его фрагменты в finding не попадают. Assignment покрывается целиком, включая quoted значения с пробелами; при неоднозначной границе выбирается более широкая redaction. Пересекающиеся диапазоны объединяются, повторная redaction идемпотентна. Неизвестная ошибка, превышение лимита размера или неоднозначный результат блокируют sink. Обход scanner запрещён даже для debug.
+Scanner возвращает только классификацию, диапазон, severity и безопасный masked preview; исходное
+значение, фрагменты секрета и raw metadata path в finding не попадают. Assignment покрывается
+целиком, включая quoted значения с пробелами и один допустимый перевод строки (LF/CRLF) между
+separator и value. Пустой range после separator и неоднозначная multiline-конструкция (несколько
+последовательных переносов) завершаются fail-closed deny, а не allow. Пересекающиеся диапазоны
+объединяются, повторная redaction идемпотентна. Неизвестная ошибка, превышение лимита размера или
+неоднозначный результат блокируют sink. Обход scanner запрещён даже для debug.
 
-URL credentials определяются каноническим URL parsing, а не только regex: блокируется любой непустой userinfo, включая percent-encoded username, password и разделители. Private-key blocks и Telegram bot tokens никогда не достигают memory/logs. Scanner unavailable означает write denied. Metadata сканируется фактически: значение чувствительного по имени ключа редактируется целиком, вложенные структуры обходятся до документированных лимитов глубины и объёма.
+URL credentials определяются каноническим URL parsing, а не только regex: блокируется любой непустой
+userinfo, включая percent-encoded username, password и разделители. Private-key blocks и Telegram
+bot tokens никогда не достигают memory/logs. Scanner unavailable означает write denied. Metadata
+сканируется на каждом уровне вложенности: и keys, и values. Unsafe metadata key (secret-like имя,
+control characters, newline, credential-shaped содержимое) приводит к deny всей операции; ключ не
+попадает в MemoryPort, audit, errors или finding в исходном виде. Safe audit использует
+`metadataFieldCount` и категории findings, а не raw `Object.keys()` пользовательской metadata.
 
 Sanitized-значения представлены nominal-типами (`SanitizedText`, `SanitizedMetadata`, `VerifiedMemoryWrite`). Фабрики этих типов не входят в публичный API; доступ к ним ограничен allowlist-правилом architecture checker, поэтому adapter не может пометить непроверенную строку как sanitized. `MemoryPort.write` принимает только sealed write contract, а audit-порты — строго типизированные события без свободного payload.
 
@@ -98,9 +125,26 @@ Namespace изолирован по владельцу, роли и проект
 
 ## Architectural boundaries
 
-Границы слоёв проверяются структурно: зависимости читаются из TypeScript AST, поэтому static import, `export ... from`, dynamic `import()` и `require()` распознаются одинаково. Каждый core-слой имеет allowlist разрешённых зависимостей; неизвестный каталог внутри `src`, внешний npm-пакет в core, цикл, sealed-модуль вне allowlist и отсутствие ожидаемого слоя или файлов считаются нарушением. Проверка не опирается на конкретные имена `adapters/providers/integrations/monitors`, поэтому переименование implementation layer не обходит правило.
+Границы слоёв проверяются структурно: зависимости читаются из TypeScript AST, поэтому static import,
+`export ... from`, dynamic `import()` и `require()` распознаются одинаково. Non-literal
+(computed) module specifier в `import(expression)` или `require(expression)` — fail-closed
+нарушение `COMPUTED_MODULE_SPECIFIER`; checker не пытается вычислить expression. Каждый core-слой
+имеет allowlist разрешённых зависимостей; неизвестный каталог внутри `src`, внешний npm-пакет в
+core, цикл, sealed-модуль вне allowlist и отсутствие ожидаемого слоя или файлов считаются
+нарушением. Проверка не опирается на конкретные имена
+`adapters/providers/integrations/monitors`, поэтому переименование implementation layer не обходит
+правило. Boundary checker запрещает computed imports в repository source, но не является runtime
+sandbox.
 
-Локальные проверки запускаются командой `npm run check`. Build 2.1A закрывает HIGH findings
-OCN-001—OCN-006 независимого review. Build 2.1B добавляет fail-closed extension, permission,
-webhook и voice contracts без loader или integrations. Эти gates действуют только внутри ядра и не
-означают, что OpenClaw runtime или adapters уже их используют.
+Memory AST checker (`verify-memory-isolation.mjs`) анализирует конкретно тело `executeMemoryWrite`:
+порядок известных security calls (scanner, authorization, policy, demand derivation, validation,
+consumption, write, audit). Dead helper и другая функция не засчитываются. Checker структурный и
+target-specific; это не полноценное interprocedural доказательство runtime control flow.
+Неоднозначность — failure.
+
+Локальные проверки запускаются командой `npm run check`. Build 2.1A закрыл первичные HIGH findings
+независимого review. Build 2.1B добавил fail-closed extension, permission, webhook и voice
+contracts без loader или integrations. Build 2.1C закрывает OCN-001 (approval binding), OCN-002
+(scanner newline/metadata keys), OCN-003 (target-specific memory AST) и OCN-006 (computed
+import/require). Эти gates действуют только внутри ядра и не означают, что OpenClaw runtime или
+adapters уже их используют.

@@ -18,6 +18,7 @@ import type {
   OperationContext,
   OwnerId,
   PayloadDigest,
+  ProjectScope,
   ResourceRef,
   Result,
   SafeMemoryAuditEvent,
@@ -29,6 +30,14 @@ import {
   scanSensitiveMetadata,
 } from '../../src/core/policy/sensitive-data-scanner.js';
 import type { MemoryWriteCommand, MemoryWriteDeps } from '../../src/core/application/index.js';
+import {
+  deriveMemoryWriteApprovalDemand,
+  memoryWriteTarget,
+} from '../../src/core/application/memory-write.service.js';
+import {
+  sealSanitizedMetadata,
+  sealSanitizedText,
+} from '../../src/core/domain/sanitized.internal.js';
 
 export const iso = (value: string): ISO8601 => value as ISO8601;
 export const asOwner = (value = 'owner-1'): OwnerId => value as OwnerId;
@@ -38,7 +47,7 @@ export const asRecordId = (value = 'record-1'): MemoryRecordId => value as Memor
 export const asApprovalId = (value = 'approval-1'): ApprovalId => value as ApprovalId;
 export const asNonce = (value = 'nonce-1'): ApprovalNonce => value as ApprovalNonce;
 export const asDigest = (value = 'digest-1'): PayloadDigest => value as PayloadDigest;
-export const asResource = (value = 'memory/record-1'): ResourceRef => value as ResourceRef;
+export const asResource = (value = 'memory/personal/record-1'): ResourceRef => value as ResourceRef;
 
 export const NOW = '2026-07-01T12:00:00.000Z';
 
@@ -49,6 +58,13 @@ export const operationContext = (overrides: Partial<OperationContext> = {}): Ope
   ...overrides,
 });
 
+export const projectScope = (overrides: Partial<ProjectScope> = {}): ProjectScope => ({
+  primary: 'personal',
+  permitted: ['personal'],
+  crossProjectPermitted: false,
+  ...overrides,
+});
+
 export const accessContext = (
   overrides: Partial<MemoryAccessContext> = {},
 ): MemoryAccessContext => ({
@@ -56,7 +72,7 @@ export const accessContext = (
   actorId: asActor(),
   role: 'personal-assistant' satisfies MemoryRole,
   activeNamespace: 'personal' satisfies MemoryNamespace,
-  projectScope: { primary: 'personal', permitted: ['personal'], crossProjectPermitted: false },
+  projectScope: projectScope(),
   correlationId: asCorrelation(),
   operation: operationContext(),
   ...overrides,
@@ -80,12 +96,18 @@ export const externalSource = (): MemorySource => ({
   observedAt: iso(NOW),
 });
 
+export const fixedClock = (value: string = NOW) => ({
+  now: () => new Date(value),
+});
+
 export const grant = (overrides: Partial<ApprovalGrant> = {}): ApprovalGrant => ({
   approvalId: asApprovalId(),
   ownerId: asOwner(),
   actorId: asActor(),
   effect: 'write',
-  target: asResource(),
+  target: memoryWriteTarget('personal', asRecordId()),
+  namespace: 'personal',
+  projectScope: projectScope(),
   payloadDigest: asDigest(),
   issuedAt: iso('2026-07-01T11:59:00.000Z'),
   expiresAt: iso('2026-07-01T12:05:00.000Z'),
@@ -101,10 +123,42 @@ export const writeCommand = (overrides: Partial<MemoryWriteCommand> = {}): Memor
   rawMetadata: { origin: 'owner-note' },
   source: ownerSource(),
   retentionPolicy: retentionPolicy(),
-  approval: null,
-  now: iso(NOW),
+  approvalId: null,
   ...overrides,
 });
+
+/** Builds a grant whose digest matches the actual operation that executeMemoryWrite will derive. */
+export const grantForCommand = (
+  command: MemoryWriteCommand = writeCommand(),
+  access: MemoryAccessContext = accessContext(),
+  overrides: Partial<ApprovalGrant> = {},
+): ApprovalGrant => {
+  const content = sealSanitizedText(command.rawContent, 'allow');
+  const metadata = sealSanitizedMetadata(
+    Object.fromEntries(
+      Object.entries(command.rawMetadata).map(([key, value]) => [key, String(value)]),
+    ),
+    'allow',
+  );
+  const demand = deriveMemoryWriteApprovalDemand({
+    access,
+    targetNamespace: command.targetNamespace,
+    recordId: command.recordId,
+    content,
+    metadata,
+    projectScope: access.projectScope,
+  });
+  return grant({
+    ownerId: demand.ownerId,
+    actorId: demand.actorId,
+    effect: demand.effect,
+    target: demand.target,
+    namespace: demand.namespace,
+    projectScope: demand.projectScope,
+    payloadDigest: demand.payloadDigest,
+    ...overrides,
+  });
+};
 
 const scannerFailure: DomainError = { code: 'NOT_CONFIGURED', component: 'sensitive-data-scanner' };
 
@@ -118,6 +172,8 @@ export interface HarnessOptions {
   readonly consumeFails?: boolean;
   readonly memoryFails?: boolean;
   readonly auditFails?: boolean;
+  readonly clock?: { now(): Date };
+  readonly concurrentConsume?: boolean;
 }
 
 export interface Harness {
@@ -125,6 +181,7 @@ export interface Harness {
   readonly writes: VerifiedMemoryWrite[];
   readonly auditEvents: SafeMemoryAuditEvent[];
   readonly deps: MemoryWriteDeps;
+  readonly consumeAttempts: number[];
 }
 
 const toDomainResult = <T>(
@@ -136,6 +193,8 @@ export function createHarness(options: HarnessOptions = {}): Harness {
   const calls: string[] = [];
   const writes: VerifiedMemoryWrite[] = [];
   const auditEvents: SafeMemoryAuditEvent[] = [];
+  const consumeAttempts: number[] = [];
+  let consumeCount = 0;
   const deps: MemoryWriteDeps = {
     scanner: {
       scanText: (input) => {
@@ -170,6 +229,12 @@ export function createHarness(options: HarnessOptions = {}): Harness {
       },
       consume: () => {
         calls.push('approvals.consume');
+        consumeCount += 1;
+        consumeAttempts.push(consumeCount);
+        if (options.concurrentConsume === true && consumeCount > 1)
+          return Promise.resolve(
+            err<DomainError>({ code: 'EXTERNAL_FAILURE', operation: 'consume', retryable: false }),
+          );
         return Promise.resolve(
           options.consumeFails === true
             ? err<DomainError>({ code: 'EXTERNAL_FAILURE', operation: 'consume', retryable: false })
@@ -211,6 +276,7 @@ export function createHarness(options: HarnessOptions = {}): Harness {
         return Promise.resolve(ok(undefined));
       },
     },
+    clock: options.clock ?? fixedClock(),
   };
-  return { calls, writes, auditEvents, deps };
+  return { calls, writes, auditEvents, deps, consumeAttempts };
 }

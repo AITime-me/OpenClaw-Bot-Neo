@@ -25,6 +25,28 @@ describe('reference extraction', () => {
     ]);
     expect(references.every((reference) => reference.line > 0)).toBe(true);
   });
+
+  it('records computed import and require instead of dropping them', () => {
+    const references = extractReferences(
+      [
+        'const target = "./x.js";',
+        'export const a = () => import(target);',
+        'export const b = () => require(target);',
+        'export const c = () => import(`./${target}`);',
+        'export const d = () => require("./" + target);',
+      ].join('\n'),
+      'computed.ts',
+    );
+    const kinds = references.map((reference) => reference.kind).sort();
+    expect(kinds).toEqual([
+      'computed-import',
+      'computed-import',
+      'computed-require',
+      'computed-require',
+    ]);
+    expect(references.every((reference) => reference.computed === true)).toBe(true);
+    expect(references.every((reference) => reference.specifier === '<computed>')).toBe(true);
+  });
 });
 
 describe('allowlist-based layer rules', () => {
@@ -43,6 +65,15 @@ describe('allowlist-based layer rules', () => {
     ['forbidden-external', 'EXTERNAL_DEPENDENCY'],
     ['forbidden-internal', 'INTERNAL_MODULE_LEAK'],
     ['cycle', 'CYCLE'],
+    ['forbidden-computed-import-id', 'COMPUTED_MODULE_SPECIFIER'],
+    ['forbidden-computed-require-id', 'COMPUTED_MODULE_SPECIFIER'],
+    ['forbidden-computed-import-template', 'COMPUTED_MODULE_SPECIFIER'],
+    ['forbidden-computed-require-concat', 'COMPUTED_MODULE_SPECIFIER'],
+    ['forbidden-computed-import-conditional', 'COMPUTED_MODULE_SPECIFIER'],
+    ['forbidden-computed-import-property', 'COMPUTED_MODULE_SPECIFIER'],
+    ['forbidden-computed-require-call', 'COMPUTED_MODULE_SPECIFIER'],
+    ['forbidden-computed-import-manifest', 'COMPUTED_MODULE_SPECIFIER'],
+    ['forbidden-computed-require-config', 'COMPUTED_MODULE_SPECIFIER'],
   ])('rejects the %s fixture with %s', (name, code) => {
     const report = analyzeBoundaries({ rootDir: fixture(name), requiredLayers: [] });
     expect(codes(report)).toContain(code);
@@ -55,6 +86,18 @@ describe('allowlist-based layer rules', () => {
     );
     expect(violation?.message).toContain('core/application/loader.ts');
     expect(violation?.message).toContain('dynamic-import');
+  });
+
+  it('reports computed module specifier without echoing runtime values', () => {
+    const report = analyzeBoundaries({
+      rootDir: fixture('forbidden-computed-import-manifest'),
+      requiredLayers: [],
+    });
+    const violation = report.violations.find(
+      (candidate) => candidate.code === 'COMPUTED_MODULE_SPECIFIER',
+    );
+    expect(violation?.message).toContain('computed-import');
+    expect(violation?.message).not.toMatch(/secret|token|password/i);
   });
 });
 

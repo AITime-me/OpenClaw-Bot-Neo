@@ -10,6 +10,7 @@ export interface ModuleReference {
   readonly specifier: string;
   readonly kind: string;
   readonly line: number;
+  readonly computed?: boolean;
 }
 export interface AnalyzeBoundariesOptions {
   readonly rootDir?: string;

@@ -34,6 +34,13 @@ describe('public API surface', () => {
       'validateExtensionManifest',
       'loadExtension',
       'discoverExtensions',
+      'deriveMemoryWriteApprovalDemand',
+      'readTrustedTimestamp',
+      'memoryWriteTarget',
+      'sealValidatedApproval',
+      'fixedClock',
+      'analyzeExecuteMemoryWrite',
+      'collectDirectCalls',
     ])
       expect(exportedNames).not.toContain(forbidden);
   });

@@ -92,9 +92,19 @@
 
 ## Security
 
-- SensitiveDataScannerPort детерминированно работает до memory, log, external call и audit; порядок исполняем и проверяется структурно по AST, а не только документирован.
-- Approval scoped, expiring и single-use: grant нельзя переиспользовать, применить к другому owner, actor, effect, target или изменённому payload; expired, revoked, consumed и unknown effect отклоняются fail-closed.
-- Boundary checker обнаруживает static import, export-from, dynamic import, переименованный implementation layer, внешний пакет в core, цикл и sealed-модуль вне allowlist; zero-file condition не даёт ложный success.
+- SensitiveDataScannerPort детерминированно работает до memory, log, external call и audit; порядок
+  исполняем в `executeMemoryWrite` и проверяется структурно по AST этой функции (не полный
+  interprocedural proof).
+- Scanner обрабатывает LF/CRLF после separator fail-closed; проверяет metadata keys и values на
+  всех уровнях; unsafe metadata key → deny без попадания ключа в memory/audit/errors/findings.
+- Approval scoped, expiring и single-use: demand строится из фактической операции внутри application
+  boundary; caller передаёт только `approvalId`. Grant нельзя переиспользовать или применить к
+  другому owner, actor, effect, target, namespace, project scope либо изменённому content/metadata;
+  expiry проверяется trusted clock; expired, revoked, consumed, malformed и unknown effect
+  отклоняются fail-closed до MemoryPort write. Atomic consume — требование port contract.
+- Boundary checker обнаруживает static import, export-from, dynamic import, computed
+  import/require, переименованный implementation layer, внешний пакет в core, цикл и sealed-модуль
+  вне allowlist; zero-file condition не даёт ложный success. Checker не является runtime sandbox.
 - Сканируются API keys, bearer credentials, Telegram bot tokens, passwords, cookies, private keys, recovery codes, URL credentials, connection strings и arbitrary text.
 - Scanner unavailable => write denied; маскирование не раскрывает совпавшее значение.
 - Prompt injection и memory poisoning не меняют policy, approvals, provenance или trusted instructions.
@@ -102,6 +112,7 @@
 - Tool profile ограничивает capabilities/targets/time/size; elevated tools запрещены.
 - Public sharing private/restricted data запрещён; cross-border передача минимизируется и требует policy/approval.
 - Safe refusal сообщает класс блокировки и следующий безопасный шаг без секрета.
+- Build 2.1C закрывает OCN-001, OCN-002, OCN-003 и OCN-006; B21-001—B21-004 остаются отдельным этапом.
 
 ## Deployment
 
