@@ -61,9 +61,14 @@ URL credentials определяются каноническим URL parsing, �
 userinfo, включая percent-encoded username, password и разделители. Private-key blocks и Telegram
 bot tokens никогда не достигают memory/logs. Scanner unavailable означает write denied. Metadata
 сканируется на каждом уровне вложенности: и keys, и values. Unsafe metadata key (secret-like имя,
-control characters, newline, credential-shaped содержимое) приводит к deny всей операции; ключ не
-попадает в MemoryPort, audit, errors или finding в исходном виде. Safe audit использует
-`metadataFieldCount` и категории findings, а не raw `Object.keys()` пользовательской metadata.
+control/newline или secret-shaped содержимое) → deny всей операции; ключ не попадает в MemoryPort,
+audit, errors или finding в исходном виде. Metadata имеет единый bounded traversal budget: каждый
+посещённый descendant node (leaf или container, включая пустые объекты/массивы), суммарная длина
+key names и глубина. Лимит проверяется до обработки следующего узла; ровно на лимите — допуск,
+следующий узел — deny. Cyclic, Date/Map/Set/typed array/class instance и throwing getter/proxy →
+deny без утечки key/value. Findings/errors не содержат raw key names или secret fragments. Safe
+audit использует `metadataFieldCount` и категории findings, а не raw `Object.keys()`
+пользовательской metadata.
 
 Sanitized-значения представлены nominal-типами (`SanitizedText`, `SanitizedMetadata`, `VerifiedMemoryWrite`). Фабрики этих типов не входят в публичный API; доступ к ним ограничен allowlist-правилом architecture checker, поэтому adapter не может пометить непроверенную строку как sanitized. `MemoryPort.write` принимает только sealed write contract, а audit-порты — строго типизированные события без свободного payload.
 
@@ -124,7 +129,9 @@ VoiceProfile provider-independent. Для Нео обязательны `ru-RU`,
 text-only`, запрет cross-gender/cloning/imitation и контролируемые style tags. Disabled Neo и
 отсутствие sealed `VerifiedVoiceProviderMatch` всегда дают text-only; feminine fallback запрещён.
 Adapter возвращает untrusted metadata; trusted validation boundary создаёт sealed evidence.
-Ordinary favorable object literal не разрешает voice.
+Ordinary favorable object literal не разрешает voice. До sealing все текстовые поля профиля и
+provider metadata проходят production SensitiveDataScanner; scanner failure/limit/sensitive → deny
+без утечки secret fragments. Caller boolean `{ scanned: true }` не является proof.
 
 ## Память и данные
 
@@ -149,16 +156,19 @@ core, цикл, sealed-модуль вне allowlist и отсутствие о�
 правило. Boundary checker запрещает computed imports в repository source, но не является runtime
 sandbox.
 
-Memory AST checker (`verify-memory-isolation.mjs`) анализирует конкретно тело `executeMemoryWrite`:
-порядок известных security calls (scanner, authorization, policy, demand derivation, validation,
-consumption, write, audit). Dead helper и другая функция не засчитываются. Checker структурный и
-target-specific; это не полноценное interprocedural доказательство runtime control flow.
-Неоднозначность — failure.
+Memory AST checker (`verify-memory-isolation.mjs`) анализирует тело `executeMemoryWrite`
+path-aware / conservative: обязательный порядок включает context validation, input normalization,
+untrusted marking, scanner, authorization, policy, approval demand/validation/consume, write и
+safe audit. Stages/write внутри split if/else (кроме early deny и approval gate), loops, callbacks,
+try/catch/finally или logical/conditional expressions → fail. Dead helper и другая функция не
+засчитываются. Checker не является formal verification или полноценным interprocedural proof;
+сложная неоднозначная структура отклоняется. Runtime correctness по-прежнему требует tests и review.
 
 Локальные проверки запускаются командой `npm run check`. Build 2.1A закрыл первичные HIGH findings
 независимого review. Build 2.1B добавил fail-closed extension, permission, webhook и voice
 contracts без loader или integrations. Build 2.1C закрывает OCN-001 (approval binding), OCN-002
 (scanner newline/metadata keys), OCN-003 (target-specific memory AST) и OCN-006 (computed
-import/require). Build 2.1D закрывает B21-001—B21-004. Build 2.1E закрывает R2.1-003—R2.1-006 (trusted evidence
-closure); MEDIUM R2.1-001/002/007 остаются открытыми до Build 2.1F. Эти gates действуют только
-внутри ядра и не означают, что OpenClaw runtime или adapters уже их используют.
+import/require). Build 2.1D закрывает B21-001—B21-004. Build 2.1E закрывает R2.1-003—R2.1-006
+(trusted evidence closure). Build 2.1F закрывает MEDIUM R2.1-001/002/007. Окончательный security
+approval требует независимого Codex Review №4. Эти gates действуют только внутри ядра и не
+означают, что OpenClaw runtime или adapters уже их используют.

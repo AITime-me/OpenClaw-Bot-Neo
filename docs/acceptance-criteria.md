@@ -119,9 +119,10 @@
 - Build 2.1E закрывает HIGH R2.1-003—R2.1-006: sealed runtime risk evidence; active registration
   только после trusted registry transition; sealed deployment authorization вместо boolean;
   core-owned webhook bytes и core-sealed signature evidence из untrusted verifier result; sealed
-  VoiceProvider match evidence. Ordinary object literals не являются proof. MEDIUM R2.1-001
-  (metadata cardinality), R2.1-002 (path-sensitive memory AST) и R2.1-007 (полный VoiceProfile
-  scanner) намеренно не закрыты.
+  VoiceProvider match evidence. Ordinary object literals не являются proof.
+- Build 2.1F закрывает MEDIUM R2.1-001 (metadata traversal budget), R2.1-002 (path-aware memory
+  AST) и R2.1-007 (VoiceProfile + production SensitiveDataScanner). Окончательный security approval
+  до Codex Review №4 не объявляется.
 
 ## Deployment
 

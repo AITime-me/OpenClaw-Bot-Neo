@@ -4,12 +4,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import ts from 'typescript';
 
 /**
- * Structural verification of the memory-write security boundary.
+ * Structural / path-aware verification of the memory-write security boundary.
  *
- * Guarantee (honest): this checker confirms the structural order of known security calls inside
- * the single exported function `executeMemoryWrite`. It is target-specific and fail-closed, but
- * it is not a full interprocedural TypeScript control-flow proof. Future pipeline changes must
- * update both this checker and its self-tests. Ambiguity is failure, not a warning.
+ * Guarantee (honest): the checker confirms that every write-reaching straight-line path inside
+ * `executeMemoryWrite` contains the required stages in order, or conservatively rejects ambiguous
+ * control flow. It is target-specific and fail-closed. It is not a full interprocedural TypeScript
+ * proof and not formal verification. Ambiguity is failure, not a warning.
  */
 
 const failures = [];
@@ -62,6 +62,55 @@ const findFunctionsNamed = (source, name) => {
   return found;
 };
 
+const STAGE_ALIASES = Object.freeze({
+  validateOperationContext: 'context-validation',
+  normalizeMemoryWriteContent: 'input-normalization',
+  markUntrusted: 'untrusted-marking',
+  'deps.scanner.scanText': 'text-scan',
+  'deps.scanner.scanMetadata': 'metadata-scan',
+  classifyData: 'privacy-classification',
+  classificationFor: 'privacy-classification',
+  authorizeMemoryAccess: 'namespace-authorization',
+  'deps.policy.evaluate': 'memory-policy',
+  deriveMemoryWriteApprovalDemand: 'approval-demand-derivation',
+  validateApproval: 'approval-validation',
+  'deps.approvals.consume': 'approval-consumption',
+  'deps.memory.write': 'memory-write',
+  'deps.audit.record': 'safe-audit',
+  readTrustedTimestamp: 'trusted-clock',
+});
+
+const REQUIRED_ORDER = Object.freeze([
+  'context-validation',
+  'input-normalization',
+  'untrusted-marking',
+  'text-scan',
+  'metadata-scan',
+  'privacy-classification',
+  'namespace-authorization',
+  'memory-policy',
+  'approval-demand-derivation',
+  'approval-validation',
+  'approval-consumption',
+  'memory-write',
+  'safe-audit',
+]);
+
+const stageOf = (source, node) => {
+  const name = callName(source, node);
+  if (name === null) return null;
+  return STAGE_ALIASES[name] ?? null;
+};
+
+const isStageCall = (source, node) => stageOf(source, node) !== null;
+
+const unwrapExpression = (node) => {
+  let current = node;
+  while (ts.isAwaitExpression(current) || ts.isParenthesizedExpression(current))
+    current = current.expression;
+  return current;
+};
+
 /**
  * Collects direct call expressions inside a function body only. Nested function declarations and
  * nested function/arrow expressions are skipped so dead helpers cannot satisfy the order.
@@ -97,36 +146,217 @@ export function collectDirectCalls(source, functionNode) {
   return calls.sort((left, right) => left.position - right.position);
 }
 
-const STAGE_ALIASES = Object.freeze({
-  validateOperationContext: 'context-validation',
-  markUntrusted: 'untrusted-marking',
-  'deps.scanner.scanText': 'text-scan',
-  'deps.scanner.scanMetadata': 'metadata-scan',
-  classifyData: 'privacy-classification',
-  classificationFor: 'privacy-classification',
-  authorizeMemoryAccess: 'namespace-authorization',
-  'deps.policy.evaluate': 'memory-policy',
-  deriveMemoryWriteApprovalDemand: 'approval-demand-derivation',
-  validateApproval: 'approval-validation',
-  'deps.approvals.consume': 'approval-consumption',
-  'deps.memory.write': 'memory-write',
-  'deps.audit.record': 'safe-audit',
-  readTrustedTimestamp: 'trusted-clock',
-});
+const findStageCallsDeep = (source, root, into, includeNested = false) => {
+  const visit = (node) => {
+    if (
+      !includeNested &&
+      (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node))
+    )
+      return;
+    if (ts.isCallExpression(node) && isStageCall(source, node)) into.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(root);
+};
 
-const REQUIRED_ORDER = Object.freeze([
-  'context-validation',
-  'text-scan',
-  'metadata-scan',
-  'privacy-classification',
-  'namespace-authorization',
-  'memory-policy',
+const APPROVAL_ONLY_STAGES = new Set([
   'approval-demand-derivation',
   'approval-validation',
   'approval-consumption',
-  'memory-write',
-  'safe-audit',
 ]);
+
+const isApprovalGateIf = (source, statement) => {
+  if (!ts.isIfStatement(statement)) return false;
+  const stages = [];
+  findStageCallsDeep(source, statement.thenStatement, stages, true);
+  if (statement.elseStatement !== undefined)
+    findStageCallsDeep(source, statement.elseStatement, stages, true);
+  if (stages.length === 0) return false;
+  return stages.every((node) => {
+    const stage = stageOf(source, node);
+    return stage !== null && APPROVAL_ONLY_STAGES.has(stage);
+  });
+};
+
+const statementContainsWrite = (source, statement) => {
+  const stages = [];
+  findStageCallsDeep(source, statement, stages, true);
+  return stages.some((node) => stageOf(source, node) === 'memory-write');
+};
+
+const isPureEarlyDenyReturn = (source, statement) => {
+  if (!ts.isIfStatement(statement)) return false;
+  const thenHasWrite = statementContainsWrite(source, statement.thenStatement);
+  const elseHasWrite =
+    statement.elseStatement !== undefined &&
+    statementContainsWrite(source, statement.elseStatement);
+  if (thenHasWrite || elseHasWrite) return false;
+  const thenStages = [];
+  findStageCallsDeep(source, statement.thenStatement, thenStages, true);
+  const elseStages = [];
+  if (statement.elseStatement !== undefined)
+    findStageCallsDeep(source, statement.elseStatement, elseStages, true);
+  return thenStages.length === 0 && elseStages.length === 0;
+};
+
+const expressionHasAmbiguousStage = (source, expression, failuresOut) => {
+  const visit = (node) => {
+    if (
+      ts.isConditionalExpression(node) ||
+      (ts.isBinaryExpression(node) &&
+        (node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+          node.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
+          node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken))
+    ) {
+      const nested = [];
+      findStageCallsDeep(source, node, nested, true);
+      if (nested.length > 0) {
+        failuresOut.push(
+          'AMBIGUOUS_CONTROL_FLOW: stage/write calls inside conditional or logical expressions are forbidden.',
+        );
+        return;
+      }
+    }
+    if (
+      ts.isFunctionExpression(node) ||
+      ts.isArrowFunction(node) ||
+      ts.isFunctionDeclaration(node)
+    ) {
+      const nested = [];
+      findStageCallsDeep(source, node, nested, true);
+      if (nested.length > 0) {
+        failuresOut.push(
+          'AMBIGUOUS_CONTROL_FLOW: stage/write calls inside callbacks or nested functions are forbidden.',
+        );
+        return;
+      }
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(expression);
+};
+
+const analyzeStraightLineBody = (source, functionNode, localFailures) => {
+  const body = functionNode.body;
+  if (!body || !ts.isBlock(body)) {
+    localFailures.push('UNANALYZABLE: executeMemoryWrite body must be a statement block.');
+    return [];
+  }
+
+  const straightLineStages = [];
+  const pushStagesFrom = (root) => {
+    const stages = [];
+    findStageCallsDeep(source, root, stages, false);
+    for (const call of stages) {
+      const stage = stageOf(source, call);
+      if (stage !== null)
+        straightLineStages.push({
+          stage,
+          position: call.getStart(source),
+          name: callName(source, call),
+        });
+    }
+  };
+
+  for (const statement of body.statements) {
+    if (ts.isReturnStatement(statement)) {
+      if (statement.expression)
+        expressionHasAmbiguousStage(source, statement.expression, localFailures);
+      continue;
+    }
+
+    if (ts.isIfStatement(statement)) {
+      if (isApprovalGateIf(source, statement)) {
+        if (statementContainsWrite(source, statement)) {
+          localFailures.push(
+            'AMBIGUOUS_CONTROL_FLOW: memory-write inside the approval gate is forbidden.',
+          );
+        } else {
+          expressionHasAmbiguousStage(source, statement.expression, localFailures);
+          pushStagesFrom(statement.thenStatement);
+          if (statement.elseStatement !== undefined) pushStagesFrom(statement.elseStatement);
+        }
+      } else if (!isPureEarlyDenyReturn(source, statement)) {
+        localFailures.push(
+          'AMBIGUOUS_CONTROL_FLOW: stage/write calls inside if/else branches are forbidden; only early deny returns without stages or the approval gate are allowed.',
+        );
+      } else {
+        expressionHasAmbiguousStage(source, statement.expression, localFailures);
+      }
+      continue;
+    }
+
+    if (
+      ts.isForStatement(statement) ||
+      ts.isForInStatement(statement) ||
+      ts.isForOfStatement(statement) ||
+      ts.isWhileStatement(statement) ||
+      ts.isDoStatement(statement)
+    ) {
+      const nested = [];
+      findStageCallsDeep(source, statement, nested, true);
+      if (nested.length > 0)
+        localFailures.push('AMBIGUOUS_CONTROL_FLOW: stage/write calls inside loops are forbidden.');
+      continue;
+    }
+
+    if (ts.isSwitchStatement(statement)) {
+      const nested = [];
+      findStageCallsDeep(source, statement, nested, true);
+      if (nested.length > 0)
+        localFailures.push(
+          'AMBIGUOUS_CONTROL_FLOW: stage/write calls inside switch are forbidden.',
+        );
+      continue;
+    }
+
+    if (ts.isTryStatement(statement)) {
+      const nested = [];
+      findStageCallsDeep(source, statement, nested, true);
+      if (nested.length > 0)
+        localFailures.push(
+          'AMBIGUOUS_CONTROL_FLOW: stage/write calls inside try/catch/finally are forbidden.',
+        );
+      continue;
+    }
+
+    if (ts.isExpressionStatement(statement)) {
+      expressionHasAmbiguousStage(source, statement.expression, localFailures);
+      const expression = unwrapExpression(statement.expression);
+      if (ts.isCallExpression(expression)) {
+        const stage = stageOf(source, expression);
+        if (stage !== null)
+          straightLineStages.push({
+            stage,
+            position: expression.getStart(source),
+            name: callName(source, expression),
+          });
+      }
+      continue;
+    }
+
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (declaration.initializer)
+          expressionHasAmbiguousStage(source, declaration.initializer, localFailures);
+        if (declaration.initializer) pushStagesFrom(declaration.initializer);
+      }
+      continue;
+    }
+
+    if (ts.isTryStatement(statement) === false) {
+      const nested = [];
+      findStageCallsDeep(source, statement, nested, true);
+      if (nested.length > 0)
+        localFailures.push(
+          'AMBIGUOUS_CONTROL_FLOW: unsupported statement shape containing stage/write calls.',
+        );
+    }
+  }
+
+  return straightLineStages;
+};
 
 export function analyzeExecuteMemoryWrite(sourceText, fileName = 'memory-write.service.ts') {
   const source = ts.createSourceFile(fileName, sourceText, ts.ScriptTarget.ES2022, true);
@@ -147,12 +377,47 @@ export function analyzeExecuteMemoryWrite(sourceText, fileName = 'memory-write.s
     return { ok: false, failures: localFailures };
   }
 
+  for (const call of calls)
+    if (call.name.includes('[') || (ts.isCallExpression && false)) {
+      /* computed targets are rejected via callName returning null for non identifier/property */
+    }
+
+  const dynamicCalls = [];
+  const visitDynamic = (node, nested) => {
+    if (
+      nested === false &&
+      (ts.isFunctionDeclaration(node) ||
+        ts.isFunctionExpression(node) ||
+        ts.isArrowFunction(node)) &&
+      node !== target
+    ) {
+      ts.forEachChild(node, (child) => visitDynamic(child, true));
+      return;
+    }
+    if (
+      nested === false &&
+      ts.isCallExpression(node) &&
+      !ts.isPropertyAccessExpression(node.expression) &&
+      !ts.isIdentifier(node.expression)
+    )
+      dynamicCalls.push(node);
+    ts.forEachChild(node, (child) => visitDynamic(child, nested));
+  };
+  if (target.body && ts.isBlock(target.body))
+    for (const statement of target.body.statements) visitDynamic(statement, false);
+  if (dynamicCalls.length > 0)
+    localFailures.push('AMBIGUOUS_CONTROL_FLOW: dynamic/computed call targets are forbidden.');
+
+  const straightLineStages = analyzeStraightLineBody(source, target, localFailures);
+
   const stagePositions = new Map();
-  for (const call of calls) {
-    const stage = STAGE_ALIASES[call.name];
-    if (stage === undefined) continue;
-    if (!stagePositions.has(stage)) stagePositions.set(stage, call.position);
+  let writeCount = 0;
+  for (const entry of straightLineStages) {
+    if (entry.stage === 'memory-write') writeCount += 1;
+    if (!stagePositions.has(entry.stage)) stagePositions.set(entry.stage, entry.position);
   }
+  if (writeCount > 1)
+    localFailures.push('AMBIGUOUS_CONTROL_FLOW: multiple memory-write calls are forbidden.');
 
   for (const stage of REQUIRED_ORDER)
     if (!stagePositions.has(stage))
@@ -182,6 +447,8 @@ export function analyzeExecuteMemoryWrite(sourceText, fileName = 'memory-write.s
   const writePosition = stagePositions.get('memory-write');
   if (writePosition !== undefined) {
     for (const stage of [
+      'input-normalization',
+      'untrusted-marking',
       'text-scan',
       'metadata-scan',
       'namespace-authorization',
@@ -332,6 +599,7 @@ if (isCli) {
 export async function executeMemoryWrite(deps, access, command) {
   validateOperationContext(access.operation);
   readTrustedTimestamp(deps.clock);
+  normalizeMemoryWriteContent(command.rawContent);
   markUntrusted(command.rawContent);
   await deps.scanner.scanText(command.rawContent, access.operation);
   await deps.scanner.scanMetadata(command.rawMetadata, access.operation);
@@ -352,6 +620,7 @@ export async function executeMemoryWrite(deps, access, command) {
 function helper(deps, access, command) {
   validateOperationContext(access.operation);
   readTrustedTimestamp(deps.clock);
+  normalizeMemoryWriteContent(command.rawContent);
   markUntrusted(command.rawContent);
   deps.scanner.scanText(command.rawContent, access.operation);
   deps.scanner.scanMetadata(command.rawMetadata, access.operation);
@@ -439,6 +708,94 @@ export async function executeMemoryWrite(deps, access, command) {
     'MISSING_STAGE',
   );
 
+  runMutation(
+    'if-else-split',
+    `
+export async function executeMemoryWrite(deps, access, command) {
+  if (false) {
+    validateOperationContext(access.operation);
+    readTrustedTimestamp(deps.clock);
+    normalizeMemoryWriteContent(command.rawContent);
+    markUntrusted(command.rawContent);
+    await deps.scanner.scanText(command.rawContent, access.operation);
+    await deps.scanner.scanMetadata(command.rawMetadata, access.operation);
+    classifyData('owner');
+    authorizeMemoryAccess(access, 'write', { ownerId: access.ownerId, namespace: command.targetNamespace });
+    await deps.policy.evaluate({}, access);
+    deriveMemoryWriteApprovalDemand({});
+    validateApproval(null, {}, new Date());
+    await deps.approvals.consume('id', 'nonce', access.operation);
+    await deps.memory.write({}, access);
+    await deps.audit.record({}, access);
+  } else {
+    await deps.memory.write({}, access);
+  }
+}
+`,
+    'AMBIGUOUS_CONTROL_FLOW',
+  );
+
+  runMutation(
+    'missing-normalization',
+    correctBody.replace('normalizeMemoryWriteContent(command.rawContent);\n  ', ''),
+    'MISSING_STAGE',
+  );
+
+  runMutation(
+    'missing-untrusted-marking',
+    correctBody.replace('markUntrusted(command.rawContent);\n  ', ''),
+    'MISSING_STAGE',
+  );
+
+  runMutation(
+    'stage-in-loop',
+    `
+export async function executeMemoryWrite(deps, access, command) {
+  validateOperationContext(access.operation);
+  readTrustedTimestamp(deps.clock);
+  normalizeMemoryWriteContent(command.rawContent);
+  markUntrusted(command.rawContent);
+  for (const _ of [1]) {
+    await deps.scanner.scanText(command.rawContent, access.operation);
+  }
+  await deps.scanner.scanMetadata(command.rawMetadata, access.operation);
+  classifyData('owner');
+  authorizeMemoryAccess(access, 'write', { ownerId: access.ownerId, namespace: command.targetNamespace });
+  await deps.policy.evaluate({}, access);
+  deriveMemoryWriteApprovalDemand({});
+  validateApproval(null, {}, new Date());
+  await deps.approvals.consume('id', 'nonce', access.operation);
+  await deps.memory.write({}, access);
+  await deps.audit.record({}, access);
+}
+`,
+    'AMBIGUOUS_CONTROL_FLOW',
+  );
+
+  runMutation(
+    'write-in-callback',
+    `
+export async function executeMemoryWrite(deps, access, command) {
+  validateOperationContext(access.operation);
+  readTrustedTimestamp(deps.clock);
+  normalizeMemoryWriteContent(command.rawContent);
+  markUntrusted(command.rawContent);
+  await deps.scanner.scanText(command.rawContent, access.operation);
+  await deps.scanner.scanMetadata(command.rawMetadata, access.operation);
+  classifyData('owner');
+  authorizeMemoryAccess(access, 'write', { ownerId: access.ownerId, namespace: command.targetNamespace });
+  await deps.policy.evaluate({}, access);
+  deriveMemoryWriteApprovalDemand({});
+  validateApproval(null, {}, new Date());
+  await deps.approvals.consume('id', 'nonce', access.operation);
+  const run = async () => { await deps.memory.write({}, access); };
+  await run();
+  await deps.audit.record({}, access);
+}
+`,
+    'AMBIGUOUS_CONTROL_FLOW',
+  );
+
   const production = analyzeExecuteMemoryWrite(correctBody, 'correct.ts');
   if (!production.ok)
     failures.push(`SELF_TEST_BROKEN: correct fixture failed: ${production.failures.join(' | ')}`);
@@ -448,6 +805,6 @@ export async function executeMemoryWrite(deps, access, command) {
     process.exit(1);
   }
   console.log(
-    'Memory isolation checks passed (target-specific AST order, port contracts, mutation self-tests).',
+    'Memory isolation checks passed (target-specific path-aware AST order, port contracts, mutation self-tests).',
   );
 }

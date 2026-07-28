@@ -16,8 +16,16 @@ export interface ScannerFailure {
 export const MAX_SCAN_INPUT_LENGTH = 65_536;
 /** Longest span searched for a closing quote before falling back to the end of the line. */
 const MAX_QUOTED_VALUE_LENGTH = 4_096;
-const MAX_METADATA_ENTRIES = 256;
-const MAX_METADATA_DEPTH = 5;
+/**
+ * Inclusive traversal budget for metadata nodes (leaves and nested containers).
+ * Exactly MAX_METADATA_NODES visited descendant nodes pass; the next node is denied.
+ * The root object itself is not charged so that 256 root-level leaves remain admissible.
+ */
+export const MAX_METADATA_NODES = 256;
+/** Inclusive maximum nesting depth from the root (root = 0). Depth MAX+1 is denied. */
+export const MAX_METADATA_DEPTH = 5;
+/** Inclusive total length of all object key names visited during traversal. */
+export const MAX_METADATA_TOTAL_KEY_LENGTH = 4_096;
 
 const REDACTION_MARKER_PATTERN = /\[REDACTED#[a-z-]+\]/g;
 const redactionMarker = (category: SensitiveCategory): string => `[REDACTED#${category}]`;
@@ -366,15 +374,42 @@ export const isUnsafeMetadataKey = (key: string): boolean => {
 
 const SAFE_KEY_LOCATION = '[redacted-key]';
 
+interface MetadataBudget {
+  nodes: number;
+  keyChars: number;
+}
+
+const isPlainObject = (value: object): boolean => {
+  const proto: object | null = Object.getPrototypeOf(value) as object | null;
+  return proto === Object.prototype || proto === null;
+};
+
+const isUnsupportedContainer = (value: object): boolean => {
+  if (Array.isArray(value)) return false;
+  if (!isPlainObject(value)) return true;
+  if (ArrayBuffer.isView(value)) return true;
+  return false;
+};
+
+/**
+ * Bounded fail-closed metadata flatten. Charges every visited descendant node (leaf or
+ * container) before descending. Exactly MAX_METADATA_NODES nodes pass; the next is denied.
+ */
 const flattenMetadata = (
   value: unknown,
   path: string,
   depth: number,
   sink: Map<string, string>,
   keys: string[],
+  budget: MetadataBudget,
+  seen: WeakSet<object>,
+  chargeNode: boolean,
 ): boolean => {
-  if (sink.size > MAX_METADATA_ENTRIES) return false;
   if (depth > MAX_METADATA_DEPTH) return false;
+  if (chargeNode) {
+    if (budget.nodes >= MAX_METADATA_NODES) return false;
+    budget.nodes += 1;
+  }
   if (value === null || value === undefined) {
     sink.set(path, '');
     return true;
@@ -387,30 +422,75 @@ const flattenMetadata = (
     sink.set(path, String(value));
     return true;
   }
-  if (Array.isArray(value))
-    return value.every((item, index) =>
-      flattenMetadata(item, `${path}[${String(index)}]`, depth + 1, sink, keys),
-    );
-  if (typeof value === 'object')
-    return Object.entries(value).every(([key, item]) => {
-      keys.push(key);
-      return flattenMetadata(
+  if (typeof value !== 'object') return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      if (
+        !flattenMetadata(
+          value[index],
+          `${path}[${String(index)}]`,
+          depth + 1,
+          sink,
+          keys,
+          budget,
+          seen,
+          true,
+        )
+      )
+        return false;
+    }
+    return true;
+  }
+
+  if (isUnsupportedContainer(value)) return false;
+
+  let entries: readonly (readonly [string, unknown])[];
+  try {
+    entries = Object.entries(value);
+  } catch {
+    return false;
+  }
+
+  for (const [key, item] of entries) {
+    if (typeof key !== 'string') return false;
+    if (budget.keyChars + key.length > MAX_METADATA_TOTAL_KEY_LENGTH) return false;
+    budget.keyChars += key.length;
+    keys.push(key);
+    if (
+      !flattenMetadata(
         item,
         path.length === 0 ? key : `${path}.${key}`,
         depth + 1,
         sink,
         keys,
-      );
-    });
-  return false;
+        budget,
+        seen,
+        true,
+      )
+    )
+      return false;
+  }
+  return true;
 };
 
 export function scanSensitiveMetadata(input: unknown): Result<MetadataScanReport, ScannerFailure> {
   if (input === null || typeof input !== 'object' || Array.isArray(input))
     return err({ code: 'SCANNER_FAILURE', reason: 'Metadata input was not an object.' });
+  if (isUnsupportedContainer(input))
+    return err({ code: 'METADATA_TOO_COMPLEX', reason: 'Metadata exceeds scan limits.' });
   const flat = new Map<string, string>();
   const keys: string[] = [];
-  if (!flattenMetadata(input, '', 0, flat, keys))
+  const budget: MetadataBudget = { nodes: 0, keyChars: 0 };
+  let traversed: boolean;
+  try {
+    traversed = flattenMetadata(input, '', 0, flat, keys, budget, new WeakSet(), false);
+  } catch {
+    return err({ code: 'METADATA_TOO_COMPLEX', reason: 'Metadata exceeds scan limits.' });
+  }
+  if (!traversed)
     return err({ code: 'METADATA_TOO_COMPLEX', reason: 'Metadata exceeds scan limits.' });
 
   for (const key of keys)
@@ -458,7 +538,7 @@ export function scanSensitiveMetadata(input: unknown): Result<MetadataScanReport
     for (const finding of scanned.value.findings)
       findings.push({
         ...finding,
-        location: SAFE_KEY_LOCATION === finding.location ? finding.location : path,
+        location: SAFE_KEY_LOCATION,
       });
     if (scanned.value.decision === 'deny') decision = 'deny';
     else if (scanned.value.decision === 'redact' && decision === 'allow') decision = 'redact';

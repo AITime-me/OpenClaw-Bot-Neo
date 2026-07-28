@@ -18,6 +18,7 @@ import {
   type VerifiedVoiceProviderMatch,
 } from '../domain/voice-profile.internal.js';
 import type { ISO8601 } from '../domain/identity.js';
+import { scanSensitiveData, scanSensitiveMetadata } from './sensitive-data-scanner.js';
 
 export type VoiceProfileValidation =
   | { readonly valid: true; readonly profile: ValidatedVoiceProfile }
@@ -72,6 +73,100 @@ const invalid = (code: VoiceProfileFailureCode, reason: string): VoiceProfileVal
   code,
   reason,
 });
+
+/**
+ * Builds a controlled metadata payload for the production SensitiveDataScanner.
+ * Field labels are fixed; raw profile text is scanned as values.
+ */
+const buildVoiceScanPayload = (profile: VoiceProfile): Record<string, unknown> => ({
+  id: profile.id,
+  schemaVersion: profile.schemaVersion,
+  language: profile.language,
+  genderPresentation: profile.genderPresentation,
+  tone: profile.tone,
+  pace: profile.pace,
+  expressiveness: profile.expressiveness,
+  styleTags: [...profile.styleTags],
+  primaryVoiceSelector: {
+    language: profile.primaryVoiceSelector.language,
+    genderPresentation: profile.primaryVoiceSelector.genderPresentation,
+    styleTags: [...profile.primaryVoiceSelector.styleTags],
+  },
+  fallbackVoiceSelectors: profile.fallbackVoiceSelectors.map((selector) => ({
+    language: selector.language,
+    genderPresentation: selector.genderPresentation,
+    styleTags: [...selector.styleTags],
+  })),
+  fallbackMode: profile.fallbackMode,
+});
+
+const scanVoiceProfileSecrets = (profile: VoiceProfile): VoiceProfileValidation | null => {
+  const payload = buildVoiceScanPayload(profile);
+  let metadataScan;
+  try {
+    metadataScan = scanSensitiveMetadata(payload);
+  } catch {
+    return invalid('VOICE_PROFILE_SCAN_FAILED', 'Voice profile sensitive-data scan failed.');
+  }
+  if (!metadataScan.ok) {
+    if (
+      metadataScan.error.code === 'METADATA_TOO_COMPLEX' ||
+      metadataScan.error.code === 'INPUT_TOO_LARGE'
+    )
+      return invalid(
+        'VOICE_PROFILE_SCAN_LIMIT_EXCEEDED',
+        'Voice profile exceeds sensitive-data scan limits.',
+      );
+    return invalid('VOICE_PROFILE_SCAN_FAILED', 'Voice profile sensitive-data scan failed.');
+  }
+  if (metadataScan.value.decision !== 'allow')
+    return invalid(
+      'VOICE_PROFILE_SENSITIVE_DATA',
+      'Voice profile contains sensitive data and cannot be sealed.',
+    );
+
+  const textFields = [
+    profile.id,
+    profile.schemaVersion,
+    profile.language,
+    profile.genderPresentation,
+    profile.tone,
+    profile.pace,
+    profile.expressiveness,
+    profile.fallbackMode,
+    ...profile.styleTags,
+    profile.primaryVoiceSelector.language,
+    profile.primaryVoiceSelector.genderPresentation,
+    ...profile.primaryVoiceSelector.styleTags,
+    ...profile.fallbackVoiceSelectors.flatMap((selector) => [
+      selector.language,
+      selector.genderPresentation,
+      ...selector.styleTags,
+    ]),
+  ];
+  for (const field of textFields) {
+    let scanned;
+    try {
+      scanned = scanSensitiveData(field);
+    } catch {
+      return invalid('VOICE_PROFILE_SCAN_FAILED', 'Voice profile sensitive-data scan failed.');
+    }
+    if (!scanned.ok) {
+      if (scanned.error.code === 'INPUT_TOO_LARGE')
+        return invalid(
+          'VOICE_PROFILE_SCAN_LIMIT_EXCEEDED',
+          'Voice profile exceeds sensitive-data scan limits.',
+        );
+      return invalid('VOICE_PROFILE_SCAN_FAILED', 'Voice profile sensitive-data scan failed.');
+    }
+    if (scanned.value.decision !== 'allow')
+      return invalid(
+        'VOICE_PROFILE_SENSITIVE_DATA',
+        'Voice profile contains sensitive data and cannot be sealed.',
+      );
+  }
+  return null;
+};
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 const exact = (value: Record<string, unknown>, fields: readonly string[]): boolean =>
@@ -243,6 +338,15 @@ export function validateVoiceProfile(candidate: unknown): VoiceProfileValidation
     allowIdentityImitation: false,
     enabled: candidate.enabled,
   };
+  // Ordinary caller booleans such as { scanned: true } are not proof; production scanner runs here.
+  if (
+    Object.hasOwn(candidate, 'scanned') ||
+    Object.hasOwn(candidate, 'safe') ||
+    Object.hasOwn(candidate, 'secretsAbsent')
+  )
+    return invalid('INVALID_PROFILE', 'Caller-supplied scan claims are not accepted.');
+  const scanFailure = scanVoiceProfileSecrets(profile);
+  if (scanFailure !== null) return scanFailure;
   return { valid: true, profile: sealValidatedVoiceProfile(profile) };
 }
 
@@ -351,6 +455,22 @@ export function validateVoiceProviderMatch(
     return { ok: false, reason: 'Provider evidence TTL is invalid.' };
   if (typeof options.policyVersion !== 'string' || options.policyVersion.length === 0)
     return { ok: false, reason: 'Provider policy version is invalid.' };
+
+  let providerScan;
+  try {
+    providerScan = scanSensitiveMetadata({
+      providerVoiceReference: metadata.providerVoiceReference,
+      language: metadata.language,
+      genderPresentation: metadata.genderPresentation,
+      policyVersion: options.policyVersion,
+    });
+  } catch {
+    return { ok: false, reason: 'Provider metadata sensitive-data scan failed.' };
+  }
+  if (!providerScan.ok)
+    return { ok: false, reason: 'Provider metadata sensitive-data scan failed.' };
+  if (providerScan.value.decision !== 'allow')
+    return { ok: false, reason: 'Provider metadata contains sensitive data.' };
 
   const validatedAt = options.now.toISOString() as ISO8601;
   const expiresAt = new Date(options.now.getTime() + options.ttlMs).toISOString() as ISO8601;

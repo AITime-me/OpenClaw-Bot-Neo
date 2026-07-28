@@ -81,7 +81,11 @@ provider: если совместимого мужского голоса нет
   atomic registry transition; deployment authorization — sealed evidence, не boolean; webhook
   adapter возвращает untrusted verification result, canonical payload bytes принадлежат core,
   sealing signature evidence выполняет core. Ordinary object literals не являются trusted proof.
-  MEDIUM R2.1-001/002/007 не закрываются на этом этапе.
+- Build 2.1F закрывает R2.1-001/002/007: metadata traversal budget (nodes/containers/key length/
+  depth, check-before-descend); path-aware conservative memory checker (каждый write-reaching
+  straight-line path; normalization и untrusted marking обязательны; ambiguous control flow →
+  fail); VoiceProfile sealing через production SensitiveDataScanner. Не formal verification и не
+  окончательный security approval до Codex Review №4.
 - Следующий этап: локальные адаптеры и runtime policy enforcement после отдельного утверждения.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.

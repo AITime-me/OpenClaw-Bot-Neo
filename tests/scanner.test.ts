@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { err } from '../src/core/domain/index.js';
 import {
+  MAX_METADATA_NODES,
+  MAX_METADATA_TOTAL_KEY_LENGTH,
   MAX_SCAN_INPUT_LENGTH,
   maskSecrets,
   scanSensitiveData,
@@ -268,5 +270,79 @@ describe('metadata scanning', () => {
   it('refuses metadata that exceeds the depth limit', () => {
     const deep = { a: { b: { c: { d: { e: { f: 'too deep' } } } } } };
     expect(scanSensitiveMetadata(deep).ok).toBe(false);
+  });
+
+  it('accepts exactly 256 leaf properties and rejects the 257th', () => {
+    const atLimit: Record<string, string> = {};
+    for (let index = 0; index < MAX_METADATA_NODES; index += 1) atLimit[`k${String(index)}`] = 'ok';
+    const allowed = scanSensitiveMetadata(atLimit);
+    expect(allowed.ok).toBe(true);
+    if (allowed.ok) expect(allowed.value.decision).toBe('allow');
+
+    const over: Record<string, string> = { ...atLimit, over: 'x' };
+    const denied = scanSensitiveMetadata(over);
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) {
+      expect(denied.error.code).toBe('METADATA_TOO_COMPLEX');
+      expect(denied.error.reason).not.toContain('over');
+      expect(JSON.stringify(denied.error)).not.toContain('k0');
+    }
+  });
+
+  it('counts empty objects toward the node budget', () => {
+    const atLimit: Record<string, object> = {};
+    for (let index = 0; index < MAX_METADATA_NODES; index += 1) atLimit[`e${String(index)}`] = {};
+    expect(scanSensitiveMetadata(atLimit).ok).toBe(true);
+    const over: Record<string, object> = { ...atLimit, extra: {} };
+    expect(scanSensitiveMetadata(over).ok).toBe(false);
+    expect(
+      scanSensitiveMetadata(
+        Object.fromEntries(Array.from({ length: 1_000 }, (_, index) => [`e${String(index)}`, {}])),
+      ).ok,
+    ).toBe(false);
+  });
+
+  it('counts nested empty containers and array elements', () => {
+    expect(scanSensitiveMetadata({ a: { b: {} } }).ok).toBe(true);
+    const items = Array.from({ length: MAX_METADATA_NODES - 1 }, () => 'ok');
+    expect(scanSensitiveMetadata({ items }).ok).toBe(true);
+    expect(scanSensitiveMetadata({ items: [...items, 'x'] }).ok).toBe(false);
+    expect(scanSensitiveMetadata({ items: Array.from({ length: 10 }, () => ({})) }).ok).toBe(true);
+  });
+
+  it('enforces total key length and rejects unsupported containers', () => {
+    const longKey = 'k'.repeat(MAX_METADATA_TOTAL_KEY_LENGTH);
+    expect(scanSensitiveMetadata({ [longKey]: 'ok' }).ok).toBe(true);
+    expect(scanSensitiveMetadata({ [longKey + 'x']: 'ok' }).ok).toBe(false);
+    expect(scanSensitiveMetadata({ when: new Date() }).ok).toBe(false);
+    expect(scanSensitiveMetadata({ map: new Map() }).ok).toBe(false);
+    expect(scanSensitiveMetadata({ set: new Set() }).ok).toBe(false);
+    expect(scanSensitiveMetadata({ bytes: new Uint8Array([1]) }).ok).toBe(false);
+    class Sample {
+      value = 'x';
+    }
+    expect(scanSensitiveMetadata({ sample: new Sample() }).ok).toBe(false);
+  });
+
+  it('denies cyclic metadata and throwing property access without leaking values', () => {
+    const cyclic: Record<string, unknown> = { a: 'ok' };
+    cyclic.self = cyclic;
+    const cyclicResult = scanSensitiveMetadata(cyclic);
+    expect(cyclicResult.ok).toBe(false);
+    if (!cyclicResult.ok) expect(JSON.stringify(cyclicResult.error)).not.toContain('self');
+
+    const throwing = {};
+    Object.defineProperty(throwing, 'secret', {
+      enumerable: true,
+      get() {
+        throw new Error('leak-me-now');
+      },
+    });
+    const thrown = scanSensitiveMetadata(throwing);
+    expect(thrown.ok).toBe(false);
+    if (!thrown.ok) {
+      expect(thrown.error.reason).not.toContain('leak-me-now');
+      expect(JSON.stringify(thrown.error)).not.toContain('secret');
+    }
   });
 });

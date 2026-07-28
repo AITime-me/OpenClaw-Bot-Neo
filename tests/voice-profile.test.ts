@@ -6,6 +6,15 @@ import {
   validateVoiceProfile,
   validateVoiceProviderMatch,
 } from '../src/core/policy/voice-profile.js';
+import { MAX_SCAN_INPUT_LENGTH } from '../src/core/policy/sensitive-data-scanner.js';
+import {
+  BEARER_HEADER,
+  CONNECTION_STRING,
+  PEM_BLOCK,
+  QUOTED_API_KEY_LINE,
+  QUOTED_PASSWORD_LINE,
+  URL_WITH_CREDENTIALS,
+} from './support/synthetic-secrets.js';
 import * as publicApi from '../src/index.js';
 
 const neoStyleTags = [
@@ -230,10 +239,65 @@ describe('provider-independent Neo voice profile', () => {
     if (!result.valid) expect(result.code).toBe(code);
   });
 
+  it.each([
+    ['tone', { tone: QUOTED_API_KEY_LINE }],
+    ['styleTags', { styleTags: [...neoStyleTags, QUOTED_PASSWORD_LINE] }],
+    [
+      'primary selector',
+      {
+        primaryVoiceSelector: {
+          language: 'ru-RU',
+          genderPresentation: 'masculine',
+          styleTags: ['calm', BEARER_HEADER],
+        },
+      },
+    ],
+    [
+      'fallback selector',
+      {
+        fallbackVoiceSelectors: [
+          {
+            language: 'ru-RU',
+            genderPresentation: 'masculine',
+            styleTags: [CONNECTION_STRING],
+          },
+        ],
+      },
+    ],
+    ['url credentials', { tone: `note ${URL_WITH_CREDENTIALS}` }],
+    ['private key', { tone: PEM_BLOCK }],
+  ])('rejects synthetic secrets in %s via production scanner', (_label, overrides) => {
+    const result = validateVoiceProfile(neo(overrides));
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect([
+        'VOICE_PROFILE_SENSITIVE_DATA',
+        'NEO_IDENTITY_FORBIDDEN',
+        'NEO_STYLE_TAG_REQUIRED',
+        'INVALID_PROFILE',
+      ]).toContain(result.code);
+      expect(JSON.stringify(result)).not.toContain('QwErTyU');
+      expect(JSON.stringify(result)).not.toContain('wonderland');
+      expect(JSON.stringify(result)).not.toContain('trustno1');
+      expect(JSON.stringify(result)).not.toContain('c3ludGhldGlj');
+    }
+  });
+
+  it('rejects oversized text and caller scan claims', () => {
+    const oversized = validateVoiceProfile(neo({ tone: 'x'.repeat(MAX_SCAN_INPUT_LENGTH + 1) }));
+    expect(oversized.valid).toBe(false);
+    if (!oversized.valid) expect(oversized.code).toBe('VOICE_PROFILE_SCAN_LIMIT_EXCEEDED');
+
+    const claimed = validateVoiceProfile(neo({ scanned: true }));
+    expect(claimed.valid).toBe(false);
+    if (!claimed.valid) expect(claimed.code).toBe('INVALID_PROFILE');
+  });
+
   it('does not export sealed voice provider factories', () => {
     const names = Object.keys(publicApi);
     expect(names).not.toContain('sealVerifiedVoiceProviderMatch');
     expect(names).not.toContain('sealValidatedVoiceProfile');
+    expect(names).not.toContain('scanVoiceProfileSecrets');
     expect(names).toContain('validateVoiceProviderMatch');
   });
 });

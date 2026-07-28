@@ -30,7 +30,7 @@ Multimodal workflow — общая техническая capability обраб�
 
 ## Статус
 
-**Build №2 + Security Remediation 2.1A/2.1C + Extensibility 2.1B/2.1D + Trusted Evidence 2.1E:
+**Build №2 + Security Remediation 2.1A–2.1F + Extensibility 2.1B/2.1D + Trusted Evidence 2.1E:
 verifiable core.**
 Build 2.1B добавляет versioned declarative manifests, default-deny permission composition,
 provider-independent registry/webhook contracts, отключённые examples для call-analysis и external
@@ -49,8 +49,12 @@ Build 2.1E закрывает HIGH findings R2.1-003—R2.1-006: runtime risk и
 evidence trusted boundary; active registration — только после registry transition; deployment
 boolean не является authorization; webhook canonical bytes принадлежат core, verifier возвращает
 untrusted primitive result, sealing выполняет core. Ordinary object literals не являются proof.
-MEDIUM findings R2.1-001/002/007 намеренно не закрыты (Build 2.1F). Реальных
-adapters/providers/runtime по-прежнему нет.
+
+Build 2.1F закрывает MEDIUM R2.1-001/002/007: единый fail-closed metadata traversal budget
+(containers/empty nodes/key length/depth); path-aware conservative memory isolation checker
+(normalization + untrusted marking в обязательном порядке; split-branch → fail); VoiceProfile
+проходит production SensitiveDataScanner до sealing. Независимый Codex Review №4 ещё не выполнен.
+Реальных adapters/providers/runtime по-прежнему нет.
 
 Runtime, plugin loader, адаптеры, providers, реальные integrations/webhooks, TTS, бот, deployment и
 рабочая конфигурация по-прежнему отсутствуют. Текущая URL policy не является полной SSRF-защитой:

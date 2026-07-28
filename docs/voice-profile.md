@@ -25,6 +25,13 @@ policy/freshness дают text-only. Cloned voice, identity imitation, actor/cel
 feminine/unknown gender и unverified metadata — text-only. Автоматический переход на женский голос
 запрещён. Sealer не экспортируется в public API.
 
+До sealing `validateVoiceProfile` прогоняет все текстовые поля (id, language, tone, styleTags,
+selectors, schema/fallback identifiers и т.д.) через production SensitiveDataScanner
+(`scanSensitiveMetadata` + `scanSensitiveData`). Scanner failure, limit exceeded или sensitive
+finding → deny с generic codes (`VOICE_PROFILE_SENSITIVE_DATA` /
+`VOICE_PROFILE_SCAN_FAILED` / `VOICE_PROFILE_SCAN_LIMIT_EXCEEDED`) без secret fragments.
+`config/voice/neo.example.json` проходит тот же production flow. Caller `{ scanned: true }` не
+является proof.
+
 Конкретный TTS provider не выбран и не реализован. Example:
 [`config/voice/neo.example.json`](../config/voice/neo.example.json) проходит тот же Neo validator.
-Полный SensitiveDataScanner для VoiceProfile (R2.1-007) намеренно не закрыт в Build 2.1E.

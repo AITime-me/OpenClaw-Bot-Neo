@@ -118,6 +118,11 @@ export function readTrustedTimestamp(clock: ClockPort): Date {
   return clock.now();
 }
 
+/** Deterministic NFC normalization for memory-write content. */
+export function normalizeMemoryWriteContent(rawContent: string): string {
+  return rawContent.normalize('NFC');
+}
+
 export function memoryWriteTarget(
   namespace: MemoryNamespace,
   recordId: MemoryRecordId,
@@ -182,17 +187,18 @@ export async function executeMemoryWrite(
   const trustedNow = readTrustedTimestamp(deps.clock);
   const trustedIso = toIso(trustedNow);
 
-  // 2. Normalize input and 3. classify source / 4. mark untrusted content.
+  // 2. Normalize input and 3. mark untrusted content from non-owner sources.
   if (typeof command.rawContent !== 'string')
     return err({ code: 'INVALID_CONTENT', detail: 'Content must be a string.' });
-  const normalized = command.rawContent.normalize('NFC');
+  const normalized = normalizeMemoryWriteContent(command.rawContent);
   if (normalized.trim().length === 0)
     return err({ code: 'INVALID_CONTENT', detail: 'Content is empty.' });
   if (normalized.length > MAX_CONTENT_LENGTH)
     return err({ code: 'INVALID_CONTENT', detail: 'Content exceeds the supported size.' });
 
   const trustLevel = trustFor(command.source);
-  const candidate = trustLevel === 'owner-stated' ? normalized : markUntrusted(normalized).value;
+  const untrusted = markUntrusted(normalized);
+  const candidate = trustLevel === 'owner-stated' ? normalized : untrusted.value;
 
   // 5. Scan text.
   const textScan = await deps.scanner.scanText(candidate, access.operation);
@@ -254,23 +260,19 @@ export async function executeMemoryWrite(
   if (policyResult.value.decision === 'deny')
     return err({ code: 'POLICY_DENIED', reason: policyResult.value.reason });
 
-  // 11–13. Derive approval demand from the actual operation, validate, then consume atomically.
+  // 11–13. Derive approval demand from the actual operation on the straight line, then
+  // validate/consume only when policy requires approval (deny-path early returns stay stage-free).
   let approvalId: ApprovalId | null = null;
+  const demand = deriveMemoryWriteApprovalDemand({
+    access,
+    targetNamespace: command.targetNamespace,
+    recordId: command.recordId,
+    content,
+    metadata,
+    projectScope: access.projectScope,
+  });
   if (policyResult.value.decision === 'approval-required') {
     if (command.approvalId === null) return err({ code: 'APPROVAL_REQUIRED' });
-    let demand: ApprovalDemand;
-    try {
-      demand = deriveMemoryWriteApprovalDemand({
-        access,
-        targetNamespace: command.targetNamespace,
-        recordId: command.recordId,
-        content,
-        metadata,
-        projectScope: access.projectScope,
-      });
-    } catch {
-      return err({ code: 'DIGEST_FAILED' });
-    }
     const grant = await deps.approvals.lookup(command.approvalId, access.operation);
     if (!grant.ok) return err({ code: 'APPROVAL_UNAVAILABLE' });
     const validated = validateApproval(grant.value, demand, trustedNow);

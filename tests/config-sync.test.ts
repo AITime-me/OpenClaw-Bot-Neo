@@ -52,6 +52,9 @@ describe('example configuration semantic consistency', () => {
     expect(result.profile.allowIdentityImitation).toBe(false);
     expect(result.profile.fallbackMode).toBe('text-only');
     expect(config.raw).not.toMatch(/"provider"|"voiceId"|"endpoint"|"apiKey"/);
+    const scan = scanSensitiveData(config.raw);
+    expect(scan.ok).toBe(true);
+    if (scan.ok) expect(scan.value.findings).toHaveLength(0);
   });
 
   it('preserves eight business skills and one technical multimodal skill', () => {

@@ -92,7 +92,10 @@ export type VoiceProfileFailureCode =
   | 'NEO_STYLE_TAG_REQUIRED'
   | 'NEO_FORBIDDEN_STYLE_TAG'
   | 'NEO_ENABLED_REQUIRED'
-  | 'NEO_IDENTITY_FORBIDDEN';
+  | 'NEO_IDENTITY_FORBIDDEN'
+  | 'VOICE_PROFILE_SENSITIVE_DATA'
+  | 'VOICE_PROFILE_SCAN_FAILED'
+  | 'VOICE_PROFILE_SCAN_LIMIT_EXCEEDED';
 
 export type VoiceAvailabilityDecision =
   | { readonly mode: 'voice'; readonly selector: LogicalVoiceSelector }
