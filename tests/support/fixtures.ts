@@ -35,6 +35,10 @@ import {
   memoryWriteTarget,
 } from '../../src/core/application/memory-write.service.js';
 import {
+  sealAuthenticatedMemoryAccess,
+  type AuthenticatedMemoryAccessContext,
+} from '../../src/core/domain/memory-access.internal.js';
+import {
   sealSanitizedMetadata,
   sealSanitizedText,
 } from '../../src/core/domain/sanitized.internal.js';
@@ -65,6 +69,7 @@ export const projectScope = (overrides: Partial<ProjectScope> = {}): ProjectScop
   ...overrides,
 });
 
+/** Ordinary structural context — not authorization proof. */
 export const accessContext = (
   overrides: Partial<MemoryAccessContext> = {},
 ): MemoryAccessContext => ({
@@ -77,6 +82,48 @@ export const accessContext = (
   operation: operationContext(),
   ...overrides,
 });
+
+/** Trusted authenticated evidence via the same sealer the gateway uses. */
+export const authenticatedAccess = (
+  overrides: {
+    readonly ownerId?: string;
+    readonly actorId?: string;
+    readonly role?: MemoryRole;
+    readonly activeNamespace?: MemoryNamespace;
+    readonly projectScope?: ProjectScope;
+    readonly correlationId?: string;
+    readonly channelId?: string;
+    readonly sessionId?: string;
+    readonly issuedAt?: string;
+    readonly expiresAt?: string;
+    readonly operation?: OperationContext;
+  } = {},
+): AuthenticatedMemoryAccessContext => {
+  const operation = overrides.operation ?? operationContext();
+  const scope = overrides.projectScope ?? projectScope();
+  const sealed = sealAuthenticatedMemoryAccess(
+    {
+      ownerId: overrides.ownerId ?? asOwner(),
+      actorId: overrides.actorId ?? asActor(),
+      roles: [overrides.role ?? 'personal-assistant'],
+      activeNamespace: overrides.activeNamespace ?? 'personal',
+      projectScope: {
+        primary: scope.primary,
+        permitted: [...scope.permitted],
+        crossProjectPermitted: scope.crossProjectPermitted,
+      },
+      channelId: overrides.channelId ?? 'test-channel',
+      sessionId: overrides.sessionId ?? 'test-session',
+      issuedAt: overrides.issuedAt ?? '2026-07-01T11:59:00.000Z',
+      expiresAt: overrides.expiresAt ?? '2026-07-01T12:30:00.000Z',
+      correlationId: overrides.correlationId ?? asCorrelation(),
+    },
+    operation,
+    new Date(NOW),
+  );
+  if (sealed === null) throw new Error('Failed to seal authenticated access for tests.');
+  return sealed;
+};
 
 export const retentionPolicy = (): MemoryRetentionPolicy => ({
   expiresAt: iso('2027-01-01T00:00:00.000Z'),
@@ -130,7 +177,7 @@ export const writeCommand = (overrides: Partial<MemoryWriteCommand> = {}): Memor
 /** Builds a grant whose digest matches the actual operation that executeMemoryWrite will derive. */
 export const grantForCommand = (
   command: MemoryWriteCommand = writeCommand(),
-  access: MemoryAccessContext = accessContext(),
+  access: AuthenticatedMemoryAccessContext = authenticatedAccess(),
   overrides: Partial<ApprovalGrant> = {},
 ): ApprovalGrant => {
   const content = sealSanitizedText(command.rawContent, 'allow');

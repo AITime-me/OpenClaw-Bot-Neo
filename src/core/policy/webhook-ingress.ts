@@ -4,7 +4,7 @@ import type {
   WebhookIngressDecision,
   WebhookIngressLimits,
 } from '../domain/index.js';
-import { authorizedWebhookIngressBrand } from '../domain/webhook.internal.js';
+import { isAuthorizedWebhookIngress } from '../domain/webhook.internal.js';
 
 const deny = (code: WebhookFailureCode, reason: string): WebhookIngressDecision => ({
   allowed: false,
@@ -130,12 +130,7 @@ export function validateWebhookEnvelope(
  * is explicitly rejected so callers cannot self-assert authenticity.
  */
 export function authorizeWebhookIngress(evidence: unknown): WebhookIngressDecision {
-  if (
-    typeof evidence === 'object' &&
-    evidence !== null &&
-    authorizedWebhookIngressBrand in evidence
-  )
-    return { allowed: true };
+  if (isAuthorizedWebhookIngress(evidence)) return { allowed: true };
   return deny(
     'UNAUTHORIZED_BOOLEAN_STATE',
     'Caller-supplied boolean verification is not authorization proof.',

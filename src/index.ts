@@ -11,6 +11,13 @@ export type {
   MemoryWriteFailure,
   MemoryWriteOutcome,
 } from './core/application/memory-write.service.js';
+export { createMemoryAccessGateway } from './core/application/memory-access.gateway.js';
+export type {
+  ChannelAuthenticationPort,
+  MemoryAccessGateway,
+  MemoryAccessGatewayDeps,
+  MemoryAccessGatewayFailure,
+} from './core/application/memory-access.gateway.js';
 export { computePayloadDigest } from './core/application/payload-digest.js';
 export { executeExtensionRegistration } from './core/application/extension-registration.service.js';
 export type {

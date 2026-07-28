@@ -9,7 +9,7 @@ import {
 import { sealSanitizedMetadata, sealSanitizedText } from '../src/core/domain/sanitized.internal.js';
 import * as publicApi from '../src/index.js';
 import {
-  accessContext,
+  authenticatedAccess,
   asActor,
   asApprovalId,
   asDigest,
@@ -128,7 +128,7 @@ describe('scoped approval validation', () => {
 
 describe('approval binding to the actual memory operation', () => {
   it('builds demand from the authenticated context and sanitized payload', () => {
-    const access = accessContext();
+    const access = authenticatedAccess();
     const command = writeCommand({ rawContent: 'payload-a', rawMetadata: { tag: 'one' } });
     const derived = deriveMemoryWriteApprovalDemand({
       access,
@@ -146,7 +146,7 @@ describe('approval binding to the actual memory operation', () => {
   });
 
   it('includes metadata in the digest so metadata changes invalidate the grant', () => {
-    const access = accessContext();
+    const access = authenticatedAccess();
     const left = deriveMemoryWriteApprovalDemand({
       access,
       targetNamespace: 'personal',
@@ -176,7 +176,7 @@ describe('approval binding to the actual memory operation', () => {
       policyDecision: { decision: 'approval-required', reason: 'x' },
       lookupGrant: grantForCommand(commandA),
     });
-    const result = await executeMemoryWrite(harness.deps, accessContext(), commandB);
+    const result = await executeMemoryWrite(harness.deps, authenticatedAccess(), commandB);
     expect(result.ok).toBe(false);
     if (!result.ok)
       expect(result.error).toEqual({
@@ -204,9 +204,9 @@ describe('approval binding to the actual memory operation', () => {
     const command = writeCommand({ approvalId: asApprovalId() });
     const harness = createHarness({
       policyDecision: { decision: 'approval-required', reason: 'x' },
-      lookupGrant: grantForCommand(command, accessContext(), override),
+      lookupGrant: grantForCommand(command, authenticatedAccess(), override),
     });
-    const result = await executeMemoryWrite(harness.deps, accessContext(), command);
+    const result = await executeMemoryWrite(harness.deps, authenticatedAccess(), command);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toEqual({ code: 'APPROVAL_INVALID', reason: code });
     expect(harness.calls).not.toContain('memory.write');
@@ -220,7 +220,7 @@ describe('approval binding to the actual memory operation', () => {
       lookupGrant: grantForCommand(command),
       clock: fixedClock('2026-07-01T13:00:00.000Z'),
     });
-    const result = await executeMemoryWrite(harness.deps, accessContext(), command);
+    const result = await executeMemoryWrite(harness.deps, authenticatedAccess(), command);
     expect(result).toEqual({
       ok: false,
       error: { code: 'APPROVAL_INVALID', reason: 'EXPIRED' },
@@ -242,7 +242,7 @@ describe('approval binding to the actual memory operation', () => {
       policyDecision: { decision: 'approval-required', reason: 'x' },
       lookupGrant: grantForCommand(command),
     });
-    const result = await executeMemoryWrite(harness.deps, accessContext(), command);
+    const result = await executeMemoryWrite(harness.deps, authenticatedAccess(), command);
     expect(result.ok).toBe(true);
     expect(harness.calls.filter((call) => call === 'approvals.consume')).toHaveLength(1);
   });
@@ -251,9 +251,9 @@ describe('approval binding to the actual memory operation', () => {
     const command = writeCommand({ approvalId: asApprovalId() });
     const harness = createHarness({
       policyDecision: { decision: 'approval-required', reason: 'x' },
-      lookupGrant: grantForCommand(command, accessContext(), { status: 'consumed' }),
+      lookupGrant: grantForCommand(command, authenticatedAccess(), { status: 'consumed' }),
     });
-    const result = await executeMemoryWrite(harness.deps, accessContext(), command);
+    const result = await executeMemoryWrite(harness.deps, authenticatedAccess(), command);
     expect(result).toEqual({
       ok: false,
       error: { code: 'APPROVAL_INVALID', reason: 'ALREADY_CONSUMED' },
@@ -268,7 +268,7 @@ describe('approval binding to the actual memory operation', () => {
     });
     const result = await executeMemoryWrite(
       harness.deps,
-      accessContext(),
+      authenticatedAccess(),
       writeCommand({ approvalId: asApprovalId() }),
     );
     expect(result).toEqual({ ok: false, error: { code: 'APPROVAL_UNAVAILABLE' } });
@@ -282,7 +282,7 @@ describe('approval binding to the actual memory operation', () => {
       lookupGrant: grantForCommand(command),
       consumeFails: true,
     });
-    const result = await executeMemoryWrite(harness.deps, accessContext(), command);
+    const result = await executeMemoryWrite(harness.deps, authenticatedAccess(), command);
     expect(result).toEqual({ ok: false, error: { code: 'CONSUMPTION_FAILED' } });
     expect(harness.calls).not.toContain('memory.write');
   });
@@ -320,8 +320,8 @@ describe('approval binding to the actual memory operation', () => {
     first.deps.approvals.consume = sharedConsume;
     second.deps.approvals.consume = sharedConsume;
     const [a, b] = await Promise.all([
-      executeMemoryWrite(first.deps, accessContext(), command),
-      executeMemoryWrite(second.deps, accessContext(), command),
+      executeMemoryWrite(first.deps, authenticatedAccess(), command),
+      executeMemoryWrite(second.deps, authenticatedAccess(), command),
     ]);
     const successes = [a, b].filter((result) => result.ok);
     expect(successes).toHaveLength(1);
@@ -332,7 +332,7 @@ describe('approval binding to the actual memory operation', () => {
     const harness = createHarness({
       policyDecision: { decision: 'approval-required', reason: 'x' },
     });
-    const result = await executeMemoryWrite(harness.deps, accessContext(), writeCommand());
+    const result = await executeMemoryWrite(harness.deps, authenticatedAccess(), writeCommand());
     expect(result).toEqual({ ok: false, error: { code: 'APPROVAL_REQUIRED' } });
     expect(harness.calls).not.toContain('approvals.lookup');
   });

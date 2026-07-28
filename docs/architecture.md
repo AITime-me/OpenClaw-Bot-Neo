@@ -84,8 +84,13 @@ provider: если совместимого мужского голоса нет
 - Build 2.1F закрывает R2.1-001/002/007: metadata traversal budget (nodes/containers/key length/
   depth, check-before-descend); path-aware conservative memory checker (каждый write-reaching
   straight-line path; normalization и untrusted marking обязательны; ambiguous control flow →
-  fail); VoiceProfile sealing через production SensitiveDataScanner. Не formal verification и не
-  окончательный security approval до Codex Review №4.
+  fail); VoiceProfile sealing через production SensitiveDataScanner. Не formal verification.
+- Build 2.1G закрывает FIN-001/002/003: deeply immutable sanitized snapshot (один canonical snapshot
+  для approval digest и MemoryPort); opaque `AuthenticatedMemoryAccessContext` через trusted
+  `MemoryAccessGateway` (request body не назначает owner/actor/role); security evidence использует
+  module-private WeakMap identity membership вместо transferable Symbol property. Package `exports`
+  разрешает только root public API. FIN-004—FIN-014 не закрыты. Реальный authentication adapter не
+  реализован. Окончательный security approval отсутствует до нового Codex review.
 - Следующий этап: локальные адаптеры и runtime policy enforcement после отдельного утверждения.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.

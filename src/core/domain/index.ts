@@ -55,3 +55,7 @@ export type {
   SanitizedText,
   VerifiedMemoryWrite,
 } from './sanitized.internal.js';
+export type {
+  AuthenticatedMemoryAccessContext,
+  AuthenticationObservation,
+} from './memory-access.internal.js';

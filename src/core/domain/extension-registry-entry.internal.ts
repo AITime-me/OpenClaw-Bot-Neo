@@ -3,27 +3,15 @@ import type {
   ExtensionActivationState,
 } from './extension-registry-entry.js';
 import type { VerifiedExtensionManifest } from './extension-manifest.internal.js';
+import { isVerifiedExtensionManifest } from './extension-manifest.internal.js';
 import type { ExtensionRiskClass } from './extension-risk.js';
 import type { ISO8601 } from './identity.js';
+import { deepFreeze } from './immutable.js';
 
-export const sealedExtensionRegistryEntryBrand: unique symbol = Symbol(
-  'SealedExtensionRegistryEntry',
-);
-export const activeExtensionRegistrationBrand: unique symbol = Symbol(
-  'ActiveExtensionRegistration',
-);
-export const trustedActivationDecisionBrand: unique symbol = Symbol('TrustedActivationDecision');
-export const deploymentAuthorizationBrand: unique symbol = Symbol(
-  'DeploymentAuthorizationEvidence',
-);
-
-export interface SealedExtensionRegistryEntry extends ExtensionRegistryEntryData {
-  readonly [sealedExtensionRegistryEntryBrand]: true;
-}
+export type SealedExtensionRegistryEntry = ExtensionRegistryEntryData;
 
 /** Sealed proof that a specific id/version is active for permission resolution. */
 export interface ActiveExtensionRegistration {
-  readonly [activeExtensionRegistrationBrand]: true;
   readonly extensionId: string;
   readonly version: string;
   readonly manifest: VerifiedExtensionManifest;
@@ -34,7 +22,6 @@ export interface ActiveExtensionRegistration {
 }
 
 export interface DeploymentAuthorizationEvidence {
-  readonly [deploymentAuthorizationBrand]: true;
   readonly deploymentIdentity: string;
   readonly extensionId: string;
   readonly extensionVersion: string;
@@ -47,7 +34,6 @@ export interface DeploymentAuthorizationEvidence {
 }
 
 export interface TrustedActivationDecision {
-  readonly [trustedActivationDecisionBrand]: true;
   readonly extensionId: string;
   readonly version: string;
   readonly targetState: ExtensionActivationState;
@@ -61,30 +47,28 @@ export interface TrustedActivationDecision {
   readonly nonce: string;
 }
 
-const freezeRecord = (value: unknown): void => {
-  if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return;
-  for (const nested of Object.values(value)) freezeRecord(nested);
-  Object.freeze(value);
-};
+const sealedEntryRegistry = new WeakMap<object, SealedExtensionRegistryEntry>();
+const activeRegistrationRegistry = new WeakMap<object, ActiveExtensionRegistration>();
+const deploymentAuthorizationRegistry = new WeakMap<object, DeploymentAuthorizationEvidence>();
+const trustedActivationRegistry = new WeakMap<object, TrustedActivationDecision>();
 
 export const sealExtensionRegistryEntry = (
   entry: ExtensionRegistryEntryData,
 ): SealedExtensionRegistryEntry => {
-  const sealed = {
+  const sealed = deepFreeze({
     ...entry,
-    grantedCapabilityRefs: [...entry.grantedCapabilityRefs],
-    grantedPermissionRefs: [...entry.grantedPermissionRefs],
-    provenance: { ...entry.provenance },
-    [sealedExtensionRegistryEntryBrand]: true as const,
-  };
-  freezeRecord(sealed);
+    grantedCapabilityRefs: Object.freeze([...entry.grantedCapabilityRefs]),
+    grantedPermissionRefs: Object.freeze([...entry.grantedPermissionRefs]),
+    provenance: deepFreeze({ ...entry.provenance }),
+  });
+  sealedEntryRegistry.set(sealed, sealed);
   return sealed;
 };
 
 export const isSealedExtensionRegistryEntry = (
   value: unknown,
 ): value is SealedExtensionRegistryEntry =>
-  typeof value === 'object' && value !== null && sealedExtensionRegistryEntryBrand in value;
+  typeof value === 'object' && value !== null && sealedEntryRegistry.has(value);
 
 /**
  * Creates active registration evidence only from a sealed registry entry that is already active.
@@ -97,7 +81,8 @@ export const sealActiveExtensionRegistration = (
   if (!isSealedExtensionRegistryEntry(entry)) return null;
   if (entry.activationState !== 'active') return null;
   if (typeof manifestDigest !== 'string' || manifestDigest.length === 0) return null;
-  const sealed = {
+  if (!isVerifiedExtensionManifest(entry.manifest)) return null;
+  const sealed = deepFreeze({
     extensionId: entry.extensionId,
     version: entry.version,
     manifest: entry.manifest,
@@ -105,9 +90,8 @@ export const sealActiveExtensionRegistration = (
     policyVersion: entry.policyVersion,
     effectiveRiskClass: entry.effectiveRiskClass,
     manifestDigest,
-    [activeExtensionRegistrationBrand]: true as const,
-  };
-  freezeRecord(sealed);
+  });
+  activeRegistrationRegistry.set(sealed, sealed);
   return sealed;
 };
 
@@ -120,20 +104,19 @@ export const sealDeploymentAuthorization = (input: {
   readonly issuedAt: ISO8601;
   readonly expiresAt: ISO8601;
 }): DeploymentAuthorizationEvidence => {
-  const sealed = {
+  const sealed = deepFreeze({
     ...input,
     authorizationScope: 'activate' as const,
     provenance: 'trusted-deployment' as const,
-    [deploymentAuthorizationBrand]: true as const,
-  };
-  freezeRecord(sealed);
+  });
+  deploymentAuthorizationRegistry.set(sealed, sealed);
   return sealed;
 };
 
 export const isDeploymentAuthorizationEvidence = (
   value: unknown,
 ): value is DeploymentAuthorizationEvidence =>
-  typeof value === 'object' && value !== null && deploymentAuthorizationBrand in value;
+  typeof value === 'object' && value !== null && deploymentAuthorizationRegistry.has(value);
 
 export const sealTrustedActivationDecision = (input: {
   readonly extensionId: string;
@@ -149,18 +132,15 @@ export const sealTrustedActivationDecision = (input: {
   readonly nonce: string;
 }): TrustedActivationDecision | null => {
   if (!isDeploymentAuthorizationEvidence(input.deploymentAuthorization)) return null;
-  const sealed = {
-    ...input,
-    [trustedActivationDecisionBrand]: true as const,
-  };
-  freezeRecord(sealed);
+  const sealed = deepFreeze({ ...input });
+  trustedActivationRegistry.set(sealed, sealed);
   return sealed;
 };
 
 export const isTrustedActivationDecision = (value: unknown): value is TrustedActivationDecision =>
-  typeof value === 'object' && value !== null && trustedActivationDecisionBrand in value;
+  typeof value === 'object' && value !== null && trustedActivationRegistry.has(value);
 
 export const isActiveExtensionRegistration = (
   value: unknown,
 ): value is ActiveExtensionRegistration =>
-  typeof value === 'object' && value !== null && activeExtensionRegistrationBrand in value;
+  typeof value === 'object' && value !== null && activeRegistrationRegistry.has(value);

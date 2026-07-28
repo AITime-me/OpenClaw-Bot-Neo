@@ -1,11 +1,9 @@
+import {
+  isAuthenticatedMemoryAccessContext,
+  type AuthenticatedMemoryAccessContext,
+} from '../domain/memory-access.internal.js';
 import { isMemoryNamespace, isMemoryRole, validateOperationContext } from '../domain/index.js';
-import type {
-  MemoryAccessContext,
-  MemoryNamespace,
-  MemoryOperationKind,
-  MemoryRole,
-  OwnerId,
-} from '../domain/index.js';
+import type { MemoryNamespace, MemoryOperationKind, MemoryRole, OwnerId } from '../domain/index.js';
 
 export type NamespaceDecision =
   { readonly allowed: true } | { readonly allowed: false; readonly reason: string };
@@ -68,7 +66,7 @@ const refuse = (
 const filled = (value: string | undefined): boolean =>
   typeof value === 'string' && value.length > 0;
 
-const contextIsComplete = (access: MemoryAccessContext): boolean =>
+const contextIsComplete = (access: AuthenticatedMemoryAccessContext): boolean =>
   filled(access.ownerId) &&
   filled(access.actorId) &&
   filled(access.correlationId) &&
@@ -78,18 +76,21 @@ const contextIsComplete = (access: MemoryAccessContext): boolean =>
   isMemoryNamespace(access.projectScope.primary) &&
   Array.isArray(access.projectScope.permitted) &&
   access.projectScope.permitted.length > 0 &&
-  access.projectScope.permitted.every(isMemoryNamespace);
+  access.projectScope.permitted.every(isMemoryNamespace) &&
+  filled(access.channelId) &&
+  filled(access.sessionId);
 
 /**
- * Default deny for every memory operation. Owner and namespace are verified from the
- * authenticated context before any sink is touched, so knowing a record identifier grants nothing.
+ * Default deny for every memory operation. Owner and namespace are verified from opaque
+ * authenticated evidence before any sink is touched; knowing a record identifier grants nothing.
+ * Ordinary MemoryAccessContext object literals are not authorization.
  */
 export function authorizeMemoryAccess(
-  access: MemoryAccessContext | null | undefined,
+  access: AuthenticatedMemoryAccessContext | null | undefined,
   operation: MemoryOperationKind,
   target: MemoryAuthorizationTarget,
 ): MemoryAuthorizationDecision {
-  if (!access || typeof access !== 'object')
+  if (!isAuthenticatedMemoryAccessContext(access))
     return refuse('MISSING_ACCESS_CONTEXT', 'Authenticated memory access context is required.');
   if (!contextIsComplete(access))
     return refuse('MISSING_ACCESS_CONTEXT', 'Memory access context is incomplete.');

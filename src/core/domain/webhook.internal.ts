@@ -2,22 +2,13 @@ import { createHash } from 'node:crypto';
 import type { CorrelationId, IdempotencyKey, ISO8601, PayloadDigest } from './identity.js';
 import type { PrivacyClassification } from './privacy.js';
 import type { WebhookEnvelope } from './webhook.js';
-
-export const rawWebhookPayloadBrand: unique symbol = Symbol('RawWebhookPayloadHandle');
-export const authenticatedWebhookSourceBrand: unique symbol = Symbol('AuthenticatedWebhookSource');
-export const payloadBoundSignatureBrand: unique symbol = Symbol('PayloadBoundSignatureEvidence');
-export const webhookTimestampEvidenceBrand: unique symbol = Symbol('WebhookTimestampEvidence');
-export const webhookReplayEvidenceBrand: unique symbol = Symbol('WebhookReplayEvidence');
-export const webhookRateLimitEvidenceBrand: unique symbol = Symbol('WebhookRateLimitEvidence');
-export const sanitizedWebhookPayloadBrand: unique symbol = Symbol('SanitizedWebhookPayload');
-export const authorizedWebhookIngressBrand: unique symbol = Symbol('AuthorizedWebhookIngress');
+import { deepFreeze } from './immutable.js';
 
 /**
  * Opaque payload handle. Canonical bytes are not exposed as a shared writable reference.
- * `copyBytes()` always returns a disposable copy that cannot mutate core-owned storage.
+ * Trust is WeakMap membership; Symbol properties are not proof.
  */
 export interface RawWebhookPayloadHandle {
-  readonly [rawWebhookPayloadBrand]: true;
   readonly payloadDigest: PayloadDigest;
   readonly contentLength: number;
   readonly contentType: string;
@@ -30,13 +21,11 @@ export interface RawWebhookPayloadHandle {
 }
 
 export interface AuthenticatedWebhookSourceEvidence {
-  readonly [authenticatedWebhookSourceBrand]: true;
   readonly sourceId: string;
   readonly authenticatedAt: ISO8601;
 }
 
 export interface PayloadBoundSignatureEvidence {
-  readonly [payloadBoundSignatureBrand]: true;
   readonly sourceId: string;
   readonly payloadDigest: PayloadDigest;
   readonly algorithm: string;
@@ -45,35 +34,30 @@ export interface PayloadBoundSignatureEvidence {
 }
 
 export interface WebhookTimestampEvidence {
-  readonly [webhookTimestampEvidenceBrand]: true;
   readonly occurredAt: ISO8601;
   readonly receivedAt: ISO8601;
   readonly trustedNow: ISO8601;
 }
 
 export interface WebhookReplayEvidence {
-  readonly [webhookReplayEvidenceBrand]: true;
   readonly eventId: string;
   readonly idempotencyKey: IdempotencyKey;
   readonly status: 'accepted';
 }
 
 export interface WebhookRateLimitEvidence {
-  readonly [webhookRateLimitEvidenceBrand]: true;
   readonly sourceId: string;
   readonly eventType: string;
   readonly decision: 'allow';
 }
 
 export interface SanitizedWebhookPayloadEvidence {
-  readonly [sanitizedWebhookPayloadBrand]: true;
   readonly payloadDigest: PayloadDigest;
   readonly privacyClassification: PrivacyClassification;
   readonly redactedPreview: string;
 }
 
 export interface AuthorizedWebhookIngressEvidence {
-  readonly [authorizedWebhookIngressBrand]: true;
   readonly envelope: WebhookEnvelope;
   readonly source: AuthenticatedWebhookSourceEvidence;
   readonly signature: PayloadBoundSignatureEvidence;
@@ -86,12 +70,14 @@ export interface AuthorizedWebhookIngressEvidence {
 
 export type { WebhookSignatureVerificationResult } from './webhook.js';
 
-const freezeRecord = (value: unknown): void => {
-  if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return;
-  if (ArrayBuffer.isView(value)) return;
-  for (const nested of Object.values(value as Record<string, unknown>)) freezeRecord(nested);
-  Object.freeze(value);
-};
+const rawPayloadRegistry = new WeakMap<object, PayloadDigest>();
+const authenticatedSourceRegistry = new WeakMap<object, AuthenticatedWebhookSourceEvidence>();
+const signatureRegistry = new WeakMap<object, PayloadBoundSignatureEvidence>();
+const timestampRegistry = new WeakMap<object, WebhookTimestampEvidence>();
+const replayRegistry = new WeakMap<object, WebhookReplayEvidence>();
+const rateLimitRegistry = new WeakMap<object, WebhookRateLimitEvidence>();
+const sanitizedPayloadRegistry = new WeakMap<object, SanitizedWebhookPayloadEvidence>();
+const authorizedIngressRegistry = new WeakMap<object, AuthorizedWebhookIngressEvidence>();
 
 export function computeWebhookPayloadDigest(bytes: Uint8Array): PayloadDigest {
   return createHash('sha256').update(bytes).digest('hex') as PayloadDigest;
@@ -116,9 +102,9 @@ export const sealRawWebhookPayloadHandle = (input: {
     receivedAt: input.receivedAt,
     correlationId: input.correlationId,
     copyBytes: () => Uint8Array.from(canonical),
-    [rawWebhookPayloadBrand]: true as const,
   };
   Object.freeze(sealed);
+  rawPayloadRegistry.set(sealed, digest);
   return sealed;
 };
 
@@ -126,12 +112,15 @@ export const sealRawWebhookPayloadHandle = (input: {
 export const digestFromHandle = (handle: RawWebhookPayloadHandle): PayloadDigest =>
   computeWebhookPayloadDigest(handle.copyBytes());
 
+export const isRawWebhookPayloadHandle = (value: unknown): value is RawWebhookPayloadHandle =>
+  typeof value === 'object' && value !== null && rawPayloadRegistry.has(value);
+
 export const sealAuthenticatedWebhookSource = (input: {
   readonly sourceId: string;
   readonly authenticatedAt: ISO8601;
 }): AuthenticatedWebhookSourceEvidence => {
-  const sealed = { ...input, [authenticatedWebhookSourceBrand]: true as const };
-  freezeRecord(sealed);
+  const sealed = deepFreeze({ ...input });
+  authenticatedSourceRegistry.set(sealed, sealed);
   return sealed;
 };
 
@@ -142,8 +131,8 @@ export const sealPayloadBoundSignature = (input: {
   readonly keyReference: string;
   readonly verifiedAt: ISO8601;
 }): PayloadBoundSignatureEvidence => {
-  const sealed = { ...input, [payloadBoundSignatureBrand]: true as const };
-  freezeRecord(sealed);
+  const sealed = deepFreeze({ ...input });
+  signatureRegistry.set(sealed, sealed);
   return sealed;
 };
 
@@ -152,8 +141,8 @@ export const sealWebhookTimestampEvidence = (input: {
   readonly receivedAt: ISO8601;
   readonly trustedNow: ISO8601;
 }): WebhookTimestampEvidence => {
-  const sealed = { ...input, [webhookTimestampEvidenceBrand]: true as const };
-  freezeRecord(sealed);
+  const sealed = deepFreeze({ ...input });
+  timestampRegistry.set(sealed, sealed);
   return sealed;
 };
 
@@ -161,12 +150,11 @@ export const sealWebhookReplayEvidence = (input: {
   readonly eventId: string;
   readonly idempotencyKey: IdempotencyKey;
 }): WebhookReplayEvidence => {
-  const sealed = {
+  const sealed = deepFreeze({
     ...input,
     status: 'accepted' as const,
-    [webhookReplayEvidenceBrand]: true as const,
-  };
-  freezeRecord(sealed);
+  });
+  replayRegistry.set(sealed, sealed);
   return sealed;
 };
 
@@ -174,12 +162,11 @@ export const sealWebhookRateLimitEvidence = (input: {
   readonly sourceId: string;
   readonly eventType: string;
 }): WebhookRateLimitEvidence => {
-  const sealed = {
+  const sealed = deepFreeze({
     ...input,
     decision: 'allow' as const,
-    [webhookRateLimitEvidenceBrand]: true as const,
-  };
-  freezeRecord(sealed);
+  });
+  rateLimitRegistry.set(sealed, sealed);
   return sealed;
 };
 
@@ -188,8 +175,8 @@ export const sealSanitizedWebhookPayload = (input: {
   readonly privacyClassification: PrivacyClassification;
   readonly redactedPreview: string;
 }): SanitizedWebhookPayloadEvidence => {
-  const sealed = { ...input, [sanitizedWebhookPayloadBrand]: true as const };
-  freezeRecord(sealed);
+  const sealed = deepFreeze({ ...input });
+  sanitizedPayloadRegistry.set(sealed, sealed);
   return sealed;
 };
 
@@ -202,13 +189,22 @@ export const sealAuthorizedWebhookIngress = (input: {
   readonly rateLimit: WebhookRateLimitEvidence;
   readonly sanitized: SanitizedWebhookPayloadEvidence;
   readonly authorizedAt: ISO8601;
-}): AuthorizedWebhookIngressEvidence => {
-  const sealed = { ...input, [authorizedWebhookIngressBrand]: true as const };
-  freezeRecord(sealed);
+}): AuthorizedWebhookIngressEvidence | null => {
+  if (
+    !authenticatedSourceRegistry.has(input.source) ||
+    !signatureRegistry.has(input.signature) ||
+    !timestampRegistry.has(input.timestamp) ||
+    !replayRegistry.has(input.replay) ||
+    !rateLimitRegistry.has(input.rateLimit) ||
+    !sanitizedPayloadRegistry.has(input.sanitized)
+  )
+    return null;
+  const sealed = deepFreeze({ ...input });
+  authorizedIngressRegistry.set(sealed, sealed);
   return sealed;
 };
 
 export const isAuthorizedWebhookIngress = (
   value: unknown,
 ): value is AuthorizedWebhookIngressEvidence =>
-  typeof value === 'object' && value !== null && authorizedWebhookIngressBrand in value;
+  typeof value === 'object' && value !== null && authorizedIngressRegistry.has(value);

@@ -521,19 +521,19 @@ if (isCli) {
   if (memoryPort !== null) {
     expectParameters(memoryPort, 'MemoryPort', 'write', [
       'VerifiedMemoryWrite',
-      'MemoryAccessContext',
+      'AuthenticatedMemoryAccessContext',
     ]);
     expectParameters(memoryPort, 'MemoryPort', 'delete', [
       'MemoryDeleteRequest',
-      'MemoryAccessContext',
+      'AuthenticatedMemoryAccessContext',
     ]);
     expectParameters(memoryPort, 'MemoryPort', 'query', [
       'MemoryQueryRequest',
-      'MemoryAccessContext',
+      'AuthenticatedMemoryAccessContext',
     ]);
     expectParameters(memoryPort, 'MemoryPort', 'read', [
       'MemoryReadRequest',
-      'MemoryAccessContext',
+      'AuthenticatedMemoryAccessContext',
     ]);
   }
 
@@ -541,7 +541,7 @@ if (isCli) {
   if (auditPort !== null)
     expectParameters(auditPort, 'MemoryAuditPort', 'record', [
       'SafeMemoryAuditEvent',
-      'MemoryAccessContext',
+      'AuthenticatedMemoryAccessContext',
     ]);
 
   const mediaAuditPort = parse(join(repoRoot, 'src/core/ports/media-audit-log.port.ts'));

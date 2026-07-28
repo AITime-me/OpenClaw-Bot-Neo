@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { err } from '../src/core/domain/index.js';
 import { executeMemoryWrite } from '../src/core/application/index.js';
 import {
-  accessContext,
+  authenticatedAccess,
   createHarness,
   externalSource,
   operationContext,
@@ -17,7 +17,7 @@ import {
 describe('memory-write orchestration order', () => {
   it('scans text and metadata before reaching any sink', async () => {
     const harness = createHarness();
-    const result = await executeMemoryWrite(harness.deps, accessContext(), writeCommand());
+    const result = await executeMemoryWrite(harness.deps, authenticatedAccess(), writeCommand());
     expect(result.ok).toBe(true);
     expect(harness.calls).toEqual([
       'scanText',
@@ -36,7 +36,7 @@ describe('memory-write orchestration order', () => {
     const harness = createHarness();
     const result = await executeMemoryWrite(
       harness.deps,
-      accessContext(),
+      authenticatedAccess(),
       writeCommand({ rawContent: `Заметка. ${QUOTED_PASSWORD_LINE}` }),
     );
     expect(result.ok).toBe(true);
@@ -53,7 +53,7 @@ describe('memory-write orchestration order', () => {
     const harness = createHarness();
     await executeMemoryWrite(
       harness.deps,
-      accessContext(),
+      authenticatedAccess(),
       writeCommand({
         rawContent: `Заметка. ${QUOTED_PASSWORD_LINE}`,
         rawMetadata: { origin: 'owner-note', comment: 'safe' },
@@ -72,7 +72,7 @@ describe('memory-write refusals never touch a sink', () => {
     const harness = createHarness();
     const result = await executeMemoryWrite(
       harness.deps,
-      accessContext(),
+      authenticatedAccess(),
       writeCommand({ rawContent: `Ссылка ${URL_WITH_CREDENTIALS}`, source: externalSource() }),
     );
     expect(result.ok).toBe(false);
@@ -87,7 +87,7 @@ describe('memory-write refusals never touch a sink', () => {
     const harness = createHarness({
       scanTextResult: err({ code: 'NOT_CONFIGURED', component: 'scanner' }),
     });
-    const result = await executeMemoryWrite(harness.deps, accessContext(), writeCommand());
+    const result = await executeMemoryWrite(harness.deps, authenticatedAccess(), writeCommand());
     expect(result).toEqual({ ok: false, error: { code: 'SCANNER_UNAVAILABLE' } });
     expect(harness.calls).toEqual(['scanText']);
   });
@@ -96,7 +96,7 @@ describe('memory-write refusals never touch a sink', () => {
     const harness = createHarness({
       scanMetadataResult: err({ code: 'NOT_CONFIGURED', component: 'scanner' }),
     });
-    const result = await executeMemoryWrite(harness.deps, accessContext(), writeCommand());
+    const result = await executeMemoryWrite(harness.deps, authenticatedAccess(), writeCommand());
     expect(result).toEqual({ ok: false, error: { code: 'SCANNER_UNAVAILABLE' } });
     expect(harness.calls).toEqual(['scanText', 'scanMetadata']);
   });
@@ -105,7 +105,7 @@ describe('memory-write refusals never touch a sink', () => {
     const harness = createHarness({
       policyDecision: { decision: 'deny', reason: 'commercial secret' },
     });
-    const result = await executeMemoryWrite(harness.deps, accessContext(), writeCommand());
+    const result = await executeMemoryWrite(harness.deps, authenticatedAccess(), writeCommand());
     expect(result).toEqual({
       ok: false,
       error: { code: 'POLICY_DENIED', reason: 'commercial secret' },
@@ -115,19 +115,18 @@ describe('memory-write refusals never touch a sink', () => {
 
   it('stops when the memory policy is unavailable', async () => {
     const harness = createHarness({ policyFails: true });
-    const result = await executeMemoryWrite(harness.deps, accessContext(), writeCommand());
+    const result = await executeMemoryWrite(harness.deps, authenticatedAccess(), writeCommand());
     expect(result).toEqual({ ok: false, error: { code: 'POLICY_UNAVAILABLE' } });
   });
 
   it('refuses an aborted or missing operation context', async () => {
     const controller = new AbortController();
-    controller.abort();
     const harness = createHarness();
-    const result = await executeMemoryWrite(
-      harness.deps,
-      accessContext({ operation: operationContext({ signal: controller.signal }) }),
-      writeCommand(),
-    );
+    const access = authenticatedAccess({
+      operation: operationContext({ signal: controller.signal }),
+    });
+    controller.abort();
+    const result = await executeMemoryWrite(harness.deps, access, writeCommand());
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe('INVALID_OPERATION_CONTEXT');
@@ -138,7 +137,7 @@ describe('memory-write refusals never touch a sink', () => {
     const harness = createHarness();
     const result = await executeMemoryWrite(
       harness.deps,
-      accessContext(),
+      authenticatedAccess(),
       writeCommand({ rawContent: '   ' }),
     );
     expect(result.ok).toBe(false);
@@ -151,7 +150,7 @@ describe('memory-write refusals never touch a sink', () => {
     const harness = createHarness();
     const result = await executeMemoryWrite(
       harness.deps,
-      accessContext(),
+      authenticatedAccess(),
       writeCommand({ targetNamespace: 'tvoe-vremya' }),
     );
     expect(result).toEqual({
@@ -165,14 +164,14 @@ describe('memory-write refusals never touch a sink', () => {
 describe('sink failures surface as typed results', () => {
   it('returns a typed failure when memory is unavailable', async () => {
     const harness = createHarness({ memoryFails: true });
-    const result = await executeMemoryWrite(harness.deps, accessContext(), writeCommand());
+    const result = await executeMemoryWrite(harness.deps, authenticatedAccess(), writeCommand());
     expect(result).toEqual({ ok: false, error: { code: 'MEMORY_UNAVAILABLE' } });
     expect(harness.calls).not.toContain('audit.record');
   });
 
   it('does not report success when the audit sink fails', async () => {
     const harness = createHarness({ auditFails: true });
-    const result = await executeMemoryWrite(harness.deps, accessContext(), writeCommand());
+    const result = await executeMemoryWrite(harness.deps, authenticatedAccess(), writeCommand());
     expect(result).toEqual({ ok: false, error: { code: 'AUDIT_FAILED' } });
   });
 
@@ -180,7 +179,7 @@ describe('sink failures surface as typed results', () => {
     const harness = createHarness();
     const result = await executeMemoryWrite(
       harness.deps,
-      accessContext(),
+      authenticatedAccess(),
       writeCommand({
         source: externalSource(),
         rawContent: 'Публичное объявление о поиске подрядчика.',
@@ -193,7 +192,7 @@ describe('sink failures surface as typed results', () => {
 
   it('records a successful write with a sealed contract only', async () => {
     const harness = createHarness();
-    const result = await executeMemoryWrite(harness.deps, accessContext(), writeCommand());
+    const result = await executeMemoryWrite(harness.deps, authenticatedAccess(), writeCommand());
     expect(result.ok).toBe(true);
     const written = harness.writes[0];
     expect(written?.content.scanDecision).toBe('allow');

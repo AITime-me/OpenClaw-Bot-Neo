@@ -4,7 +4,6 @@ import type {
   ApprovalFailureCode,
   ApprovalId,
   ISO8601,
-  MemoryAccessContext,
   MemoryNamespace,
   MemoryProvenance,
   MemoryRecordId,
@@ -21,6 +20,15 @@ import type {
   SensitiveCategory,
 } from '../domain/index.js';
 import {
+  isAuthenticatedMemoryAccessContext,
+  type AuthenticatedMemoryAccessContext,
+} from '../domain/memory-access.internal.js';
+import {
+  getSanitizedMetadataCanonical,
+  getSanitizedTextCanonical,
+  isSanitizedMetadata,
+  isSanitizedText,
+  isVerifiedMemoryWrite,
   sealSanitizedMetadata,
   sealSanitizedText,
   sealVerifiedMemoryWrite,
@@ -135,18 +143,26 @@ export function memoryWriteTarget(
  * to be written. Callers never construct this object.
  */
 export function deriveMemoryWriteApprovalDemand(input: {
-  readonly access: MemoryAccessContext;
+  readonly access: AuthenticatedMemoryAccessContext;
   readonly targetNamespace: MemoryNamespace;
   readonly recordId: MemoryRecordId;
   readonly content: SanitizedText;
   readonly metadata: SanitizedMetadata;
   readonly projectScope: ProjectScope;
 }): ApprovalDemand {
+  if (!isAuthenticatedMemoryAccessContext(input.access))
+    throw new TypeError('Authenticated memory access evidence is required.');
+  if (!isSanitizedText(input.content) || !isSanitizedMetadata(input.metadata))
+    throw new TypeError('Canonical sanitized snapshot evidence is required.');
+  const contentCanonical = getSanitizedTextCanonical(input.content);
+  const metadataCanonical = getSanitizedMetadataCanonical(input.metadata);
+  if (contentCanonical === null || metadataCanonical === null)
+    throw new TypeError('Canonical sanitized snapshot is missing.');
   const target = memoryWriteTarget(input.targetNamespace, input.recordId);
   const payloadDigest = computePayloadDigest({
     effect: 'write',
-    content: input.content.value,
-    metadata: input.metadata.entries,
+    content: contentCanonical.value,
+    metadata: metadataCanonical.entries,
     namespace: input.targetNamespace,
     target,
     recordId: input.recordId,
@@ -175,10 +191,12 @@ const toIso = (instant: Date): ISO8601 => instant.toISOString() as ISO8601;
  */
 export async function executeMemoryWrite(
   deps: MemoryWriteDeps,
-  access: MemoryAccessContext,
+  access: AuthenticatedMemoryAccessContext,
   command: MemoryWriteCommand,
 ): Promise<Result<MemoryWriteOutcome, MemoryWriteFailure>> {
-  // 1. Validate the authenticated operation context.
+  // 1. Validate the authenticated operation context and opaque access evidence.
+  if (!isAuthenticatedMemoryAccessContext(access))
+    return err({ code: 'INVALID_OPERATION_CONTEXT', detail: 'MISSING_ACCESS_CONTEXT' });
   const contextFailure = validateOperationContext(access.operation);
   if (contextFailure !== null)
     return err({ code: 'INVALID_OPERATION_CONTEXT', detail: contextFailure.code });
@@ -287,24 +305,24 @@ export async function executeMemoryWrite(
   }
 
   // 14. Write through the memory port using the sealed contract only.
-  const written = await deps.memory.write(
-    sealVerifiedMemoryWrite({
-      recordId: command.recordId,
-      ownerId: access.ownerId,
-      namespace: command.targetNamespace,
-      content,
-      metadata,
-      source: command.source,
-      provenance: { ...provenance, ownerApproved: approvalId !== null },
-      privacyClassification,
-      trustLevel,
-      retentionPolicy: command.retentionPolicy,
-      approvalId,
-      createdAt: trustedIso,
-      updatedAt: trustedIso,
-    }),
-    access,
-  );
+  const verifiedWrite = sealVerifiedMemoryWrite({
+    recordId: command.recordId,
+    ownerId: access.ownerId,
+    namespace: command.targetNamespace,
+    content,
+    metadata,
+    source: command.source,
+    provenance: { ...provenance, ownerApproved: approvalId !== null },
+    privacyClassification,
+    trustLevel,
+    retentionPolicy: command.retentionPolicy,
+    approvalId,
+    createdAt: trustedIso,
+    updatedAt: trustedIso,
+  });
+  if (verifiedWrite === null || !isVerifiedMemoryWrite(verifiedWrite))
+    return err({ code: 'DIGEST_FAILED' });
+  const written = await deps.memory.write(verifiedWrite, access);
   if (!written.ok) return err({ code: 'MEMORY_UNAVAILABLE' });
 
   // 15. Record safe audit metadata (no raw user-controlled metadata key names).

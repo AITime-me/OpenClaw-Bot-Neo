@@ -33,8 +33,9 @@ export interface ProjectScope {
 }
 
 /**
- * Every memory operation requires this context. A namespace carried only inside a
- * caller-supplied record is never trusted as authorization.
+ * Structural memory access fields. This ordinary object is NOT authorization proof.
+ * Memory operations require opaque AuthenticatedMemoryAccessContext evidence created by the
+ * trusted MemoryAccessGateway composition boundary.
  */
 export interface MemoryAccessContext {
   readonly ownerId: OwnerId;

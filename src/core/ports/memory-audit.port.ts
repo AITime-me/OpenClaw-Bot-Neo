@@ -1,6 +1,6 @@
 import type {
+  AuthenticatedMemoryAccessContext,
   DomainError,
-  MemoryAccessContext,
   Result,
   SafeMemoryAuditEvent,
 } from '../domain/index.js';
@@ -8,6 +8,6 @@ import type {
 export interface MemoryAuditPort {
   record(
     event: SafeMemoryAuditEvent,
-    access: MemoryAccessContext,
+    access: AuthenticatedMemoryAccessContext,
   ): Promise<Result<void, DomainError>>;
 }

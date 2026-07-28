@@ -6,6 +6,7 @@ const exportedNames = Object.keys(publicApi);
 describe('public API surface', () => {
   it('exposes the memory-write boundary and the digest helper', () => {
     expect(exportedNames).toContain('executeMemoryWrite');
+    expect(exportedNames).toContain('createMemoryAccessGateway');
     expect(exportedNames).toContain('computePayloadDigest');
     expect(exportedNames).toContain('executeExtensionRegistration');
     expect(exportedNames).toContain('executeExtensionActivation');
@@ -21,6 +22,7 @@ describe('public API surface', () => {
       'sealSanitizedMetadata',
       'sealVerifiedMemoryWrite',
       'sealValidatedApproval',
+      'sealAuthenticatedMemoryAccess',
       'sanitizedTextBrand',
       'sanitizedMetadataBrand',
       'verifiedMemoryWriteBrand',
@@ -58,6 +60,9 @@ describe('public API surface', () => {
       'activeExtensionRegistrationBrand',
       'sealVerifiedVoiceProviderMatch',
       'verifiedVoiceProviderMatchBrand',
+      'authenticatedRegistry',
+      'createHarness',
+      'accessContext',
     ])
       expect(exportedNames).not.toContain(forbidden);
   });

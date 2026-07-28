@@ -5,16 +5,11 @@ import type {
   VoiceProviderMetadataResult,
 } from './voice-profile.js';
 import type { ISO8601 } from './identity.js';
+import { deepFreeze } from './immutable.js';
 
-export const validatedVoiceProfileBrand: unique symbol = Symbol('ValidatedVoiceProfile');
-export const verifiedVoiceProviderMatchBrand: unique symbol = Symbol('VerifiedVoiceProviderMatch');
-
-export interface ValidatedVoiceProfile extends VoiceProfile {
-  readonly [validatedVoiceProfileBrand]: true;
-}
+export type ValidatedVoiceProfile = VoiceProfile;
 
 export interface VerifiedVoiceProviderMatch {
-  readonly [verifiedVoiceProviderMatchBrand]: true;
   readonly profileId: string;
   readonly profileSchemaVersion: string;
   readonly selector: LogicalVoiceSelector;
@@ -31,33 +26,33 @@ export interface VerifiedVoiceProviderMatch {
   readonly expiresAt: ISO8601;
 }
 
+const validatedVoiceRegistry = new WeakMap<object, ValidatedVoiceProfile>();
+const verifiedProviderRegistry = new WeakMap<object, VerifiedVoiceProviderMatch>();
+
 /** Internal factory; only the deterministic voice validator may create this nominal type. */
 export const sealValidatedVoiceProfile = (profile: VoiceProfile): ValidatedVoiceProfile => {
-  const sealed = {
+  const sealed = deepFreeze({
     ...profile,
     styleTags: Object.freeze([...profile.styleTags]),
-    primaryVoiceSelector: Object.freeze({
+    primaryVoiceSelector: deepFreeze({
       ...profile.primaryVoiceSelector,
       styleTags: Object.freeze([...profile.primaryVoiceSelector.styleTags]),
     }),
     fallbackVoiceSelectors: Object.freeze(
       profile.fallbackVoiceSelectors.map((selector) =>
-        Object.freeze({
+        deepFreeze({
           ...selector,
           styleTags: Object.freeze([...selector.styleTags]),
         }),
       ),
     ),
-    [validatedVoiceProfileBrand]: true as const,
-  };
-  return Object.freeze(sealed);
+  });
+  validatedVoiceRegistry.set(sealed, sealed);
+  return sealed;
 };
 
-const freezeRecord = (value: unknown): void => {
-  if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return;
-  for (const nested of Object.values(value)) freezeRecord(nested);
-  Object.freeze(value);
-};
+export const isValidatedVoiceProfile = (value: unknown): value is ValidatedVoiceProfile =>
+  typeof value === 'object' && value !== null && validatedVoiceRegistry.has(value);
 
 export const sealVerifiedVoiceProviderMatch = (input: {
   readonly profileId: string;
@@ -70,10 +65,10 @@ export const sealVerifiedVoiceProviderMatch = (input: {
   readonly validatedAt: ISO8601;
   readonly expiresAt: ISO8601;
 }): VerifiedVoiceProviderMatch => {
-  const sealed = {
+  const sealed = deepFreeze({
     profileId: input.profileId,
     profileSchemaVersion: input.profileSchemaVersion,
-    selector: Object.freeze({
+    selector: deepFreeze({
       ...input.selector,
       styleTags: Object.freeze([...input.selector.styleTags]),
     }),
@@ -88,13 +83,12 @@ export const sealVerifiedVoiceProviderMatch = (input: {
     policyVersion: input.policyVersion,
     validatedAt: input.validatedAt,
     expiresAt: input.expiresAt,
-    [verifiedVoiceProviderMatchBrand]: true as const,
-  };
-  freezeRecord(sealed);
+  });
+  verifiedProviderRegistry.set(sealed, sealed);
   return sealed;
 };
 
 export const isVerifiedVoiceProviderMatch = (value: unknown): value is VerifiedVoiceProviderMatch =>
-  typeof value === 'object' && value !== null && verifiedVoiceProviderMatchBrand in value;
+  typeof value === 'object' && value !== null && verifiedProviderRegistry.has(value);
 
 export type { VoiceProviderMetadataResult };

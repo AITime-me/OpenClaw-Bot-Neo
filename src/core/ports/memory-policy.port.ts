@@ -1,6 +1,6 @@
 import type {
+  AuthenticatedMemoryAccessContext,
   DomainError,
-  MemoryAccessContext,
   MemoryNamespace,
   MemoryProvenance,
   MemoryRetentionPolicy,
@@ -26,6 +26,6 @@ export interface MemoryPolicyRequest {
 export interface MemoryPolicyPort {
   evaluate(
     request: MemoryPolicyRequest,
-    access: MemoryAccessContext,
+    access: AuthenticatedMemoryAccessContext,
   ): Promise<Result<MemoryWriteDecision, DomainError>>;
 }

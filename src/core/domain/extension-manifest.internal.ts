@@ -1,34 +1,32 @@
 import type { ExtensionManifest } from './extension-manifest.js';
+import { deepFreeze } from './immutable.js';
 
-export const verifiedExtensionManifestBrand: unique symbol = Symbol('VerifiedExtensionManifest');
+export type VerifiedExtensionManifest = ExtensionManifest;
 
-export interface VerifiedExtensionManifest extends ExtensionManifest {
-  readonly [verifiedExtensionManifestBrand]: true;
-}
-
-const freezeRecord = (value: unknown): void => {
-  if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return;
-  for (const nested of Object.values(value)) freezeRecord(nested);
-  Object.freeze(value);
-};
+const verifiedManifestRegistry = new WeakMap<object, ExtensionManifest>();
 
 /** Internal sealing factory; architecture rules restrict its importer to the validator. */
 export const sealVerifiedExtensionManifest = (
   manifest: ExtensionManifest,
 ): VerifiedExtensionManifest => {
-  const sealed = {
+  const sealed = deepFreeze({
     ...manifest,
-    declaredCapabilities: [...manifest.declaredCapabilities],
-    requiredPorts: [...manifest.requiredPorts],
-    requestedPermissions: [...manifest.requestedPermissions],
-    dataClassifications: [...manifest.dataClassifications],
-    supportedInputKinds: [...manifest.supportedInputKinds],
-    supportedOutputKinds: [...manifest.supportedOutputKinds],
-    approvalPolicy: { ...manifest.approvalPolicy, effects: [...manifest.approvalPolicy.effects] },
-    provenance: { ...manifest.provenance },
-    ownerScope: { ...manifest.ownerScope },
-    [verifiedExtensionManifestBrand]: true as const,
-  };
-  freezeRecord(sealed);
+    declaredCapabilities: Object.freeze([...manifest.declaredCapabilities]),
+    requiredPorts: Object.freeze([...manifest.requiredPorts]),
+    requestedPermissions: Object.freeze([...manifest.requestedPermissions]),
+    dataClassifications: Object.freeze([...manifest.dataClassifications]),
+    supportedInputKinds: Object.freeze([...manifest.supportedInputKinds]),
+    supportedOutputKinds: Object.freeze([...manifest.supportedOutputKinds]),
+    approvalPolicy: deepFreeze({
+      ...manifest.approvalPolicy,
+      effects: Object.freeze([...manifest.approvalPolicy.effects]),
+    }),
+    provenance: deepFreeze({ ...manifest.provenance }),
+    ownerScope: deepFreeze({ ...manifest.ownerScope }),
+  });
+  verifiedManifestRegistry.set(sealed, sealed);
   return sealed;
 };
+
+export const isVerifiedExtensionManifest = (value: unknown): value is VerifiedExtensionManifest =>
+  typeof value === 'object' && value !== null && verifiedManifestRegistry.has(value);

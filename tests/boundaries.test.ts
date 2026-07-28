@@ -125,3 +125,16 @@ describe('production source tree', () => {
     expect(report.filesAnalyzed).toBeGreaterThan(20);
   });
 });
+
+describe('package exports', () => {
+  it('publishes only the documented root export', async () => {
+    const { readFileSync } = await import('node:fs');
+    const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      exports: Record<string, unknown>;
+      files: string[];
+    };
+    expect(Object.keys(pkg.exports)).toEqual(['.']);
+    expect(pkg.files).toEqual(['dist']);
+    expect(JSON.stringify(pkg.exports)).not.toMatch(/\.internal|tests\//);
+  });
+});

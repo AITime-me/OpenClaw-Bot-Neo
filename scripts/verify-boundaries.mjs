@@ -37,4 +37,33 @@ if (failures.length > 0) {
   console.error(failures.join('\n'));
   process.exit(1);
 }
+
+/** Detect transferable Symbol-brand trust markers in security evidence modules. */
+const evidenceFiles = listFiles('src/core/domain').filter((path) => path.endsWith('.internal.ts'));
+const symbolBrand =
+  /(?:Brand\s*=\s*Symbol\b|Symbol\s*\(\s*['"`][^'"`]*[Bb]rand|\[\s*[A-Za-z0-9_]*[Bb]rand\s*\]\s*:)/;
+for (const file of evidenceFiles) {
+  const source = readFileSync(file, 'utf8');
+  if (symbolBrand.test(source))
+    failures.push(`SYMBOL_TRUST_BRAND: ${file} still uses a Symbol property as security proof.`);
+}
+
+const packageJsonPath = 'package.json';
+if (!existsSync(packageJsonPath)) failures.push('PACKAGE_EXPORTS: package.json is missing.');
+else {
+  const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+  const exportKeys = Object.keys(pkg.exports ?? {});
+  if (exportKeys.length !== 1 || exportKeys[0] !== '.')
+    failures.push('PACKAGE_EXPORTS: only the documented root "." export is allowed.');
+  const serialized = JSON.stringify(pkg.exports ?? {});
+  if (serialized.includes('.internal') || serialized.includes('tests/'))
+    failures.push('PACKAGE_EXPORTS: internal or test subpaths must not be exported.');
+  if (!Array.isArray(pkg.files) || !pkg.files.includes('dist') || pkg.files.includes('src'))
+    failures.push('PACKAGE_EXPORTS: package files allowlist must publish dist only.');
+}
+
+if (failures.length > 0) {
+  console.error(failures.join('\n'));
+  process.exit(1);
+}
 console.log(`Boundary checks passed for ${String(report.filesAnalyzed)} source files.`);

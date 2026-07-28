@@ -8,7 +8,7 @@ import {
   type ExtensionPermissionRequest,
 } from '../domain/index.js';
 import {
-  activeExtensionRegistrationBrand,
+  isActiveExtensionRegistration,
   type ActiveExtensionRegistration,
 } from '../domain/extension-registry-entry.internal.js';
 import {
@@ -33,7 +33,7 @@ const allKnown = (values: readonly unknown[]): values is readonly ExtensionPermi
   );
 
 const isSealedActive = (value: unknown): value is ActiveExtensionRegistration =>
-  typeof value === 'object' && value !== null && activeExtensionRegistrationBrand in value;
+  isActiveExtensionRegistration(value);
 
 const isFresh = (evidence: RuntimeRiskEvidence, now: Date): boolean => {
   const classifiedAt = Date.parse(evidence.classifiedAt);

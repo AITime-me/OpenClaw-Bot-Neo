@@ -70,8 +70,10 @@
 - Telegram bot token никогда не достигает memory/logs.
 - Scanner unavailable => write denied; timeout/ambiguity/limit также fail closed.
 - Quoted assignment редактируется целиком; percent-encoded URL userinfo блокируется; finding не содержит фрагментов исходного секрета; metadata сканируется фактически.
-- Query, write, read и delete требуют authenticated access context; знание record ID не позволяет удалить запись.
-- Raw content не может попасть в `MemoryPort`: sink принимает только sealed write contract, созданный memory-write сервисом.
+- Query, write, read и delete требуют opaque authenticated gateway context; ordinary
+  `MemoryAccessContext` и знание record ID не являются authorization; request body не назначает
+  owner/actor/role.
+- Raw content не может попасть в `MemoryPort`: sink принимает только sealed write contract, созданный memory-write сервисом; sanitized snapshot deeply immutable и общий для digest/policy/write.
 - Delete удаляет сырьё и derived/index entries, оставляя только минимальный redacted audit; результат удаления проверяется.
 - Memory embedding provider указан явно (`none` или проверенный local placeholder); внешний provider не выбирается default-ом.
 
@@ -121,8 +123,11 @@
   core-owned webhook bytes и core-sealed signature evidence из untrusted verifier result; sealed
   VoiceProvider match evidence. Ordinary object literals не являются proof.
 - Build 2.1F закрывает MEDIUM R2.1-001 (metadata traversal budget), R2.1-002 (path-aware memory
-  AST) и R2.1-007 (VoiceProfile + production SensitiveDataScanner). Окончательный security approval
-  до Codex Review №4 не объявляется.
+  AST) и R2.1-007 (VoiceProfile + production SensitiveDataScanner).
+- Build 2.1G закрывает FIN-001 (immutable sanitized snapshot), FIN-002 (authenticated memory
+  gateway context) и FIN-003 (WeakMap identity membership вместо Symbol-brand; package exports
+  закрывают internal subpaths). FIN-004—FIN-014 не объявлены закрытыми. Окончательный security
+  approval до нового Codex review не объявляется. Реальный authentication adapter отсутствует.
 
 ## Deployment
 

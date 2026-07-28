@@ -70,7 +70,14 @@ deny без утечки key/value. Findings/errors не содержат raw ke
 audit использует `metadataFieldCount` и категории findings, а не raw `Object.keys()`
 пользовательской metadata.
 
-Sanitized-значения представлены nominal-типами (`SanitizedText`, `SanitizedMetadata`, `VerifiedMemoryWrite`). Фабрики этих типов не входят в публичный API; доступ к ним ограничен allowlist-правилом architecture checker, поэтому adapter не может пометить непроверенную строку как sanitized. `MemoryPort.write` принимает только sealed write contract, а audit-порты — строго типизированные события без свободного payload.
+Sanitized-значения представлены opaque evidence-типами (`SanitizedText`, `SanitizedMetadata`,
+`VerifiedMemoryWrite`). Фабрики не входят в публичный API; доступ ограничен allowlist architecture
+checker. Trust — module-private WeakMap membership по object identity, а не TypeScript brand и не
+Symbol property: spread/`Object.assign`/prototype/`structuredClone`/JSON clone не являются evidence.
+Sanitized snapshot defensive-copied и deeply frozen; один и тот же canonical snapshot используется
+для approval digest, policy и `MemoryPort.write`. Retained scanner references не могут изменить
+write после sealing. Audit принимает только sealed write contract без свободного payload и без
+mutable metadata.
 
 ## Недоверенный контент и память
 
@@ -137,7 +144,20 @@ provider metadata проходят production SensitiveDataScanner; scanner fail
 
 Namespace изолирован по владельцу, роли и проекту; записи имеют source, observedAt, confidence, classification, retention и consent basis. Непроверенные выводы не становятся фактами. Embeddings по умолчанию отсутствуют; внешняя embedding-служба не разрешена. Retention применяется отдельно к сырью, derived notes и audit.
 
-Каждая операция памяти — query, read, write, delete — требует authenticated access context с `ownerId`, `actorId`, ролью, активным namespace, project scope, correlation id и operation context с `AbortSignal` и timeout. Namespace, указанный только внутри переданной записи, не является авторизацией. Delete не принимает один идентификатор: запрос обязан включать ожидаемого владельца и ожидаемый namespace, поэтому знание record ID не даёт права на удаление. Проектный namespace не удаляет `personal` и `security-restricted`; `security-restricted` доступен только Security Guard внутри того же namespace; cross-project чтение требует явного permission, а cross-namespace мутация запрещена. Отсутствие любого обязательного элемента контекста означает deny.
+Каждая операция памяти — query, read, write, delete — требует opaque
+`AuthenticatedMemoryAccessContext`, создаваемый только trusted composition
+(`MemoryAccessGateway` + pre-bound authentication dependency). Ordinary `MemoryAccessContext`
+object literal, frozen clone, TypeScript cast и request body поля `owner`/`actor`/`role`/
+`authenticated: true` не являются authorization. Role `security-guard` не может быть
+self-asserted. Знание record ID не даёт read/delete. Namespace, указанный только внутри переданной
+записи, не является авторизацией. Проектный namespace не удаляет `personal` и `security-restricted`;
+`security-restricted` доступен только Security Guard внутри того же namespace; cross-project чтение
+требует явного permission, а cross-namespace мутация запрещена. Реальный Telegram/OpenClaw
+authentication adapter ещё не реализован.
+
+Security evidence (runtime risk, registry activation, deployment authorization, webhook, voice,
+sanitized memory, authenticated access) использует identity-based private WeakMap membership.
+Symbol properties, spread clones и prototype clones не являются proof.
 
 ## Runtime и supply chain
 
@@ -169,6 +189,8 @@ try/catch/finally или logical/conditional expressions → fail. Dead helper �
 contracts без loader или integrations. Build 2.1C закрывает OCN-001 (approval binding), OCN-002
 (scanner newline/metadata keys), OCN-003 (target-specific memory AST) и OCN-006 (computed
 import/require). Build 2.1D закрывает B21-001—B21-004. Build 2.1E закрывает R2.1-003—R2.1-006
-(trusted evidence closure). Build 2.1F закрывает MEDIUM R2.1-001/002/007. Окончательный security
-approval требует независимого Codex Review №4. Эти gates действуют только внутри ядра и не
-означают, что OpenClaw runtime или adapters уже их используют.
+(trusted evidence closure). Build 2.1F закрывает MEDIUM R2.1-001/002/007. Build 2.1G закрывает
+FIN-001/002/003 (immutable sanitized snapshot, authenticated memory gateway, non-forgeable WeakMap
+provenance, restrictive package exports). FIN-004—FIN-014 не объявлены закрытыми. Окончательный
+security approval требует нового независимого Codex review. Эти gates действуют только внутри ядра
+и не означают, что OpenClaw runtime или adapters уже их используют.

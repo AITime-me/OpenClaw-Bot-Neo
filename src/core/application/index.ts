@@ -6,6 +6,13 @@ export type {
   MemoryWriteFailure,
   MemoryWriteOutcome,
 } from './memory-write.service.js';
+export { createMemoryAccessGateway } from './memory-access.gateway.js';
+export type {
+  ChannelAuthenticationPort,
+  MemoryAccessGateway,
+  MemoryAccessGatewayDeps,
+  MemoryAccessGatewayFailure,
+} from './memory-access.gateway.js';
 export { executeExtensionRegistration } from './extension-registration.service.js';
 export type {
   ExtensionRegistrationDeps,

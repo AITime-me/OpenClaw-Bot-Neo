@@ -267,6 +267,8 @@ export async function executeWebhookIngress(
     sanitized,
     authorizedAt: trustedIso,
   });
+  if (evidence === null)
+    return fail('DIGEST_MISMATCH', 'Authorized webhook evidence could not be sealed.');
 
   const auditEvent: SafeWebhookAuditEvent = {
     sourceId: envelope.sourceId,

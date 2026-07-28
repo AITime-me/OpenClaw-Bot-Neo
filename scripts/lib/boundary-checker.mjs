@@ -69,6 +69,12 @@ export const INTERNAL_MODULE_ALLOWLIST = {
     'core/domain/index.ts',
     'core/application/memory-write.service.ts',
   ],
+  'core/domain/memory-access.internal.ts': [
+    'core/domain/index.ts',
+    'core/policy/namespace-isolation.ts',
+    'core/application/memory-write.service.ts',
+    'core/application/memory-access.gateway.ts',
+  ],
 };
 
 const toPosix = (value) => value.split('\\').join('/');

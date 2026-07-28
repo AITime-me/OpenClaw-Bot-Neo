@@ -30,7 +30,7 @@ Multimodal workflow — общая техническая capability обраб�
 
 ## Статус
 
-**Build №2 + Security Remediation 2.1A–2.1F + Extensibility 2.1B/2.1D + Trusted Evidence 2.1E:
+**Build №2 + Security Remediation 2.1A–2.1G + Extensibility 2.1B/2.1D + Trusted Evidence 2.1E:
 verifiable core.**
 Build 2.1B добавляет versioned declarative manifests, default-deny permission composition,
 provider-independent registry/webhook contracts, отключённые examples для call-analysis и external
@@ -53,8 +53,14 @@ untrusted primitive result, sealing выполняет core. Ordinary object lit
 Build 2.1F закрывает MEDIUM R2.1-001/002/007: единый fail-closed metadata traversal budget
 (containers/empty nodes/key length/depth); path-aware conservative memory isolation checker
 (normalization + untrusted marking в обязательном порядке; split-branch → fail); VoiceProfile
-проходит production SensitiveDataScanner до sealing. Независимый Codex Review №4 ещё не выполнен.
-Реальных adapters/providers/runtime по-прежнему нет.
+проходит production SensitiveDataScanner до sealing.
+
+Build 2.1G закрывает FIN-001/002/003 независимого Codex Review №4: immutable sanitized snapshot,
+opaque `AuthenticatedMemoryAccessContext` через trusted `MemoryAccessGateway`, и non-forgeable
+WeakMap/WeakSet identity membership вместо transferable Symbol-brand. Package `exports` разрешает
+только documented root API; internal subpaths закрыты. FIN-004—FIN-014 намеренно не закрыты.
+Окончательный security approval отсутствует до нового Codex review. Реальных
+adapters/providers/runtime/authentication по-прежнему нет.
 
 Runtime, plugin loader, адаптеры, providers, реальные integrations/webhooks, TTS, бот, deployment и
 рабочая конфигурация по-прежнему отсутствуют. Текущая URL policy не является полной SSRF-защитой:
