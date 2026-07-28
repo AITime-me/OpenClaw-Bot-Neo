@@ -35,8 +35,9 @@ export interface ExtensionRegistryPort {
     context: OperationContext,
   ): Promise<Result<ExtensionActivationState, DomainError>>;
   /**
-   * Apply a sealed trusted activation transition. Implementations must enforce
-   * EXTENSION_ACTIVATION_TRANSITIONS and refuse unknown states.
+   * Apply a sealed trusted activation transition atomically.
+   * Implementations must require expectedPreviousState, refuse stale/replayed nonces,
+   * and return a sealed entry only after a successful exclusive transition.
    */
   updateActivationState(
     decision: TrustedActivationDecision,

@@ -56,10 +56,11 @@ export interface VoiceProfile {
 }
 
 /**
- * Future adapter evidence. Core remains provider-independent; missing or mismatched evidence
- * forces text-only.
+ * Untrusted raw provider metadata returned by a future TTS adapter.
+ * Favorable booleans here are not authorization proof.
  */
-export interface VoiceProviderMatchEvidence {
+export interface VoiceProviderMetadataResult {
+  readonly providerVoiceReference: string;
   readonly language: string;
   readonly genderPresentation: GenderPresentation;
   readonly compatibleWithSelector: boolean;
@@ -68,6 +69,11 @@ export interface VoiceProviderMatchEvidence {
   readonly identityImitation: boolean;
   readonly metadataVerified: boolean;
 }
+
+/**
+ * @deprecated Structural evidence is not trusted. Use sealed VerifiedVoiceProviderMatch.
+ */
+export type VoiceProviderMatchEvidence = VoiceProviderMetadataResult;
 
 export type VoiceProfileFailureCode =
   | 'INVALID_PROFILE'

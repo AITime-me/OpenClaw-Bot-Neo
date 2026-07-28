@@ -11,6 +11,10 @@ import {
   activeExtensionRegistrationBrand,
   type ActiveExtensionRegistration,
 } from '../domain/extension-registry-entry.internal.js';
+import {
+  isRuntimeRiskEvidence,
+  type RuntimeRiskEvidence,
+} from '../domain/extension-runtime-risk.internal.js';
 
 const deny = (
   code: Extract<ExtensionPermissionDecision, { allowed: false }>['code'],
@@ -31,10 +35,23 @@ const allKnown = (values: readonly unknown[]): values is readonly ExtensionPermi
 const isSealedActive = (value: unknown): value is ActiveExtensionRegistration =>
   typeof value === 'object' && value !== null && activeExtensionRegistrationBrand in value;
 
+const isFresh = (evidence: RuntimeRiskEvidence, now: Date): boolean => {
+  const classifiedAt = Date.parse(evidence.classifiedAt);
+  const expiresAt = Date.parse(evidence.expiresAt);
+  const current = now instanceof Date ? now.getTime() : Number.NaN;
+  return (
+    Number.isFinite(classifiedAt) &&
+    Number.isFinite(expiresAt) &&
+    Number.isFinite(current) &&
+    expiresAt > classifiedAt &&
+    current >= classifiedAt &&
+    current < expiresAt
+  );
+};
+
 /**
  * Effective permissions are the intersection of manifest request, deployment, role, Security
- * Guard and risk policy. Manifest risk cannot be lowered by runtime parameters. No role
- * (including Director) can turn a deny into an allow. Pending/disabled/rejected registrations deny.
+ * Guard and risk policy. Manifest/registration risk cannot be lowered by runtime parameters.
  */
 export function resolveExtensionPermissions(
   request: ExtensionPermissionRequest,
@@ -48,12 +65,28 @@ export function resolveExtensionPermissions(
     return deny('MODEL_PERMISSION_OVERRIDE', 'Model output cannot change permissions.');
   if (request.modelRiskOverride !== undefined)
     return deny('MODEL_RISK_OVERRIDE', 'Model output cannot change risk.');
-  if (request.runtimeRisk === null)
-    return deny('MISSING_RISK', 'Trusted runtime risk evidence is required.');
+  if (!isRuntimeRiskEvidence(request.runtimeRiskEvidence))
+    return deny('MISSING_RISK', 'Sealed runtime risk evidence is required.');
+  const riskEvidence = request.runtimeRiskEvidence;
+  if (!isFresh(riskEvidence, request.now))
+    return deny('STALE_RISK', 'Runtime risk evidence is stale or not yet valid.');
+  if (riskEvidence.correlationId !== request.correlationId)
+    return deny('OPERATION_MISMATCH', 'Runtime risk evidence is bound to another operation.');
+  if (
+    riskEvidence.extensionId !== registration.extensionId ||
+    riskEvidence.extensionVersion !== registration.version
+  )
+    return deny('VERSION_MISMATCH', 'Runtime risk evidence does not match the registration.');
+  if (riskEvidence.registrationPolicyVersion !== registration.policyVersion)
+    return deny('POLICY_MISMATCH', 'Runtime risk evidence policy version mismatch.');
+  if (riskEvidence.registrationEffectiveRisk !== registration.effectiveRiskClass)
+    return deny('REGISTRATION_MISMATCH', 'Runtime risk evidence registration risk mismatch.');
 
   const effectiveRisk = resolveEffectiveExtensionRisk(
     registration.manifest.riskClass,
-    request.runtimeRisk,
+    registration.effectiveRiskClass,
+    riskEvidence.classifiedRisk,
+    riskEvidence.registrationEffectiveRisk,
   );
   if (!effectiveRisk.ok) return deny('UNKNOWN_RISK', 'Unknown risk class causes deny.');
 

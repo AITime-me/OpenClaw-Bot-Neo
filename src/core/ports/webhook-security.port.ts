@@ -3,11 +3,8 @@ import type {
   Result,
   SafeWebhookAuditEvent,
   WebhookEnvelope,
+  WebhookSignatureVerificationResult,
 } from '../domain/index.js';
-import type {
-  PayloadBoundSignatureEvidence,
-  RawWebhookPayloadHandle,
-} from '../domain/webhook.internal.js';
 import type { OperationContext } from './operation-context.js';
 
 export interface WebhookSourceAuthenticationPort {
@@ -18,15 +15,16 @@ export interface WebhookSourceAuthenticationPort {
 }
 
 /**
- * Signature verification is bound to a sealed raw payload handle and its computed digest.
- * Callers cannot pass an unbound digest as proof.
+ * Signature verification receives a disposable byte copy. It returns an untrusted primitive
+ * result — never core-branded evidence. Core seals evidence after validating the result.
  */
 export interface WebhookSignatureVerificationPort {
   verify(
     envelope: WebhookEnvelope,
-    payload: RawWebhookPayloadHandle,
+    disposablePayloadBytes: Uint8Array,
+    payloadDigest: string,
     context: OperationContext,
-  ): Promise<Result<PayloadBoundSignatureEvidence | null, DomainError>>;
+  ): Promise<Result<WebhookSignatureVerificationResult | null, DomainError>>;
 }
 
 export interface WebhookReplayProtectionPort {

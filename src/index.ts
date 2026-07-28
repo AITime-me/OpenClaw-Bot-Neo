@@ -19,14 +19,22 @@ export type {
   ExtensionRegistrationOutcome,
 } from './core/application/extension-registration.service.js';
 export {
+  computeManifestDigest,
   executeExtensionActivation,
-  toActiveExtensionRegistration,
+  issueDeploymentAuthorization,
 } from './core/application/extension-activation.service.js';
 export type {
+  DeploymentAuthorizationCommand,
   ExtensionActivationCommand,
   ExtensionActivationDeps,
   ExtensionActivationFailure,
+  ExtensionActivationOutcome,
 } from './core/application/extension-activation.service.js';
+export { classifyExtensionRuntimeRisk } from './core/application/runtime-risk-classification.service.js';
+export type {
+  RuntimeRiskClassificationDeps,
+  RuntimeRiskClassificationFailure,
+} from './core/application/runtime-risk-classification.service.js';
 export { executeWebhookIngress } from './core/application/webhook-ingress.service.js';
 export type {
   WebhookIngressDeps,
@@ -40,8 +48,15 @@ export {
   validateWebhookIngressLimits,
 } from './core/policy/webhook-ingress.js';
 export type { WebhookIngressLimits } from './core/domain/webhook.js';
-export { resolveVoiceAvailability, validateVoiceProfile } from './core/policy/voice-profile.js';
-export type { VoiceProfileValidation } from './core/policy/voice-profile.js';
+export {
+  resolveVoiceAvailability,
+  validateVoiceProfile,
+  validateVoiceProviderMatch,
+} from './core/policy/voice-profile.js';
+export type {
+  VoiceProfileValidation,
+  VoiceProviderValidation,
+} from './core/policy/voice-profile.js';
 export {
   resolveEffectiveExtensionRisk,
   requiredApprovalEffectFor,

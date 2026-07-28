@@ -20,6 +20,7 @@ export * from './sensitive-data.js';
 export * from './audit-event.js';
 export * from './extension-manifest.js';
 export * from './extension-risk.js';
+export * from './extension-runtime-risk.js';
 export * from './extension-permission.js';
 export * from './extension-registry-entry.js';
 export * from './webhook.js';
@@ -36,8 +37,11 @@ export * from './result.js';
 export type { ValidatedApproval } from './approval.internal.js';
 export type { VerifiedExtensionManifest } from './extension-manifest.internal.js';
 export type { ValidatedVoiceProfile } from './voice-profile.internal.js';
+export type { VerifiedVoiceProviderMatch } from './voice-profile.internal.js';
+export type { RuntimeRiskEvidence } from './extension-runtime-risk.internal.js';
 export type {
   ActiveExtensionRegistration,
+  DeploymentAuthorizationEvidence,
   SealedExtensionRegistryEntry,
   TrustedActivationDecision,
 } from './extension-registry-entry.internal.js';

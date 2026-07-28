@@ -76,6 +76,12 @@ provider: если совместимого мужского голоса нет
   dangerous permissions требуют matching approval effects; registry хранит activation state
   (`pending-policy` ≠ active); webhook authorization только через orchestration evidence;
   Neo VoiceProfile — только `ru-RU` masculine text-only fallback, disabled → text-only.
+- Build 2.1E закрывает R2.1-003—R2.1-006: `RuntimeRiskEvidence` и `VerifiedVoiceProviderMatch`
+  создаются только trusted classification/validation boundary; active registration — только после
+  atomic registry transition; deployment authorization — sealed evidence, не boolean; webhook
+  adapter возвращает untrusted verification result, canonical payload bytes принадлежат core,
+  sealing signature evidence выполняет core. Ordinary object literals не являются trusted proof.
+  MEDIUM R2.1-001/002/007 не закрываются на этом этапе.
 - Следующий этап: локальные адаптеры и runtime policy enforcement после отдельного утверждения.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.

@@ -21,18 +21,20 @@ export const isExtensionRiskClass = (value: unknown): value is ExtensionRiskClas
   typeof value === 'string' && (EXTENSION_RISK_CLASSES as readonly string[]).includes(value);
 
 /**
- * Effective risk is the strictest of immutable manifest risk and trusted runtime risk.
+ * Effective risk is the strictest of every provided controlled risk input.
  * Unknown or missing values are not treated as low.
  */
 export function resolveEffectiveExtensionRisk(
-  manifestRisk: unknown,
-  runtimeRisk: unknown,
+  ...risks: readonly unknown[]
 ): { readonly ok: true; readonly risk: ExtensionRiskClass } | { readonly ok: false } {
-  if (!isExtensionRiskClass(manifestRisk) || !isExtensionRiskClass(runtimeRisk))
-    return { ok: false };
-  return EXTENSION_RISK_ORDER[manifestRisk] >= EXTENSION_RISK_ORDER[runtimeRisk]
-    ? { ok: true, risk: manifestRisk }
-    : { ok: true, risk: runtimeRisk };
+  if (risks.length === 0) return { ok: false };
+  let strictest: ExtensionRiskClass | null = null;
+  for (const risk of risks) {
+    if (!isExtensionRiskClass(risk)) return { ok: false };
+    if (strictest === null || EXTENSION_RISK_ORDER[risk] > EXTENSION_RISK_ORDER[strictest])
+      strictest = risk;
+  }
+  return strictest === null ? { ok: false } : { ok: true, risk: strictest };
 }
 
 /**

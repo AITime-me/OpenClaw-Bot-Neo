@@ -1,9 +1,10 @@
 # Будущие integrations
 
-Build 2.1B/2.1D содержат только provider-independent contracts и отключённые example manifests.
+Build 2.1B/2.1D/2.1E содержат только provider-independent contracts и отключённые example manifests.
 Реальных adapter, integration, webhook endpoint, cryptographic verifier и сетевого вызова нет.
-Webhook orchestration в core связывает raw payload digest с signature evidence, но не реализует
-HTTP server или crypto provider.
+Webhook orchestration в core владеет canonical payload bytes, принимает untrusted primitive
+verification result от adapter и только затем seals signature evidence. HTTP server и crypto
+provider не реализованы.
 
 ## Webhook boundary
 
@@ -13,17 +14,20 @@ privacy classification.
 
 До обработки обязательны:
 
-1. source authentication;
-2. signature verification;
-3. timestamp validation;
-4. replay и duplicate-event protection;
-5. idempotency;
-6. payload size и rate limit;
-7. media validation;
-8. sensitive-data scan до memory/audit sinks.
+1. core copy caller bytes → canonical ownership;
+2. source authentication;
+3. signature verification на disposable copy → untrusted primitive result;
+4. core binding checks (sourceId/digest/algorithm/keyReference) и sealing;
+5. timestamp validation;
+6. replay и duplicate-event protection;
+7. idempotency;
+8. payload size и rate limit;
+9. media validation;
+10. sensitive-data scan canonical bytes до memory/audit sinks.
 
-Unknown source, invalid/stale timestamp, replay, duplicate event, oversized payload, failed или
-unavailable verifier означают deny. Webhook никогда не активирует extension.
+Unknown source, invalid/stale timestamp, replay, duplicate event, oversized payload, failed,
+malformed или unavailable verifier означают deny. Adapter не импортирует core sealer. Webhook
+никогда не активирует extension.
 
 ## Будущий анализ звонков
 

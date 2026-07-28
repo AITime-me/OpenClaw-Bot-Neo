@@ -10,9 +10,14 @@ import {
   type VoiceAvailabilityDecision,
   type VoiceProfile,
   type VoiceProfileFailureCode,
-  type VoiceProviderMatchEvidence,
 } from '../domain/index.js';
-import { sealValidatedVoiceProfile } from '../domain/voice-profile.internal.js';
+import {
+  isVerifiedVoiceProviderMatch,
+  sealValidatedVoiceProfile,
+  sealVerifiedVoiceProviderMatch,
+  type VerifiedVoiceProviderMatch,
+} from '../domain/voice-profile.internal.js';
+import type { ISO8601 } from '../domain/identity.js';
 
 export type VoiceProfileValidation =
   | { readonly valid: true; readonly profile: ValidatedVoiceProfile }
@@ -245,23 +250,37 @@ export function resolveVoiceAvailability(
   profile: ValidatedVoiceProfile,
   primaryAvailable: boolean,
   availableFallbackIndexes: readonly number[] = [],
-  providerEvidence: VoiceProviderMatchEvidence | null = null,
+  providerEvidence: VerifiedVoiceProviderMatch | null = null,
+  now: Date = new Date(),
 ): VoiceAvailabilityDecision {
   if (!profile.enabled) return { mode: 'text-only', reason: 'Voice profile is disabled.' };
-  if (providerEvidence === null)
+  if (!isVerifiedVoiceProviderMatch(providerEvidence))
     return { mode: 'text-only', reason: 'Provider metadata is unverified.' };
-  if (!providerEvidence.metadataVerified)
-    return { mode: 'text-only', reason: 'Provider metadata is unverified.' };
-  if (providerEvidence.language !== profile.language)
+  const evidence = providerEvidence;
+  const validatedAt = Date.parse(evidence.validatedAt);
+  const expiresAt = Date.parse(evidence.expiresAt);
+  const current = now.getTime();
+  if (
+    !Number.isFinite(validatedAt) ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt <= validatedAt ||
+    current < validatedAt ||
+    current >= expiresAt
+  )
+    return { mode: 'text-only', reason: 'Provider evidence is stale.' };
+  if (evidence.profileId !== profile.id || evidence.profileSchemaVersion !== profile.schemaVersion)
+    return { mode: 'text-only', reason: 'Provider evidence does not match the profile.' };
+  if (
+    evidence.selector.language !== profile.primaryVoiceSelector.language ||
+    evidence.selector.genderPresentation !== profile.primaryVoiceSelector.genderPresentation
+  )
+    return { mode: 'text-only', reason: 'Provider evidence selector mismatch.' };
+  if (evidence.language !== profile.language)
     return { mode: 'text-only', reason: 'Provider language does not match the profile.' };
-  if (providerEvidence.genderPresentation !== profile.genderPresentation)
+  if (evidence.genderPresentation !== profile.genderPresentation)
     return { mode: 'text-only', reason: 'Provider gender presentation does not match.' };
-  if (providerEvidence.actorOrCelebrityIdentity || providerEvidence.identityImitation)
-    return { mode: 'text-only', reason: 'Identity imitation is forbidden.' };
-  if (providerEvidence.clonedVoice)
-    return { mode: 'text-only', reason: 'Cloned voices are forbidden.' };
-  if (!providerEvidence.compatibleWithSelector)
-    return { mode: 'text-only', reason: 'Provider voice is incompatible with the selector.' };
+  if (evidence.genderPresentation !== 'masculine' && profile.id === NEO_VOICE_PROFILE_ID)
+    return { mode: 'text-only', reason: 'Provider gender presentation does not match.' };
 
   if (primaryAvailable) return { mode: 'voice', selector: profile.primaryVoiceSelector };
   if (profile.fallbackMode === 'same-gender-only')
@@ -271,4 +290,82 @@ export function resolveVoiceAvailability(
         return { mode: 'voice', selector };
     }
   return { mode: 'text-only', reason: 'No policy-compatible voice is available.' };
+}
+
+export type VoiceProviderValidation =
+  | { readonly ok: true; readonly evidence: VerifiedVoiceProviderMatch }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * Trusted provider validation boundary. Adapters supply untrusted metadata; only this boundary
+ * may create sealed VerifiedVoiceProviderMatch evidence.
+ */
+export function validateVoiceProviderMatch(
+  profile: ValidatedVoiceProfile,
+  metadata: unknown,
+  options: {
+    readonly policyVersion: string;
+    readonly now: Date;
+    readonly ttlMs: number;
+    readonly providerVoiceReference?: string;
+  },
+): VoiceProviderValidation {
+  if (
+    typeof metadata !== 'object' ||
+    metadata === null ||
+    !('providerVoiceReference' in metadata) ||
+    !('language' in metadata) ||
+    !('genderPresentation' in metadata) ||
+    !('compatibleWithSelector' in metadata) ||
+    !('actorOrCelebrityIdentity' in metadata) ||
+    !('clonedVoice' in metadata) ||
+    !('identityImitation' in metadata) ||
+    !('metadataVerified' in metadata) ||
+    typeof metadata.providerVoiceReference !== 'string' ||
+    metadata.providerVoiceReference.length === 0 ||
+    typeof metadata.language !== 'string' ||
+    typeof metadata.genderPresentation !== 'string' ||
+    typeof metadata.compatibleWithSelector !== 'boolean' ||
+    typeof metadata.actorOrCelebrityIdentity !== 'boolean' ||
+    typeof metadata.clonedVoice !== 'boolean' ||
+    typeof metadata.identityImitation !== 'boolean' ||
+    typeof metadata.metadataVerified !== 'boolean'
+  )
+    return { ok: false, reason: 'Provider metadata is malformed.' };
+  if (!metadata.metadataVerified) return { ok: false, reason: 'Provider metadata is unverified.' };
+  if (!metadata.compatibleWithSelector)
+    return { ok: false, reason: 'Provider voice is incompatible with the selector.' };
+  if (metadata.actorOrCelebrityIdentity || metadata.identityImitation)
+    return { ok: false, reason: 'Identity imitation is forbidden.' };
+  if (metadata.clonedVoice) return { ok: false, reason: 'Cloned voices are forbidden.' };
+  if (metadata.language !== profile.language)
+    return { ok: false, reason: 'Provider language does not match the profile.' };
+  if (metadata.genderPresentation !== profile.genderPresentation)
+    return { ok: false, reason: 'Provider gender presentation does not match.' };
+  if (
+    options.providerVoiceReference !== undefined &&
+    options.providerVoiceReference !== metadata.providerVoiceReference
+  )
+    return { ok: false, reason: 'Provider voice reference mismatch.' };
+  if (!Number.isSafeInteger(options.ttlMs) || options.ttlMs <= 0)
+    return { ok: false, reason: 'Provider evidence TTL is invalid.' };
+  if (typeof options.policyVersion !== 'string' || options.policyVersion.length === 0)
+    return { ok: false, reason: 'Provider policy version is invalid.' };
+
+  const validatedAt = options.now.toISOString() as ISO8601;
+  const expiresAt = new Date(options.now.getTime() + options.ttlMs).toISOString() as ISO8601;
+  return {
+    ok: true,
+    evidence: sealVerifiedVoiceProviderMatch({
+      profileId: profile.id,
+      profileSchemaVersion: profile.schemaVersion,
+      selector: profile.primaryVoiceSelector,
+      providerVoiceReference: metadata.providerVoiceReference,
+      language: metadata.language,
+      genderPresentation: metadata.genderPresentation,
+      policyVersion: options.policyVersion,
+      validatedAt,
+      expiresAt,
+    }),
+  };
 }

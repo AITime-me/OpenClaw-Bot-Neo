@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { err, ok, type SealedExtensionRegistryEntry } from '../src/core/domain/index.js';
-import { executeExtensionRegistration } from '../src/core/application/index.js';
+import { sealExtensionRegistryEntry } from '../src/core/domain/extension-registry-entry.internal.js';
+import {
+  computeManifestDigest,
+  executeExtensionActivation,
+  executeExtensionRegistration,
+  issueDeploymentAuthorization,
+} from '../src/core/application/index.js';
 import type { ExtensionRegistryPort } from '../src/core/ports/index.js';
 import { validateExtensionManifest } from '../src/core/policy/extension-manifest.js';
 import { fixedClock, operationContext } from './support/fixtures.js';
@@ -191,5 +197,152 @@ describe('trusted registration flow', () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('REGISTRY_UNAVAILABLE');
+  });
+});
+
+describe('trusted activation transition', () => {
+  it('returns sealed active evidence only after a successful registry transition', async () => {
+    entries.length = 0;
+    const registered = await executeExtensionRegistration(
+      { registry: registry(false), clock: fixedClock('2026-07-28T12:00:00.000Z') },
+      manifest(),
+      operationContext(),
+    );
+    expect(registered.ok).toBe(true);
+    if (!registered.ok) return;
+
+    const usedNonces = new Set<string>();
+    const activating: ExtensionRegistryPort = {
+      ...registry(false),
+      updateActivationState: (decision) => {
+        if (usedNonces.has(decision.nonce))
+          return Promise.resolve(err({ code: 'POLICY_DENIED', reason: 'Replay rejected.' }));
+        usedNonces.add(decision.nonce);
+        return Promise.resolve(
+          ok(
+            sealExtensionRegistryEntry({
+              ...registered.value.entry,
+              activationState: 'active',
+              pendingReason: null,
+            }),
+          ),
+        );
+      },
+    };
+
+    const digest = computeManifestDigest(registered.value.entry);
+    const authorization = issueDeploymentAuthorization(
+      { clock: fixedClock('2026-07-28T12:00:10.000Z') },
+      {
+        deploymentIdentity: 'deployment-owner',
+        extensionId: registered.value.entry.extensionId,
+        extensionVersion: registered.value.entry.version,
+        manifestDigest: digest,
+        policyVersion: registered.value.entry.policyVersion,
+        ttlMs: 60_000,
+      },
+    );
+    expect(authorization.ok).toBe(true);
+    if (!authorization.ok) return;
+
+    const activated = await executeExtensionActivation(
+      { registry: activating, clock: fixedClock('2026-07-28T12:00:10.000Z') },
+      {
+        pendingEntry: registered.value.entry,
+        deploymentAuthorization: authorization.value,
+        targetState: 'active',
+        policyVersion: registered.value.entry.policyVersion,
+        decisionNonce: 'nonce-1',
+      },
+      operationContext(),
+    );
+    expect(activated.ok).toBe(true);
+    if (!activated.ok) return;
+    expect(activated.value.activeRegistration).not.toBeNull();
+    expect(activated.value.activeRegistration?.activationState).toBe('active');
+    expect(Object.isFrozen(activated.value.activeRegistration)).toBe(true);
+
+    const replay = await executeExtensionActivation(
+      { registry: activating, clock: fixedClock('2026-07-28T12:00:10.000Z') },
+      {
+        pendingEntry: registered.value.entry,
+        deploymentAuthorization: authorization.value,
+        targetState: 'active',
+        policyVersion: registered.value.entry.policyVersion,
+        decisionNonce: 'nonce-1',
+      },
+      operationContext(),
+    );
+    expect(replay.ok).toBe(false);
+    if (!replay.ok) expect(replay.error.code).toBe('REGISTRY_UNAVAILABLE');
+  });
+
+  it('rejects ordinary authorization booleans and non-pending entries', async () => {
+    entries.length = 0;
+    const registered = await executeExtensionRegistration(
+      { registry: registry(false), clock: fixedClock('2026-07-28T12:00:00.000Z') },
+      manifest(),
+      operationContext(),
+    );
+    expect(registered.ok).toBe(true);
+    if (!registered.ok) return;
+
+    const booleanAuth = await executeExtensionActivation(
+      { registry: registry(false), clock: fixedClock('2026-07-28T12:00:10.000Z') },
+      {
+        pendingEntry: registered.value.entry,
+        deploymentAuthorization: { authorized: true } as never,
+        targetState: 'active',
+        policyVersion: registered.value.entry.policyVersion,
+        decisionNonce: 'nonce-2',
+      },
+      operationContext(),
+    );
+    expect(booleanAuth.ok).toBe(false);
+    if (!booleanAuth.ok) expect(booleanAuth.error.code).toBe('DEPLOYMENT_UNAUTHORIZED');
+
+    const disabled = await executeExtensionRegistration(
+      { registry: registry(false), clock: fixedClock('2026-07-28T12:00:00.000Z') },
+      manifest({ id: 'disabled-ext', enabled: false }),
+      operationContext(),
+    );
+    expect(disabled.ok).toBe(true);
+    if (!disabled.ok) return;
+    const digest = computeManifestDigest(disabled.value.entry);
+    const authorization = issueDeploymentAuthorization(
+      { clock: fixedClock('2026-07-28T12:00:10.000Z') },
+      {
+        deploymentIdentity: 'deployment-owner',
+        extensionId: disabled.value.entry.extensionId,
+        extensionVersion: disabled.value.entry.version,
+        manifestDigest: digest,
+        policyVersion: disabled.value.entry.policyVersion,
+        ttlMs: 60_000,
+      },
+    );
+    expect(authorization.ok).toBe(true);
+    if (!authorization.ok) return;
+    const nonPending = await executeExtensionActivation(
+      { registry: registry(false), clock: fixedClock('2026-07-28T12:00:10.000Z') },
+      {
+        pendingEntry: disabled.value.entry,
+        deploymentAuthorization: authorization.value,
+        targetState: 'active',
+        policyVersion: disabled.value.entry.policyVersion,
+        decisionNonce: 'nonce-3',
+      },
+      operationContext(),
+    );
+    expect(nonPending.ok).toBe(false);
+    if (!nonPending.ok) expect(nonPending.error.code).toBe('NOT_PENDING');
+  });
+
+  it('does not expose a public active registration converter', async () => {
+    const names = Object.keys(await import('../src/index.js'));
+    expect(names).not.toContain('toActiveExtensionRegistration');
+    expect(names).not.toContain('sealActiveExtensionRegistration');
+    expect(names).not.toContain('sealDeploymentAuthorization');
+    expect(names).toContain('issueDeploymentAuthorization');
+    expect(names).toContain('executeExtensionActivation');
   });
 });

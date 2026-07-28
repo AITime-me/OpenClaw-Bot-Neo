@@ -98,3 +98,16 @@ export interface WebhookIngressLimits {
   readonly maxIdLength: number;
   readonly maxEventTypeLength: number;
 }
+
+/**
+ * Untrusted primitive verifier result returned by adapters. Core seals evidence after validation.
+ */
+export interface WebhookSignatureVerificationResult {
+  readonly verified: boolean;
+  readonly sourceId: string;
+  readonly payloadDigest: string;
+  readonly algorithm: string;
+  readonly keyReference: string;
+  readonly verifiedAt: string;
+  readonly reasonCode?: string;
+}

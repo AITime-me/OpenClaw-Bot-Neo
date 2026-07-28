@@ -97,25 +97,34 @@ manifest регистрируется как `pending-policy`; disabled — ка
 только sealed `active` evidence. Pending/disabled/rejected — deny.
 
 Requested permission — запрос. Итог — пересечение manifest request, deployment, role, Security Guard
-и risk policy. Effective risk = наиболее строгий из immutable manifest risk и trusted runtime risk;
-caller не может понизить risk. Deny приоритетнее allow; Director не обходит Security Guard; модель
-не меняет permissions или risk. Dangerous permissions требуют matching approval effects и явного
-deployment grant.
+и risk policy. Effective risk = max(immutable manifest risk, active registration
+`effectiveRiskClass`, sealed `RuntimeRiskEvidence.classifiedRisk`, source-trust и Security Guard
+floor). Caller-controlled `runtimeRisk` string удалён; ordinary risk object не является proof.
+Missing/stale/mismatched evidence → deny. Deny приоритетнее allow; Director не обходит Security
+Guard; модель не меняет permissions или risk. Dangerous permissions требуют matching approval
+effects и явного deployment grant. Active registration создаётся только trusted registry
+transition; deployment boolean не является authorization; публичный converter в active evidence
+отсутствует.
 
 ## Webhook ingress
 
-Authorization формируется только `executeWebhookIngress`: trusted clock → limits → raw payload
-digest → envelope validation → authenticate → payload-bound signature → timestamp → replay →
-rate limit → scanner → sealed evidence → safe audit. Ordinary boolean verification state не
-является proof. Signature evidence связано с digest фактических bytes. Audit содержит только
-безопасные identifiers/digest prefix; raw payload, signature и secrets отсутствуют. Webhook не
-активирует extension и не пишет в memory.
+Authorization формируется только `executeWebhookIngress`: trusted clock → limits → core-owned
+canonical payload copy → digest → envelope validation → authenticate → disposable copy для
+verifier → untrusted primitive verification result → core binding checks → timestamp → replay →
+rate limit → scanner на canonical bytes → core-sealed evidence → safe audit. Ordinary boolean
+verification state не является proof. Adapter не создаёт core-branded signature evidence; sealing
+выполняет core после проверки sourceId/digest/algorithm/keyReference. Canonical bytes не
+разделяются writable reference с caller или adapter. Audit содержит только безопасные
+identifiers/digest prefix; raw payload, signature и secrets отсутствуют. Webhook не активирует
+extension и не пишет в memory.
 
 ## Voice safety
 
 VoiceProfile provider-independent. Для Нео обязательны `ru-RU`, masculine, `fallbackMode:
 text-only`, запрет cross-gender/cloning/imitation и контролируемые style tags. Disabled Neo и
-неопределённые provider metadata всегда дают text-only; feminine fallback запрещён.
+отсутствие sealed `VerifiedVoiceProviderMatch` всегда дают text-only; feminine fallback запрещён.
+Adapter возвращает untrusted metadata; trusted validation boundary создаёт sealed evidence.
+Ordinary favorable object literal не разрешает voice.
 
 ## Память и данные
 
@@ -150,5 +159,6 @@ target-specific; это не полноценное interprocedural доказа
 независимого review. Build 2.1B добавил fail-closed extension, permission, webhook и voice
 contracts без loader или integrations. Build 2.1C закрывает OCN-001 (approval binding), OCN-002
 (scanner newline/metadata keys), OCN-003 (target-specific memory AST) и OCN-006 (computed
-import/require). Build 2.1D закрывает B21-001—B21-004. Эти gates действуют только внутри ядра и не
-означают, что OpenClaw runtime или adapters уже их используют.
+import/require). Build 2.1D закрывает B21-001—B21-004. Build 2.1E закрывает R2.1-003—R2.1-006 (trusted evidence
+closure); MEDIUM R2.1-001/002/007 остаются открытыми до Build 2.1F. Эти gates действуют только
+внутри ядра и не означают, что OpenClaw runtime или adapters уже их используют.

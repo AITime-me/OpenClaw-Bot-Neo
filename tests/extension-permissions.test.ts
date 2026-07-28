@@ -10,9 +10,14 @@ import {
   sealExtensionRegistryEntry,
 } from '../src/core/domain/extension-registry-entry.internal.js';
 import { resolveEffectiveExtensionRisk } from '../src/core/domain/extension-risk.js';
+import { sealRuntimeRiskEvidence } from '../src/core/domain/extension-runtime-risk.internal.js';
+import { classifyExtensionRuntimeRisk } from '../src/core/application/runtime-risk-classification.service.js';
 import { resolveExtensionPermissions } from '../src/core/policy/extension-permissions.js';
 import { validateExtensionManifest } from '../src/core/policy/extension-manifest.js';
+import { asCorrelation, fixedClock, iso, operationContext } from './support/fixtures.js';
 import * as publicApi from '../src/index.js';
+
+const NOW = '2026-07-28T12:00:10.000Z';
 
 const verified = (overrides: Partial<ExtensionManifest> = {}) => {
   const result = validateExtensionManifest({
@@ -40,27 +45,55 @@ const verified = (overrides: Partial<ExtensionManifest> = {}) => {
   return result.value;
 };
 
-const activeRegistration = (
+const sealedEntry = (
   overrides: Partial<ExtensionManifest> = {},
   activationState: SealedExtensionRegistryEntry['activationState'] = 'active',
+  effectiveRiskClass?: SealedExtensionRegistryEntry['effectiveRiskClass'],
 ) => {
   const manifest = verified(overrides);
-  const entry = sealExtensionRegistryEntry({
+  return sealExtensionRegistryEntry({
     extensionId: manifest.id,
     version: manifest.version,
     manifest,
     activationState,
-    registeredAt: '2026-07-28T12:00:00.000Z' as never,
+    registeredAt: iso(NOW),
     provenance: manifest.provenance,
     policyVersion: 'extension-policy@1',
-    effectiveRiskClass: manifest.riskClass,
+    effectiveRiskClass: effectiveRiskClass ?? manifest.riskClass,
     grantedCapabilityRefs: [],
     grantedPermissionRefs: [],
     disabledReason: activationState === 'disabled' ? 'disabled' : null,
     pendingReason: activationState === 'pending-policy' ? 'pending' : null,
   });
-  return sealActiveExtensionRegistration(entry);
 };
+
+const activeRegistration = (
+  overrides: Partial<ExtensionManifest> = {},
+  effectiveRiskClass?: SealedExtensionRegistryEntry['effectiveRiskClass'],
+) => {
+  const entry = sealedEntry(overrides, 'active', effectiveRiskClass);
+  const active = sealActiveExtensionRegistration(entry, 'digest-test');
+  if (active === null) throw new Error('active');
+  return active;
+};
+
+const riskEvidence = (
+  registration: ReturnType<typeof activeRegistration>,
+  classifiedRisk: 'low' | 'medium' | 'high' | 'untrusted-input' = 'medium',
+) =>
+  sealRuntimeRiskEvidence({
+    extensionId: registration.extensionId,
+    extensionVersion: registration.version,
+    correlationId: asCorrelation(),
+    classifiedRisk,
+    sourceTrustClassification: 'owner-stated',
+    policyVersion: 'risk-policy@1',
+    registrationPolicyVersion: registration.policyVersion,
+    registrationEffectiveRisk: registration.effectiveRiskClass,
+    classifiedAt: iso('2026-07-28T12:00:00.000Z'),
+    expiresAt: iso('2026-07-28T12:05:00.000Z'),
+    provenance: 'trusted-runtime-classifier',
+  });
 
 const policy = (allowed: readonly ExtensionPermission[]): ExtensionPermissionPolicy => ({
   deploymentAllowed: allowed,
@@ -69,65 +102,117 @@ const policy = (allowed: readonly ExtensionPermission[]): ExtensionPermissionPol
   riskAllowed: allowed,
 });
 
+const request = (
+  registration: ReturnType<typeof activeRegistration> | null,
+  evidence: ReturnType<typeof riskEvidence> | null,
+  permissionPolicy: ExtensionPermissionPolicy = policy(['external-read']),
+) => ({
+  registration,
+  runtimeRiskEvidence: evidence,
+  correlationId: evidence?.correlationId ?? asCorrelation(),
+  policy: permissionPolicy,
+  now: new Date(NOW),
+});
+
 describe('effective extension risk', () => {
-  it('keeps the stricter of manifest and runtime risk', () => {
+  it('keeps the strictest of multiple risk inputs', () => {
     expect(resolveEffectiveExtensionRisk('untrusted-input', 'low')).toEqual({
       ok: true,
       risk: 'untrusted-input',
     });
-    expect(resolveEffectiveExtensionRisk('high', 'low')).toEqual({ ok: true, risk: 'high' });
+    expect(resolveEffectiveExtensionRisk('high', 'low', 'medium')).toEqual({
+      ok: true,
+      risk: 'high',
+    });
     expect(resolveEffectiveExtensionRisk('low', 'high')).toEqual({ ok: true, risk: 'high' });
   });
 
-  it('denies unknown or missing risk values', () => {
+  it('denies unknown risk values', () => {
     expect(resolveEffectiveExtensionRisk('unknown', 'low').ok).toBe(false);
-    expect(resolveEffectiveExtensionRisk('low', 'unknown').ok).toBe(false);
-    expect(resolveEffectiveExtensionRisk('low', null).ok).toBe(false);
+    expect(resolveEffectiveExtensionRisk().ok).toBe(false);
   });
 });
 
 describe('extension permission resolution', () => {
   it('defaults to deny without sealed active registration', () => {
-    const decision = resolveExtensionPermissions({
-      registration: null,
-      runtimeRisk: 'low',
-      policy: policy([]),
-    });
+    const decision = resolveExtensionPermissions(request(null, null, policy([])));
     expect(decision.allowed).toBe(false);
     if (!decision.allowed) expect(decision.code).toBe('NOT_ACTIVE');
   });
 
-  it('denies pending-policy registration even if caller claims activity', () => {
+  it('rejects ordinary low-risk objects as evidence', () => {
+    const registration = activeRegistration();
     const decision = resolveExtensionPermissions({
-      registration: activeRegistration({}, 'pending-policy'),
-      runtimeRisk: 'low',
+      registration,
+      runtimeRiskEvidence: {
+        classifiedRisk: 'low',
+        extensionId: registration.extensionId,
+        extensionVersion: registration.version,
+      } as never,
+      correlationId: asCorrelation(),
       policy: policy(['external-read']),
+      now: new Date(NOW),
+    });
+    expect(decision.allowed).toBe(false);
+    if (!decision.allowed) expect(decision.code).toBe('MISSING_RISK');
+  });
+
+  it('rejects forged active-like objects without runtime brand', () => {
+    const decision = resolveExtensionPermissions({
+      registration: {
+        activationState: 'active',
+        extensionId: 'permission-test',
+        version: '1.0.0',
+        policyVersion: 'extension-policy@1',
+        effectiveRiskClass: 'low',
+        manifest: verified(),
+        manifestDigest: 'x',
+      } as never,
+      runtimeRiskEvidence: null,
+      correlationId: asCorrelation(),
+      policy: policy(['external-read']),
+      now: new Date(NOW),
     });
     expect(decision.allowed).toBe(false);
     if (!decision.allowed) expect(decision.code).toBe('NOT_ACTIVE');
   });
 
-  it('denies disabled and rejected registrations', () => {
-    for (const state of ['disabled', 'rejected'] as const) {
-      const decision = resolveExtensionPermissions({
-        registration: activeRegistration({ enabled: state === 'disabled' ? false : true }, state),
-        runtimeRisk: 'low',
-        policy: policy(['external-read']),
-      });
-      expect(decision.allowed).toBe(false);
-    }
+  it('does not let sealed runtime low lower manifest or registration high risk', () => {
+    const registration = activeRegistration(
+      {
+        requestedPermissions: ['memory-write', 'external-read'],
+        riskClass: 'high',
+        approvalPolicy: { mode: 'required-for-dangerous', effects: ['memory-write'] },
+      },
+      'high',
+    );
+    const decision = resolveExtensionPermissions(
+      request(
+        registration,
+        riskEvidence(registration, 'low'),
+        policy(['memory-write', 'external-read']),
+      ),
+    );
+    expect(decision.allowed).toBe(true);
+    if (decision.allowed) expect(decision.effectiveRisk).toBe('high');
   });
 
-  it('does not let runtime low lower an untrusted manifest risk', () => {
-    const decision = resolveExtensionPermissions({
-      registration: activeRegistration({
+  it('keeps untrusted registration risk when sealed runtime is low', () => {
+    const registration = activeRegistration(
+      {
         requestedPermissions: ['memory-write', 'external-read'],
         riskClass: 'untrusted-input',
         approvalPolicy: { mode: 'required-for-dangerous', effects: ['memory-write'] },
-      }),
-      runtimeRisk: 'low',
-      policy: policy(['memory-write', 'external-read']),
-    });
+      },
+      'untrusted-input',
+    );
+    const decision = resolveExtensionPermissions(
+      request(
+        registration,
+        riskEvidence(registration, 'low'),
+        policy(['memory-write', 'external-read']),
+      ),
+    );
     expect(decision.allowed).toBe(true);
     if (decision.allowed) {
       expect(decision.effectiveRisk).toBe('untrusted-input');
@@ -135,146 +220,109 @@ describe('extension permission resolution', () => {
     }
   });
 
-  it('denies missing runtime risk', () => {
-    const decision = resolveExtensionPermissions({
-      registration: activeRegistration(),
-      runtimeRisk: null,
-      policy: policy(['external-read']),
+  it('denies missing, stale and mismatched risk evidence', () => {
+    const registration = activeRegistration();
+    expect(resolveExtensionPermissions(request(registration, null)).allowed).toBe(false);
+    const stale = sealRuntimeRiskEvidence({
+      ...riskEvidence(registration),
+      classifiedAt: iso('2026-07-28T11:00:00.000Z'),
+      expiresAt: iso('2026-07-28T11:01:00.000Z'),
     });
-    expect(decision.allowed).toBe(false);
-    if (!decision.allowed) expect(decision.code).toBe('MISSING_RISK');
+    const staleDecision = resolveExtensionPermissions(request(registration, stale));
+    expect(staleDecision.allowed).toBe(false);
+    if (!staleDecision.allowed) expect(staleDecision.code).toBe('STALE_RISK');
+
+    const wrongId = sealRuntimeRiskEvidence({
+      ...riskEvidence(registration),
+      extensionId: 'other',
+    });
+    const mismatch = resolveExtensionPermissions(request(registration, wrongId));
+    expect(mismatch.allowed).toBe(false);
+    if (!mismatch.allowed) expect(mismatch.code).toBe('VERSION_MISMATCH');
   });
 
   it('uses deny-priority intersection across deployment, role, security and risk', () => {
-    const decision = resolveExtensionPermissions({
-      registration: activeRegistration({
-        requestedPermissions: ['external-read', 'notifications-send'],
-        approvalPolicy: {
-          mode: 'required-for-dangerous',
-          effects: ['notifications-send'],
-        },
-      }),
-      runtimeRisk: 'medium',
-      policy: {
+    const registration = activeRegistration({
+      requestedPermissions: ['external-read', 'notifications-send'],
+      approvalPolicy: { mode: 'required-for-dangerous', effects: ['notifications-send'] },
+    });
+    const decision = resolveExtensionPermissions(
+      request(registration, riskEvidence(registration), {
         deploymentAllowed: ['external-read', 'notifications-send'],
         roleAllowed: ['external-read', 'notifications-send'],
         securityAllowed: ['external-read'],
         riskAllowed: ['external-read', 'notifications-send'],
-      },
-    });
+      }),
+    );
     expect(decision.allowed).toBe(true);
     if (decision.allowed) expect(decision.effectivePermissions).toEqual(['external-read']);
   });
 
   it('does not let Director role policy bypass Security Guard deny', () => {
-    const decision = resolveExtensionPermissions({
-      registration: activeRegistration(),
-      runtimeRisk: 'medium',
-      policy: {
+    const registration = activeRegistration();
+    const decision = resolveExtensionPermissions(
+      request(registration, riskEvidence(registration), {
         deploymentAllowed: ['external-read'],
         roleAllowed: ['external-read'],
         securityAllowed: [],
         riskAllowed: ['external-read'],
-      },
-    });
+      }),
+    );
     expect(decision.allowed).toBe(true);
     if (decision.allowed) expect(decision.effectivePermissions).toEqual([]);
   });
 
-  it('requires matching approval effects for dangerous permissions at validation time', () => {
-    const candidate = {
-      schemaVersion: '1.0',
-      id: 'effect-test',
-      version: '1.0.0',
-      kind: 'technical-skill',
-      displayName: 'Effect test',
-      description: 'Safe deterministic test metadata.',
-      declaredCapabilities: ['analysis.effect@1'],
-      requiredPorts: [],
-      requestedPermissions: ['external-send'],
-      riskClass: 'high',
-      approvalPolicy: { mode: 'required-for-dangerous', effects: ['write'] },
-      dataClassifications: ['internal'],
-      supportedInputKinds: ['text'],
-      supportedOutputKinds: ['text'],
-      configurationSchemaVersion: '1.0.0',
-      enabled: true,
-      provenance: { status: 'verified', source: 'trusted-deployment', note: 'Test.' },
-      ownerScope: { mode: 'deployment-owner', ownerReference: 'test-owner' },
-    };
-    const validation = validateExtensionManifest(candidate);
-    expect(validation.ok).toBe(false);
-    if (!validation.ok) expect(validation.error.code).toBe('APPROVAL_EFFECT_MISMATCH');
-  });
-
-  it.each([
-    ['memory-write', 'memory-write'],
-    ['integration-write', 'integration-write'],
-    ['exec', 'exec'],
-    ['schedule-write', 'schedule-write'],
-    ['notifications-send', 'notifications-send'],
-    ['secrets-read', 'secrets-read'],
-    ['external-send', 'external-send'],
-  ] as const)('accepts %s only with matching %s effect', (permission, effect) => {
-    const registration = activeRegistration({
-      requestedPermissions: [permission],
-      approvalPolicy: { mode: 'required-for-dangerous', effects: [effect] },
-      riskClass: 'high',
-    });
-    const decision = resolveExtensionPermissions({
+  it('classifies sealed runtime risk only through the trusted boundary', () => {
+    const registration = activeRegistration({ riskClass: 'low' }, 'low');
+    const classified = classifyExtensionRuntimeRisk(
+      { clock: fixedClock(NOW), evidenceTtlMs: 60_000 },
       registration,
-      runtimeRisk: 'high',
-      policy: policy([permission]),
-    });
-    expect(decision.allowed).toBe(true);
-    if (decision.allowed) expect(decision.effectivePermissions).toEqual([permission]);
-  });
-
-  it('requires explicit deployment grant for dangerous permissions', () => {
-    const decision = resolveExtensionPermissions({
-      registration: activeRegistration({
-        requestedPermissions: ['integration-write'],
-        approvalPolicy: { mode: 'required-for-dangerous', effects: ['integration-write'] },
-      }),
-      runtimeRisk: 'high',
-      policy: {
-        deploymentAllowed: [],
-        roleAllowed: ['integration-write'],
-        securityAllowed: ['integration-write'],
-        riskAllowed: ['integration-write'],
+      {
+        extensionId: registration.extensionId,
+        extensionVersion: registration.version,
+        correlationId: asCorrelation(),
+        policyVersion: 'risk-policy@1',
+        registrationPolicyVersion: registration.policyVersion,
+        registrationEffectiveRisk: registration.effectiveRiskClass,
+        sourceTrust: 'owner-stated',
+        securityGuardFloor: 'low',
+        externalEffect: true,
+        untrustedContentPresent: false,
       },
-    });
-    expect(decision.allowed).toBe(false);
-    if (!decision.allowed) expect(decision.code).toBe('DANGEROUS_PERMISSION_NOT_GRANTED');
+      operationContext(),
+    );
+    expect(classified.ok).toBe(true);
+    if (!classified.ok) return;
+    expect(classified.value.classifiedRisk).toBe('high');
+    expect(Object.isFrozen(classified.value)).toBe(true);
   });
 
   it('rejects model-authored permission and risk changes', () => {
+    const registration = activeRegistration();
+    const evidence = riskEvidence(registration);
     expect(
       resolveExtensionPermissions({
-        registration: activeRegistration(),
-        runtimeRisk: 'low',
-        policy: policy(['external-read']),
+        ...request(registration, evidence),
         modelRequestedPermissions: ['exec'],
       }).allowed,
     ).toBe(false);
     expect(
       resolveExtensionPermissions({
-        registration: activeRegistration(),
-        runtimeRisk: 'low',
-        policy: policy(['external-read']),
+        ...request(registration, evidence),
         modelRiskOverride: 'low',
       }).allowed,
     ).toBe(false);
   });
 
-  it('does not export registry or risk bypass factories', () => {
+  it('does not export risk or activation bypass factories', () => {
     const names = Object.keys(publicApi);
     for (const forbidden of [
-      'sealExtensionRegistryEntry',
+      'sealRuntimeRiskEvidence',
       'sealActiveExtensionRegistration',
       'sealTrustedActivationDecision',
-      'sealAuthorizedWebhookIngress',
-      'sealRawWebhookPayloadHandle',
+      'sealDeploymentAuthorization',
+      'toActiveExtensionRegistration',
+      'runtimeRiskEvidenceBrand',
     ])
       expect(names).not.toContain(forbidden);
   });

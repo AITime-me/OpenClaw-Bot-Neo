@@ -30,7 +30,8 @@ Multimodal workflow — общая техническая capability обраб�
 
 ## Статус
 
-**Build №2 + Security Remediation 2.1A/2.1C + Extensibility 2.1B/2.1D: verifiable core.**
+**Build №2 + Security Remediation 2.1A/2.1C + Extensibility 2.1B/2.1D + Trusted Evidence 2.1E:
+verifiable core.**
 Build 2.1B добавляет versioned declarative manifests, default-deny permission composition,
 provider-independent registry/webhook contracts, отключённые examples для call-analysis и external
 call service, а также мужской VoiceProfile Нео. Manifest не является кодом и не выдаёт полномочия;
@@ -42,8 +43,14 @@ clock, scanner newline/metadata-key policy, target-specific memory AST order и 
 
 Build 2.1D закрывает B21-001—B21-004: effective risk + approval-effect mapping, sealed registry
 activation state, webhook orchestration с payload-bound signature evidence, Neo-specific
-VoiceProfile invariants и `enabled` → text-only. Реальных adapters/providers/runtime по-прежнему
-нет.
+VoiceProfile invariants и `enabled` → text-only.
+
+Build 2.1E закрывает HIGH findings R2.1-003—R2.1-006: runtime risk и VoiceProvider — только sealed
+evidence trusted boundary; active registration — только после registry transition; deployment
+boolean не является authorization; webhook canonical bytes принадлежат core, verifier возвращает
+untrusted primitive result, sealing выполняет core. Ordinary object literals не являются proof.
+MEDIUM findings R2.1-001/002/007 намеренно не закрыты (Build 2.1F). Реальных
+adapters/providers/runtime по-прежнему нет.
 
 Runtime, plugin loader, адаптеры, providers, реальные integrations/webhooks, TTS, бот, deployment и
 рабочая конфигурация по-прежнему отсутствуют. Текущая URL policy не является полной SSRF-защитой:

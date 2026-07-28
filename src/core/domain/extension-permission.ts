@@ -1,6 +1,7 @@
 import type { ExtensionPermission } from './extension-manifest.js';
-import type { ExtensionRiskClass } from './extension-risk.js';
+import type { RuntimeRiskEvidence } from './extension-runtime-risk.internal.js';
 import type { ActiveExtensionRegistration } from './extension-registry-entry.internal.js';
+import type { CorrelationId } from './identity.js';
 
 export interface ExtensionPermissionPolicy {
   /** Permissions explicitly granted by trusted deployment policy. */
@@ -14,14 +15,17 @@ export interface ExtensionPermissionPolicy {
 }
 
 /**
- * Permission resolution input. Caller-controlled `registered: boolean` is intentionally absent.
- * Only sealed active registration evidence is accepted.
+ * Permission resolution input. Caller-controlled runtimeRisk strings and registered booleans are
+ * intentionally absent. Only sealed active registration and sealed runtime risk evidence are accepted.
  */
 export interface ExtensionPermissionRequest {
   readonly registration: ActiveExtensionRegistration | null;
-  /** Trusted runtime operation risk evidence. Missing/unknown values deny. */
-  readonly runtimeRisk: ExtensionRiskClass | null;
+  readonly runtimeRiskEvidence: RuntimeRiskEvidence | null;
+  /** Operation binding that must match the sealed evidence correlation id. */
+  readonly correlationId: CorrelationId;
   readonly policy: ExtensionPermissionPolicy;
+  /** Trusted clock instant used for evidence freshness. */
+  readonly now: Date;
   /** Any model-authored permission proposal is rejected rather than interpreted. */
   readonly modelRequestedPermissions?: unknown;
   /** Model output must never be able to override risk evidence. */
@@ -42,13 +46,17 @@ export type ExtensionPermissionFailureCode =
   | 'APPROVAL_EFFECT_MISMATCH'
   | 'UNKNOWN_RISK'
   | 'MISSING_RISK'
-  | 'VERSION_MISMATCH';
+  | 'STALE_RISK'
+  | 'VERSION_MISMATCH'
+  | 'POLICY_MISMATCH'
+  | 'OPERATION_MISMATCH'
+  | 'REGISTRATION_MISMATCH';
 
 export type ExtensionPermissionDecision =
   | {
       readonly allowed: true;
       readonly effectivePermissions: readonly ExtensionPermission[];
-      readonly effectiveRisk: ExtensionRiskClass;
+      readonly effectiveRisk: import('./extension-risk.js').ExtensionRiskClass;
     }
   | {
       readonly allowed: false;

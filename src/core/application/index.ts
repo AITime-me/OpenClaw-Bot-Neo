@@ -13,14 +13,22 @@ export type {
   ExtensionRegistrationOutcome,
 } from './extension-registration.service.js';
 export {
+  computeManifestDigest,
   executeExtensionActivation,
-  toActiveExtensionRegistration,
+  issueDeploymentAuthorization,
 } from './extension-activation.service.js';
 export type {
+  DeploymentAuthorizationCommand,
   ExtensionActivationCommand,
   ExtensionActivationDeps,
   ExtensionActivationFailure,
+  ExtensionActivationOutcome,
 } from './extension-activation.service.js';
+export { classifyExtensionRuntimeRisk } from './runtime-risk-classification.service.js';
+export type {
+  RuntimeRiskClassificationDeps,
+  RuntimeRiskClassificationFailure,
+} from './runtime-risk-classification.service.js';
 export { executeWebhookIngress } from './webhook-ingress.service.js';
 export type {
   WebhookIngressDeps,

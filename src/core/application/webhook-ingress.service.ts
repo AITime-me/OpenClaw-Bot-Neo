@@ -4,6 +4,7 @@ import {
   validateOperationContext,
   type ISO8601,
   type OperationContext,
+  type PayloadDigest,
   type Result,
   type SafeWebhookAuditEvent,
   type WebhookEnvelope,
@@ -12,8 +13,11 @@ import {
   type WebhookIngressLimits,
 } from '../domain/index.js';
 import {
+  computeWebhookPayloadDigest,
+  digestFromHandle,
   sealAuthenticatedWebhookSource,
   sealAuthorizedWebhookIngress,
+  sealPayloadBoundSignature,
   sealRawWebhookPayloadHandle,
   sealSanitizedWebhookPayload,
   sealWebhookRateLimitEvidence,
@@ -47,7 +51,8 @@ export interface WebhookIngressDeps {
 }
 
 export type WebhookIngressFailure = {
-  readonly code: WebhookFailureCode | 'INVALID_OPERATION_CONTEXT' | 'AUDIT_FAILED';
+  readonly code:
+    WebhookFailureCode | 'INVALID_OPERATION_CONTEXT' | 'AUDIT_FAILED' | 'DIGEST_MISMATCH';
   readonly reason: string;
 };
 
@@ -71,11 +76,57 @@ const textFromBytes = (bytes: Uint8Array): string => {
   }
 };
 
+const assertCanonicalDigest = (
+  handle: { readonly payloadDigest: string; copyBytes(): Uint8Array },
+  expected: string,
+): boolean => handle.payloadDigest === expected && digestFromHandle(handle as never) === expected;
+
+const sealFromPrimitive = (
+  result: unknown,
+  envelope: WebhookEnvelope,
+  canonicalDigest: string,
+  trustedIso: ISO8601,
+): Result<PayloadBoundSignatureEvidence, WebhookIngressFailure> => {
+  if (
+    typeof result !== 'object' ||
+    result === null ||
+    !('verified' in result) ||
+    !('sourceId' in result) ||
+    !('payloadDigest' in result) ||
+    !('algorithm' in result) ||
+    !('keyReference' in result) ||
+    !('verifiedAt' in result) ||
+    typeof result.verified !== 'boolean' ||
+    typeof result.sourceId !== 'string' ||
+    typeof result.payloadDigest !== 'string' ||
+    typeof result.algorithm !== 'string' ||
+    typeof result.keyReference !== 'string' ||
+    typeof result.verifiedAt !== 'string'
+  )
+    return fail('SIGNATURE_INVALID', 'Verifier result is malformed.');
+  if (!result.verified) return fail('SIGNATURE_INVALID', 'Webhook signature verification failed.');
+  if (result.sourceId !== envelope.sourceId)
+    return fail('SIGNATURE_INVALID', 'Signature sourceId does not match the envelope.');
+  if (result.payloadDigest !== canonicalDigest)
+    return fail('SIGNATURE_INVALID', 'Signature digest does not match canonical payload.');
+  if (result.algorithm !== envelope.signature.algorithm)
+    return fail('SIGNATURE_INVALID', 'Signature algorithm does not match the envelope.');
+  if (result.keyReference !== envelope.signature.keyReference)
+    return fail('SIGNATURE_INVALID', 'Signature key reference does not match the envelope.');
+  return ok(
+    sealPayloadBoundSignature({
+      sourceId: result.sourceId,
+      payloadDigest: result.payloadDigest as PayloadDigest,
+      algorithm: result.algorithm,
+      keyReference: result.keyReference,
+      verifiedAt: trustedIso,
+    }),
+  );
+};
+
 /**
- * Provider-independent webhook orchestration. Order is the security contract:
- * trusted clock → limits → raw payload/digest → envelope → authenticate → signature →
- * timestamp → replay → rate limit → scanner → authorized evidence → safe audit.
- * Never activates extensions or writes memory.
+ * Provider-independent webhook orchestration. Canonical payload bytes belong to core.
+ * Adapters receive disposable copies and return untrusted primitive results.
  */
 export async function executeWebhookIngress(
   deps: WebhookIngressDeps,
@@ -106,6 +157,9 @@ export async function executeWebhookIngress(
     receivedAt: trustedIso,
     correlationId: command.correlationId,
   });
+  const canonicalDigest = payload.payloadDigest;
+  if (!assertCanonicalDigest(payload, canonicalDigest))
+    return fail('DIGEST_MISMATCH', 'Canonical payload digest integrity failed.');
 
   const envelope: WebhookEnvelope = {
     sourceId: command.sourceId,
@@ -113,7 +167,7 @@ export async function executeWebhookIngress(
     eventType: command.eventType,
     occurredAt: command.occurredAt,
     receivedAt: trustedIso,
-    payloadDigest: payload.payloadDigest,
+    payloadDigest: canonicalDigest,
     signature: command.signature,
     idempotencyKey: command.idempotencyKey,
     contentType: command.contentType,
@@ -134,14 +188,35 @@ export async function executeWebhookIngress(
     authenticatedAt: trustedIso,
   });
 
-  const signatureResult = await deps.signatures.verify(envelope, payload, context);
+  if (!assertCanonicalDigest(payload, canonicalDigest))
+    return fail('DIGEST_MISMATCH', 'Canonical payload digest integrity failed before verify.');
+
+  const disposable = payload.copyBytes();
+  const signatureResult = await deps.signatures.verify(
+    envelope,
+    disposable,
+    canonicalDigest,
+    context,
+  );
   if (!signatureResult.ok)
     return fail('VERIFIER_UNAVAILABLE', 'Signature verifier is unavailable.');
   if (signatureResult.value === null)
     return fail('SIGNATURE_INVALID', 'Webhook signature verification failed.');
-  const signatureEvidence: PayloadBoundSignatureEvidence = signatureResult.value;
-  if (signatureEvidence.payloadDigest !== payload.payloadDigest)
-    return fail('SIGNATURE_INVALID', 'Signature evidence is not bound to this payload digest.');
+
+  if (!assertCanonicalDigest(payload, canonicalDigest))
+    return fail('DIGEST_MISMATCH', 'Canonical payload digest integrity failed after verify.');
+  if (computeWebhookPayloadDigest(disposable) !== canonicalDigest) {
+    // Adapter may mutate its disposable copy; that must not affect canonical authorization.
+  }
+
+  const sealedSignature = sealFromPrimitive(
+    signatureResult.value,
+    envelope,
+    canonicalDigest,
+    trustedIso,
+  );
+  if (!sealedSignature.ok) return sealedSignature;
+  const signatureEvidence: PayloadBoundSignatureEvidence = sealedSignature.value;
 
   const timestampEvidence = sealWebhookTimestampEvidence({
     occurredAt: envelope.occurredAt,
@@ -167,15 +242,20 @@ export async function executeWebhookIngress(
     eventType: envelope.eventType,
   });
 
-  const scan = await deps.scanner.scanText(textFromBytes(payload.bytes), context);
+  if (!assertCanonicalDigest(payload, canonicalDigest))
+    return fail('DIGEST_MISMATCH', 'Canonical payload digest integrity failed before scan.');
+  const scan = await deps.scanner.scanText(textFromBytes(payload.copyBytes()), context);
   if (!scan.ok) return fail('SCANNER_UNAVAILABLE', 'Sensitive-data scanner is unavailable.');
   if (scan.value.decision === 'deny')
     return fail('SCANNER_DENIED', 'Webhook payload failed sensitive-data scan.');
   const sanitized = sealSanitizedWebhookPayload({
-    payloadDigest: payload.payloadDigest,
+    payloadDigest: canonicalDigest,
     privacyClassification: envelope.privacyClassification,
     redactedPreview: scan.value.redacted.slice(0, 64),
   });
+
+  if (!assertCanonicalDigest(payload, canonicalDigest))
+    return fail('DIGEST_MISMATCH', 'Canonical payload digest integrity failed before authorize.');
 
   const evidence = sealAuthorizedWebhookIngress({
     envelope,
@@ -192,7 +272,7 @@ export async function executeWebhookIngress(
     sourceId: envelope.sourceId,
     eventId: envelope.eventId,
     eventType: envelope.eventType,
-    digestPrefix: digestPrefix(envelope.payloadDigest),
+    digestPrefix: digestPrefix(canonicalDigest),
     contentLength: envelope.contentLength,
     correlationId: envelope.correlationId,
     privacyClassification: envelope.privacyClassification,

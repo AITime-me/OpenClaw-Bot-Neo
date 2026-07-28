@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { CorrelationId, IdempotencyKey, ISO8601, PayloadDigest } from './identity.js';
 import type { PrivacyClassification } from './privacy.js';
-import type { WebhookEnvelope, WebhookSignatureMetadata } from './webhook.js';
+import type { WebhookEnvelope } from './webhook.js';
 
 export const rawWebhookPayloadBrand: unique symbol = Symbol('RawWebhookPayloadHandle');
 export const authenticatedWebhookSourceBrand: unique symbol = Symbol('AuthenticatedWebhookSource');
@@ -12,9 +12,12 @@ export const webhookRateLimitEvidenceBrand: unique symbol = Symbol('WebhookRateL
 export const sanitizedWebhookPayloadBrand: unique symbol = Symbol('SanitizedWebhookPayload');
 export const authorizedWebhookIngressBrand: unique symbol = Symbol('AuthorizedWebhookIngress');
 
+/**
+ * Opaque payload handle. Canonical bytes are not exposed as a shared writable reference.
+ * `copyBytes()` always returns a disposable copy that cannot mutate core-owned storage.
+ */
 export interface RawWebhookPayloadHandle {
   readonly [rawWebhookPayloadBrand]: true;
-  readonly bytes: Uint8Array;
   readonly payloadDigest: PayloadDigest;
   readonly contentLength: number;
   readonly contentType: string;
@@ -22,6 +25,8 @@ export interface RawWebhookPayloadHandle {
   readonly eventId: string;
   readonly receivedAt: ISO8601;
   readonly correlationId: CorrelationId;
+  /** Returns a disposable copy of canonical bytes. Mutating the copy never affects core. */
+  copyBytes(): Uint8Array;
 }
 
 export interface AuthenticatedWebhookSourceEvidence {
@@ -79,9 +84,10 @@ export interface AuthorizedWebhookIngressEvidence {
   readonly authorizedAt: ISO8601;
 }
 
+export type { WebhookSignatureVerificationResult } from './webhook.js';
+
 const freezeRecord = (value: unknown): void => {
   if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return;
-  // Typed arrays cannot be frozen in V8; keep a defensive copy instead.
   if (ArrayBuffer.isView(value)) return;
   for (const nested of Object.values(value as Record<string, unknown>)) freezeRecord(nested);
   Object.freeze(value);
@@ -99,21 +105,26 @@ export const sealRawWebhookPayloadHandle = (input: {
   readonly receivedAt: ISO8601;
   readonly correlationId: CorrelationId;
 }): RawWebhookPayloadHandle => {
-  const copy = Uint8Array.from(input.bytes);
-  const sealed = {
-    bytes: copy,
-    payloadDigest: computeWebhookPayloadDigest(copy),
-    contentLength: copy.byteLength,
+  const canonical = Uint8Array.from(input.bytes);
+  const digest = computeWebhookPayloadDigest(canonical);
+  const sealed: RawWebhookPayloadHandle = {
+    payloadDigest: digest,
+    contentLength: canonical.byteLength,
     contentType: input.contentType,
     sourceId: input.sourceId,
     eventId: input.eventId,
     receivedAt: input.receivedAt,
     correlationId: input.correlationId,
+    copyBytes: () => Uint8Array.from(canonical),
     [rawWebhookPayloadBrand]: true as const,
   };
-  freezeRecord(sealed);
+  Object.freeze(sealed);
   return sealed;
 };
+
+/** Recompute digest from a handle's canonical copy for mutation integrity checks. */
+export const digestFromHandle = (handle: RawWebhookPayloadHandle): PayloadDigest =>
+  computeWebhookPayloadDigest(handle.copyBytes());
 
 export const sealAuthenticatedWebhookSource = (input: {
   readonly sourceId: string;
@@ -201,5 +212,3 @@ export const isAuthorizedWebhookIngress = (
   value: unknown,
 ): value is AuthorizedWebhookIngressEvidence =>
   typeof value === 'object' && value !== null && authorizedWebhookIngressBrand in value;
-
-export type { WebhookSignatureMetadata };

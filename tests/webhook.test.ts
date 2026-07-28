@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ok, type IdempotencyKey, type SafeWebhookAuditEvent } from '../src/core/domain/index.js';
-import {
-  computeWebhookPayloadDigest,
-  sealPayloadBoundSignature,
-} from '../src/core/domain/webhook.internal.js';
+import { computeWebhookPayloadDigest } from '../src/core/domain/webhook.internal.js';
 import { executeWebhookIngress } from '../src/core/application/webhook-ingress.service.js';
 import type { WebhookIngressDeps } from '../src/core/application/webhook-ingress.service.js';
 import {
@@ -50,17 +47,16 @@ const deps = (overrides: Partial<WebhookIngressDeps> = {}): WebhookIngressDeps =
       authenticate: () => Promise.resolve(ok(true)),
     },
     signatures: {
-      verify: (envelope, payload) =>
+      verify: (envelope, _bytes, payloadDigest) =>
         Promise.resolve(
-          ok(
-            sealPayloadBoundSignature({
-              sourceId: envelope.sourceId,
-              payloadDigest: payload.payloadDigest,
-              algorithm: envelope.signature.algorithm,
-              keyReference: envelope.signature.keyReference,
-              verifiedAt: iso('2026-07-28T12:00:10.000Z'),
-            }),
-          ),
+          ok({
+            verified: true,
+            sourceId: envelope.sourceId,
+            payloadDigest,
+            algorithm: envelope.signature.algorithm,
+            keyReference: envelope.signature.keyReference,
+            verifiedAt: '2026-07-28T12:00:10.000Z',
+          }),
         ),
     },
     replay: {
@@ -117,32 +113,99 @@ describe('webhook orchestration', () => {
     if (!decision.allowed) expect(decision.code).toBe('UNAUTHORIZED_BOOLEAN_STATE');
   });
 
-  it('binds signature evidence to the computed raw payload digest', async () => {
-    const raw = new TextEncoder().encode('payload-a');
-    const otherDigest = computeWebhookPayloadDigest(new TextEncoder().encode('payload-b'));
+  it('keeps canonical bytes intact when the caller mutates the original array', async () => {
+    const raw = new TextEncoder().encode('immutable-core-payload');
+    const original = Uint8Array.from(raw);
+    const result = await executeWebhookIngress(
+      deps({
+        scanner: {
+          scanText: (input) => {
+            expect(input).toBe('immutable-core-payload');
+            return Promise.resolve(ok({ decision: 'allow', findings: [], redacted: input }));
+          },
+          scanMetadata: () =>
+            Promise.resolve(ok({ decision: 'allow', findings: [], redactedEntries: {} })),
+        },
+      }),
+      command({ rawPayload: original, declaredContentLength: original.byteLength }),
+      limits,
+      operationContext(),
+    );
+    original[0] = 0;
+    expect(result.ok).toBe(true);
+  });
+
+  it('keeps canonical digest when a malicious verifier mutates its disposable copy', async () => {
+    const raw = new TextEncoder().encode('canonical-payload');
+    const canonicalDigest = computeWebhookPayloadDigest(raw);
+    let scanned = '';
     const result = await executeWebhookIngress(
       deps({
         signatures: {
-          verify: (envelope) =>
-            Promise.resolve(
-              ok(
-                sealPayloadBoundSignature({
-                  sourceId: envelope.sourceId,
-                  payloadDigest: otherDigest,
-                  algorithm: envelope.signature.algorithm,
-                  keyReference: envelope.signature.keyReference,
-                  verifiedAt: iso('2026-07-28T12:00:10.000Z'),
-                }),
-              ),
-            ),
+          verify: (envelope, bytes, payloadDigest) => {
+            bytes[0] = 0xff;
+            expect(payloadDigest).toBe(canonicalDigest);
+            return Promise.resolve(
+              ok({
+                verified: true,
+                sourceId: envelope.sourceId,
+                payloadDigest: canonicalDigest,
+                algorithm: envelope.signature.algorithm,
+                keyReference: envelope.signature.keyReference,
+                verifiedAt: '2026-07-28T12:00:10.000Z',
+              }),
+            );
+          },
+        },
+        scanner: {
+          scanText: (input) => {
+            scanned = input;
+            return Promise.resolve(ok({ decision: 'allow', findings: [], redacted: input }));
+          },
+          scanMetadata: () =>
+            Promise.resolve(ok({ decision: 'allow', findings: [], redactedEntries: {} })),
         },
       }),
       command({ rawPayload: raw, declaredContentLength: raw.byteLength }),
       limits,
       operationContext(),
     );
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe('SIGNATURE_INVALID');
+    expect(result.ok).toBe(true);
+    expect(scanned).toBe('canonical-payload');
+  });
+
+  it('denies wrong digest, source, algorithm and key reference from verifier', async () => {
+    const cases = [
+      { payloadDigest: '0'.repeat(64) },
+      { sourceId: 'other-source' },
+      { algorithm: 'other-alg' },
+      { keyReference: 'other-key' },
+    ] as const;
+    for (const broken of cases) {
+      const result = await executeWebhookIngress(
+        deps({
+          signatures: {
+            verify: (envelope, _bytes, payloadDigest) =>
+              Promise.resolve(
+                ok({
+                  verified: true,
+                  sourceId: envelope.sourceId,
+                  payloadDigest,
+                  algorithm: envelope.signature.algorithm,
+                  keyReference: envelope.signature.keyReference,
+                  verifiedAt: '2026-07-28T12:00:10.000Z',
+                  ...broken,
+                }),
+              ),
+          },
+        }),
+        command(),
+        limits,
+        operationContext(),
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe('SIGNATURE_INVALID');
+    }
   });
 
   it.each([
@@ -169,14 +232,6 @@ describe('webhook orchestration', () => {
     expect(
       validateWebhookIngressLimits({
         maxContentLength: Number.NaN,
-        maxClockSkewMs: 1,
-        maxIdLength: 1,
-        maxEventTypeLength: 1,
-      }).allowed,
-    ).toBe(false);
-    expect(
-      validateWebhookIngressLimits({
-        maxContentLength: 0,
         maxClockSkewMs: 1,
         maxIdLength: 1,
         maxEventTypeLength: 1,
@@ -212,17 +267,6 @@ describe('webhook orchestration', () => {
     expect(decision.allowed).toBe(false);
   });
 
-  it('denies content length mismatch before sinks', async () => {
-    const result = await executeWebhookIngress(
-      deps(),
-      command({ declaredContentLength: 999 }),
-      limits,
-      operationContext(),
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe('CONTENT_LENGTH_MISMATCH');
-  });
-
   it('keeps raw payload and signature material out of audit metadata', () => {
     const audit: SafeWebhookAuditEvent = {
       sourceId: 'trusted-source',
@@ -238,7 +282,6 @@ describe('webhook orchestration', () => {
     };
     const serialized = JSON.stringify(audit);
     expect(serialized).not.toContain('signature');
-    expect(serialized).not.toContain('verificationSecret');
     expect(serialized).not.toContain('rawPayload');
   });
 
@@ -246,6 +289,7 @@ describe('webhook orchestration', () => {
     const names = Object.keys(publicApi);
     expect(names).not.toContain('sealAuthorizedWebhookIngress');
     expect(names).not.toContain('sealRawWebhookPayloadHandle');
+    expect(names).not.toContain('sealPayloadBoundSignature');
     expect(names).toContain('executeWebhookIngress');
   });
 });

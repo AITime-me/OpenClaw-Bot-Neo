@@ -50,8 +50,23 @@ describe('public API surface', () => {
       'sealRawWebhookPayloadHandle',
       'sealPayloadBoundSignature',
       'computeWebhookPayloadDigest',
+      'sealRuntimeRiskEvidence',
+      'runtimeRiskEvidenceBrand',
+      'sealDeploymentAuthorization',
+      'deploymentAuthorizationBrand',
+      'toActiveExtensionRegistration',
+      'activeExtensionRegistrationBrand',
+      'sealVerifiedVoiceProviderMatch',
+      'verifiedVoiceProviderMatchBrand',
     ])
       expect(exportedNames).not.toContain(forbidden);
+  });
+
+  it('exposes trusted classification and validation services without sealers', () => {
+    expect(exportedNames).toContain('classifyExtensionRuntimeRisk');
+    expect(exportedNames).toContain('issueDeploymentAuthorization');
+    expect(exportedNames).toContain('validateVoiceProviderMatch');
+    expect(exportedNames).toContain('computeManifestDigest');
   });
 
   it('exports no regular expressions and no mutable objects', () => {
