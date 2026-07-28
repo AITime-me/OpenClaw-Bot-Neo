@@ -1,8 +1,13 @@
-import type { DomainError, Result } from '../domain/index.js';
-import type { OperationContext } from './operation-context.js';
+import type {
+  DomainError,
+  MemoryAccessContext,
+  Result,
+  SafeMemoryAuditEvent,
+} from '../domain/index.js';
+/** Accepts classification and identifiers only; raw content and metadata values are excluded by type. */
 export interface MemoryAuditPort {
   record(
-    metadata: Readonly<Record<string, unknown>>,
-    context: OperationContext,
+    event: SafeMemoryAuditEvent,
+    access: MemoryAccessContext,
   ): Promise<Result<void, DomainError>>;
 }

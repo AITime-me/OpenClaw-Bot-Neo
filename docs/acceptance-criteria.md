@@ -6,7 +6,8 @@
 - Draft config валиден как JSON, явно не deployable и не выдаётся за подтверждённый OpenClaw config.
 - Config не полагается на unsafe defaults: deny/read-only/scanner/provider/embedding/paid behavior заданы явно.
 - Internal Markdown links разрешаются; likely-secret scan, active-key scan, `git diff --check` и allowlist scope проходят.
-- Strict compile, lint, formatting, unit tests, dependency boundaries и secret-pattern checks проходят через `npm run check`.
+- Strict compile, lint, formatting, unit tests, dependency boundaries, secret-pattern и repository-hygiene checks проходят через `npm run check`.
+- Build 2.1A закрывает HIGH findings OCN-001—OCN-006 и не добавляет adapters, providers, integrations, monitors, runtime, сеть, БД, scheduler или платёжные функции.
 
 ## LLM authentication and billing
 
@@ -42,6 +43,9 @@
 - Private key block никогда не достигает memory/logs.
 - Telegram bot token никогда не достигает memory/logs.
 - Scanner unavailable => write denied; timeout/ambiguity/limit также fail closed.
+- Quoted assignment редактируется целиком; percent-encoded URL userinfo блокируется; finding не содержит фрагментов исходного секрета; metadata сканируется фактически.
+- Query, write, read и delete требуют authenticated access context; знание record ID не позволяет удалить запись.
+- Raw content не может попасть в `MemoryPort`: sink принимает только sealed write contract, созданный memory-write сервисом.
 - Delete удаляет сырьё и derived/index entries, оставляя только минимальный redacted audit; результат удаления проверяется.
 - Memory embedding provider указан явно (`none` или проверенный local placeholder); внешний provider не выбирается default-ом.
 
@@ -62,11 +66,13 @@
 
 ## Security
 
-- SensitiveDataScannerPort детерминированно работает до memory, log, external call и audit.
+- SensitiveDataScannerPort детерминированно работает до memory, log, external call и audit; порядок исполняем и проверяется структурно по AST, а не только документирован.
+- Approval scoped, expiring и single-use: grant нельзя переиспользовать, применить к другому owner, actor, effect, target или изменённому payload; expired, revoked, consumed и unknown effect отклоняются fail-closed.
+- Boundary checker обнаруживает static import, export-from, dynamic import, переименованный implementation layer, внешний пакет в core, цикл и sealed-модуль вне allowlist; zero-file condition не даёт ложный success.
 - Сканируются API keys, bearer credentials, Telegram bot tokens, passwords, cookies, private keys, recovery codes, URL credentials, connection strings и arbitrary text.
 - Scanner unavailable => write denied; маскирование не раскрывает совпавшее значение.
 - Prompt injection и memory poisoning не меняют policy, approvals, provenance или trusted instructions.
-- Build №2 покрывает негативными тестами синтаксическую URL policy. Полноценные SSRF resolved-IP/redirect checks, path containment, MIME parsing и decompression-bomb protection остаются обязательными runtime gates и не имитируются текущими заглушками.
+- Build 2.1A покрывает негативными тестами синтаксическую URL policy, включая trailing-dot `localhost`, IPv6 loopback/ULA/link-local и IPv4-mapped IPv6. Полноценные SSRF resolved-IP/redirect checks, DNS rebinding protection, path containment, MIME parsing и decompression-bomb protection остаются обязательными runtime gates и не имитируются текущими заглушками.
 - Tool profile ограничивает capabilities/targets/time/size; elevated tools запрещены.
 - Public sharing private/restricted data запрещён; cross-border передача минимизируется и требует policy/approval.
 - Safe refusal сообщает класс блокировки и следующий безопасный шаг без секрета.

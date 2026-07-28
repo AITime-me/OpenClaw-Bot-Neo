@@ -30,7 +30,9 @@ Multimodal workflow — общая техническая capability обраб�
 
 ## Статус
 
-**Build №2: verifiable core.** Добавлены strict TypeScript-домен, порты, детерминированные политики безопасности, risk routing, pipeline-контракты, девять draft skills и локальные тесты. Runtime, адаптеры, providers, интеграции, бот, deployment и рабочая конфигурация по-прежнему отсутствуют.
+**Build №2 + Security Remediation 2.1A: verifiable core.** Добавлены strict TypeScript-домен, порты, детерминированные политики безопасности, risk routing, pipeline-контракты, девять draft skills и локальные тесты. Remediation 2.1A закрыла шесть HIGH findings независимого review: approval стал scoped, expiring и одноразовым; порядок «scanner → policy → approval → sinks» реализован исполняемым memory-write сервисом в `src/core/application/`; доступ к памяти требует authenticated context; scanner полностью редактирует quoted-значения и определяет URL credentials каноническим парсингом; URL policy расширена структурной проверкой IP-диапазонов; проверка архитектурных границ переведена на allowlist и анализ AST.
+
+Runtime, адаптеры, providers, интеграции, бот, deployment и рабочая конфигурация по-прежнему отсутствуют. Текущая URL policy не является полной SSRF-защитой: DNS resolution, проверка resolved IP, повторная проверка redirect и защита от DNS rebinding остаются runtime gates.
 
 Навигация: [архитектура](docs/architecture.md), [роли](docs/roles.md), [безопасность](docs/security-policy.md), [критерии приёмки](docs/acceptance-criteria.md), [совместимость OpenClaw](docs/openclaw-compatibility.md).
 

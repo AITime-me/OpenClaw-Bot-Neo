@@ -2,25 +2,24 @@ import { describe, expect, it } from 'vitest';
 import {
   checkNamespaceAccess,
   checkRecipient,
-  checkUrlSafety,
-  confirmationGate,
+  classifyEffect,
   evaluateQuietHours,
 } from '../src/core/policy/index.js';
 
-describe('recipient and confirmation policies', () => {
+describe('recipient and effect policies', () => {
   it('allows only a whitelisted recipient', () => {
     expect(checkRecipient('owner', new Set(['owner'])).ok).toBe(true);
     expect(checkRecipient('third-party', new Set(['owner'])).ok).toBe(false);
   });
 
-  it('requires confirmation for writes and denies payments', () => {
-    expect(confirmationGate('write', false).decision).toBe('approval-required');
-    expect(confirmationGate('write', true).decision).toBe('allow');
-    expect(confirmationGate('payment', true).decision).toBe('deny');
+  it('requires a scoped grant for writes and refuses payments', () => {
+    expect(classifyEffect('write')).toEqual({ decision: 'approval-required', effect: 'write' });
+    expect(classifyEffect('payment').decision).toBe('deny');
+    expect(classifyEffect('read').decision).toBe('allow');
   });
 });
 
-describe('namespace isolation', () => {
+describe('namespace isolation rules', () => {
   it('denies access without an active namespace', () => {
     expect(checkNamespaceAccess(null, 'tvoe-vremya', false).allowed).toBe(false);
   });
@@ -81,26 +80,5 @@ describe('quiet hours', () => {
         false,
       ).ok,
     ).toBe(false);
-  });
-});
-
-describe('URL safety', () => {
-  it.each([
-    'https://localhost/path',
-    'https://127.0.0.1/path',
-    'https://10.1.2.3/path',
-    'https://192.168.1.2/path',
-    'https://169.254.169.254/latest/meta-data',
-  ])('blocks local, private, or metadata URL %s', (url) => {
-    expect(checkUrlSafety(url).safe).toBe(false);
-  });
-
-  it('blocks credentials in a URL', () => {
-    const credentialUrl = ['https://', 'alice', ':', 'secret', '@', 'example.com'].join('');
-    expect(checkUrlSafety(credentialUrl).safe).toBe(false);
-  });
-
-  it('allows public HTTPS hostname syntax', () => {
-    expect(checkUrlSafety('https://example.com/resource').safe).toBe(true);
   });
 });

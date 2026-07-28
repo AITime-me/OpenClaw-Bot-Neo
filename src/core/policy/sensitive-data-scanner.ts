@@ -1,99 +1,356 @@
 import { err, ok, type Result } from '../domain/index.js';
-import type { ScanReport, SensitiveCategory, SensitiveFinding } from '../ports/index.js';
+import type {
+  MetadataScanReport,
+  ScanReport,
+  SensitiveCategory,
+  SensitiveFinding,
+  SensitiveSeverity,
+} from '../domain/index.js';
 
 export interface ScannerFailure {
-  readonly code: 'SCANNER_FAILURE';
+  readonly code: 'SCANNER_FAILURE' | 'INPUT_TOO_LARGE' | 'METADATA_TOO_COMPLEX';
   readonly reason: string;
 }
-interface Detector {
+
+/** Inputs above this size are refused instead of being partially scanned. */
+export const MAX_SCAN_INPUT_LENGTH = 65_536;
+/** Longest span searched for a closing quote before falling back to the end of the line. */
+const MAX_QUOTED_VALUE_LENGTH = 4_096;
+const MAX_METADATA_ENTRIES = 256;
+const MAX_METADATA_DEPTH = 5;
+
+const REDACTION_MARKER_PATTERN = /\[REDACTED#[a-z-]+\]/g;
+const redactionMarker = (category: SensitiveCategory): string => `[REDACTED#${category}]`;
+
+const SEVERITY_RANK: Readonly<Record<SensitiveSeverity, number>> = {
+  medium: 1,
+  high: 2,
+  critical: 3,
+};
+
+interface Range {
+  readonly start: number;
+  readonly end: number;
+}
+interface RawFinding extends Range {
   readonly category: SensitiveCategory;
-  readonly severity: SensitiveFinding['severity'];
+  readonly severity: SensitiveSeverity;
+}
+
+interface AssignmentDetector {
+  readonly category: SensitiveCategory;
+  readonly severity: SensitiveSeverity;
+  readonly keyPattern: RegExp;
+}
+
+/**
+ * Key patterns stop at the separator and tolerate a quoted key such as `"password":`; the value
+ * boundary is resolved by a hand-written scan so quoted values with spaces are covered completely
+ * instead of stopping at the first space.
+ */
+const ASSIGNMENT_DETECTORS: readonly AssignmentDetector[] = [
+  {
+    category: 'password',
+    severity: 'high',
+    keyPattern: /\b(?:password|passwd|pwd|passphrase)["']?\s*[:=]/gi,
+  },
+  {
+    category: 'api-key',
+    severity: 'critical',
+    keyPattern:
+      /\b(?:api[_-]?key|access[_-]?key|secret[_-]?key|client[_-]?secret|auth[_-]?token|access[_-]?token|refresh[_-]?token|secret)["']?\s*[:=]/gi,
+  },
+  { category: 'cookie', severity: 'high', keyPattern: /\b(?:set-cookie|cookie)["']?\s*[:=]/gi },
+  {
+    category: 'recovery-code',
+    severity: 'critical',
+    keyPattern: /\brecovery[_ -]?code["']?\s*[:=]/gi,
+  },
+];
+
+interface LiteralDetector {
+  readonly category: SensitiveCategory;
+  readonly severity: SensitiveSeverity;
   readonly pattern: RegExp;
 }
 
-const detectors: readonly Detector[] = [
+/** Linear patterns only: no nested quantifiers, so there is no obvious backtracking blow-up. */
+const LITERAL_DETECTORS: readonly LiteralDetector[] = [
   {
     category: 'private-key',
     severity: 'critical',
     pattern:
-      /-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----[\s\S]*?-----END(?: [A-Z0-9]+)? PRIVATE KEY-----/g,
+      /-----BEGIN[A-Z0-9 ]{0,40}PRIVATE KEY-----[\s\S]*?-----END[A-Z0-9 ]{0,40}PRIVATE KEY-----/g,
   },
-  {
-    category: 'telegram-bot-token',
-    severity: 'critical',
-    pattern: /\b\d{8,10}:[A-Za-z0-9_-]{30,}\b/g,
-  },
+  { category: 'telegram-bot-token', severity: 'critical', pattern: /\d{8,10}:[A-Za-z0-9_-]{30,}/g },
   {
     category: 'bearer-token',
     severity: 'critical',
-    pattern: /\bBearer\s+[A-Za-z0-9._~+/-]{12,}=*/gi,
-  },
-  {
-    category: 'url-credentials',
-    severity: 'critical',
-    pattern: /\bhttps?:\/\/[^\s/@:]+:[^\s/@]+@[^\s/]+/gi,
-  },
-  { category: 'password', severity: 'high', pattern: /\bpassword\s*[:=]\s*[^\s,;]+/gi },
-  {
-    category: 'api-key',
-    severity: 'critical',
-    pattern: /\b(?:api[_-]?key|access[_-]?key|secret[_-]?key)\s*[:=]\s*[^\s,;]+/gi,
-  },
-  {
-    category: 'connection-string',
-    severity: 'critical',
-    pattern: /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/[^\s/@:]+:[^\s/@]+@[^\s]+/gi,
-  },
-  { category: 'cookie', severity: 'high', pattern: /\b(?:cookie|set-cookie)\s*[:=]\s*[^\r\n]+/gi },
-  {
-    category: 'recovery-code',
-    severity: 'critical',
-    pattern: /\brecovery[_ -]?code\s*[:=]\s*[^\s,;]+/gi,
+    pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/gi,
   },
 ];
 
-const preview = (category: SensitiveCategory): string => `[${category}:REDACTED]`;
+/** An unterminated key block is redacted to the end of the input rather than left in place. */
+const UNTERMINATED_PRIVATE_KEY = /-----BEGIN[A-Z0-9 ]{0,40}PRIVATE KEY-----/g;
+const URL_CANDIDATE_PATTERN = /[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s"'`<>]+/g;
+const SENSITIVE_KEY_NAME_PATTERN =
+  /^(?:.*[._-])?(?:password|passwd|pwd|passphrase|secret|token|cookie|api[_-]?key|access[_-]?key|private[_-]?key|recovery[_-]?code|credentials?|authorization)$/i;
+
+const lineEnd = (input: string, from: number): number => {
+  const relative = input.slice(from).search(/[\r\n]/);
+  return relative < 0 ? input.length : from + relative;
+};
+
+const skipInlineSpace = (input: string, from: number): number => {
+  let index = from;
+  while (index < input.length && (input[index] === ' ' || input[index] === '\t')) index += 1;
+  return index;
+};
+
+/**
+ * Resolves the end of an assignment value. Quoted values are consumed up to the matching quote
+ * (escaped quotes included) and unquoted values extend to the end of the line, which is the
+ * documented wide boundary used whenever the real end is ambiguous.
+ */
+const assignmentValueEnd = (input: string, valueStart: number): number => {
+  const quote = input[valueStart];
+  if (quote !== '"' && quote !== "'") return lineEnd(input, valueStart);
+  const limit = Math.min(input.length, valueStart + MAX_QUOTED_VALUE_LENGTH);
+  let cursor = valueStart + 1;
+  while (cursor < limit) {
+    const char = input[cursor];
+    if (char === '\\') {
+      cursor += 2;
+      continue;
+    }
+    if (char === quote) return cursor + 1;
+    cursor += 1;
+  }
+  return lineEnd(input, valueStart);
+};
+
+const tryParseUrl = (value: string): URL | null => {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+};
+
+const containsOnlyRedactionMarker = (value: string): boolean =>
+  /^\s*(?:"|')?\[REDACTED#[a-z-]+\](?:"|')?\s*$/.test(value);
+
+const collectProtectedRanges = (input: string): readonly Range[] =>
+  [...input.matchAll(REDACTION_MARKER_PATTERN)].map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+  }));
+
+const isProtected = (protectedRanges: readonly Range[], range: Range): boolean =>
+  protectedRanges.some((item) => range.start >= item.start && range.end <= item.end);
+
+const mergeFindings = (findings: readonly RawFinding[]): readonly RawFinding[] => {
+  const sorted = [...findings].sort(
+    (left, right) => left.start - right.start || right.end - left.end,
+  );
+  const merged: RawFinding[] = [];
+  for (const finding of sorted) {
+    const previous = merged[merged.length - 1];
+    if (!previous || finding.start > previous.end) {
+      merged.push(finding);
+      continue;
+    }
+    const dominant =
+      SEVERITY_RANK[finding.severity] > SEVERITY_RANK[previous.severity] ? finding : previous;
+    merged[merged.length - 1] = {
+      start: previous.start,
+      end: Math.max(previous.end, finding.end),
+      category: dominant.category,
+      severity: dominant.severity,
+    };
+  }
+  return merged;
+};
+
+const collectFindings = (input: string): readonly RawFinding[] => {
+  const protectedRanges = collectProtectedRanges(input);
+  const findings: RawFinding[] = [];
+  const push = (finding: RawFinding): void => {
+    if (finding.end <= finding.start) return;
+    if (isProtected(protectedRanges, finding)) return;
+    findings.push(finding);
+  };
+
+  for (const detector of ASSIGNMENT_DETECTORS)
+    for (const match of input.matchAll(detector.keyPattern)) {
+      const valueStart = skipInlineSpace(input, match.index + match[0].length);
+      const end = assignmentValueEnd(input, valueStart);
+      if (containsOnlyRedactionMarker(input.slice(valueStart, end))) continue;
+      push({ start: valueStart, end, category: detector.category, severity: detector.severity });
+    }
+
+  for (const detector of LITERAL_DETECTORS)
+    for (const match of input.matchAll(detector.pattern))
+      push({
+        start: match.index,
+        end: match.index + match[0].length,
+        category: detector.category,
+        severity: detector.severity,
+      });
+
+  const closedKeyBlocks = findings.filter((finding) => finding.category === 'private-key');
+  for (const match of input.matchAll(UNTERMINATED_PRIVATE_KEY)) {
+    const covered = closedKeyBlocks.some(
+      (block) => match.index >= block.start && match.index < block.end,
+    );
+    if (covered) continue;
+    push({
+      start: match.index,
+      end: input.length,
+      category: 'private-key',
+      severity: 'critical',
+    });
+  }
+
+  for (const match of input.matchAll(URL_CANDIDATE_PATTERN)) {
+    const trimmed = match[0].replace(/[.,;:!?)\]}]+$/, '');
+    if (trimmed.length === 0) continue;
+    const range = { start: match.index, end: match.index + trimmed.length };
+    const parsed = tryParseUrl(trimmed);
+    if (!parsed) {
+      if (/^[^/]*\/\/[^/@]*@/.test(trimmed))
+        push({ ...range, category: 'url-credentials', severity: 'critical' });
+      continue;
+    }
+    if (parsed.username.length === 0 && parsed.password.length === 0) continue;
+    const category: SensitiveCategory =
+      parsed.protocol === 'http:' || parsed.protocol === 'https:'
+        ? 'url-credentials'
+        : 'connection-string';
+    push({ ...range, category, severity: 'critical' });
+  }
+
+  return mergeFindings(findings);
+};
+
+const toFindings = (raw: readonly RawFinding[], location: string): readonly SensitiveFinding[] =>
+  raw.map((finding) => ({
+    category: finding.category,
+    start: finding.start,
+    end: finding.end,
+    maskedPreview: redactionMarker(finding.category),
+    severity: finding.severity,
+    location,
+  }));
+
+const applyRedaction = (input: string, raw: readonly RawFinding[]): string => {
+  let redacted = input;
+  for (const finding of [...raw].reverse())
+    redacted =
+      redacted.slice(0, finding.start) +
+      redactionMarker(finding.category) +
+      redacted.slice(finding.end);
+  return redacted;
+};
+
+/**
+ * Critical categories deny the sink outright; lower severities are redacted so ordinary text can
+ * still flow with the secret removed.
+ */
+const decide = (raw: readonly RawFinding[]): 'allow' | 'redact' | 'deny' => {
+  if (raw.length === 0) return 'allow';
+  return raw.some((finding) => finding.severity === 'critical') ? 'deny' : 'redact';
+};
 
 export function scanSensitiveData(input: string): Result<ScanReport, ScannerFailure> {
+  if (typeof input !== 'string')
+    return err({ code: 'SCANNER_FAILURE', reason: 'Scanner input was not a string.' });
+  if (input.length > MAX_SCAN_INPUT_LENGTH)
+    return err({ code: 'INPUT_TOO_LARGE', reason: 'Scanner input exceeds the supported size.' });
   try {
-    const findings: SensitiveFinding[] = [];
-    const protectedRanges = [...input.matchAll(/\[[a-z-]+:REDACTED\]/g)].map((match) => ({
-      start: match.index,
-      end: match.index + match[0].length,
-    }));
-    for (const detector of detectors) {
-      detector.pattern.lastIndex = 0;
-      for (const match of input.matchAll(detector.pattern)) {
-        const start = match.index;
-        const end = start + match[0].length;
-        if (protectedRanges.some((range) => start >= range.start && end <= range.end)) continue;
-        findings.push({
-          category: detector.category,
-          start,
-          end,
-          maskedPreview: preview(detector.category),
-          severity: detector.severity,
-        });
-      }
-    }
-    findings.sort((a, b) => a.start - b.start || b.end - a.end);
-    const nonOverlapping = findings.filter(
-      (item, index, list) => index === 0 || item.start >= (list[index - 1]?.end ?? 0),
-    );
-    let redacted = input;
-    for (const finding of [...nonOverlapping].reverse())
-      redacted =
-        redacted.slice(0, finding.start) + finding.maskedPreview + redacted.slice(finding.end);
+    if (input.length === 0) return ok({ decision: 'allow', findings: [], redacted: '' });
+    const raw = collectFindings(input);
     return ok({
-      decision: nonOverlapping.length === 0 ? 'allow' : 'deny',
-      findings: nonOverlapping,
-      redacted,
+      decision: decide(raw),
+      findings: toFindings(raw, 'text'),
+      redacted: applyRedaction(input, raw),
     });
   } catch {
     return err({ code: 'SCANNER_FAILURE', reason: 'Sensitive-data scan failed; sink denied.' });
   }
 }
 
+const flattenMetadata = (
+  value: unknown,
+  path: string,
+  depth: number,
+  sink: Map<string, string>,
+): boolean => {
+  if (sink.size > MAX_METADATA_ENTRIES) return false;
+  if (depth > MAX_METADATA_DEPTH) return false;
+  if (value === null || value === undefined) {
+    sink.set(path, '');
+    return true;
+  }
+  if (typeof value === 'string') {
+    sink.set(path, value);
+    return true;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    sink.set(path, String(value));
+    return true;
+  }
+  if (Array.isArray(value))
+    return value.every((item, index) =>
+      flattenMetadata(item, `${path}[${String(index)}]`, depth + 1, sink),
+    );
+  if (typeof value === 'object')
+    return Object.entries(value).every(([key, item]) =>
+      flattenMetadata(item, path.length === 0 ? key : `${path}.${key}`, depth + 1, sink),
+    );
+  return false;
+};
+
+export function scanSensitiveMetadata(input: unknown): Result<MetadataScanReport, ScannerFailure> {
+  if (input === null || typeof input !== 'object' || Array.isArray(input))
+    return err({ code: 'SCANNER_FAILURE', reason: 'Metadata input was not an object.' });
+  const flat = new Map<string, string>();
+  if (!flattenMetadata(input, '', 0, flat))
+    return err({ code: 'METADATA_TOO_COMPLEX', reason: 'Metadata exceeds scan limits.' });
+
+  const findings: SensitiveFinding[] = [];
+  const redactedEntries: Record<string, string> = {};
+  let decision: 'allow' | 'redact' | 'deny' = 'allow';
+  for (const [path, value] of flat) {
+    const lastSegment = path.split('.').pop() ?? path;
+    if (SENSITIVE_KEY_NAME_PATTERN.test(lastSegment) && value.length > 0) {
+      if (!containsOnlyRedactionMarker(value)) {
+        findings.push({
+          category: 'unknown-sensitive-pattern',
+          start: 0,
+          end: value.length,
+          maskedPreview: redactionMarker('unknown-sensitive-pattern'),
+          severity: 'critical',
+          location: path,
+        });
+        redactedEntries[path] = redactionMarker('unknown-sensitive-pattern');
+        decision = 'deny';
+        continue;
+      }
+      redactedEntries[path] = value;
+      continue;
+    }
+    const scanned = scanSensitiveData(value);
+    if (!scanned.ok) return err(scanned.error);
+    redactedEntries[path] = scanned.value.redacted;
+    for (const finding of scanned.value.findings) findings.push({ ...finding, location: path });
+    if (scanned.value.decision === 'deny') decision = 'deny';
+    else if (scanned.value.decision === 'redact' && decision === 'allow') decision = 'redact';
+  }
+  return ok({ decision, findings, redactedEntries });
+}
+
+/** Any scanner failure collapses to a deny decision and an input-free placeholder. */
 export function scanWithFailClosed(
   input: string,
   scanner: (value: string) => Result<ScanReport, ScannerFailure> = scanSensitiveData,
@@ -101,5 +358,5 @@ export function scanWithFailClosed(
   const result = scanner(input);
   return result.ok
     ? result.value
-    : { decision: 'deny', findings: [], redacted: '[SCAN_FAILED:REDACTED]' };
+    : { decision: 'deny', findings: [], redacted: redactionMarker('unknown-sensitive-pattern') };
 }

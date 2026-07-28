@@ -36,15 +36,20 @@ flowchart LR
 ## Слои
 
 1. Channel adapter: аутентификация интерфейса, нормализация сообщений, доставка уведомлений.
-2. Core: intents, role selection, risk classification, approval state machine, provenance.
-3. Ports/facades: LLM, media, memory, scheduler, notifications, observed systems и будущий `SensitiveDataScannerPort`.
-4. Runtime adapter: заменяемая интеграция OpenClaw; все версии и поля сначала валидируются.
-5. Infrastructure adapters: только после отдельного этапа Build.
+2. Core domain: типы, идентификаторы, доменные ошибки, operation context; не зависит ни от чего, кроме себя.
+3. Core ports: контракты LLM, media, memory, scheduler, notifications, observed systems, approvals и `SensitiveDataScannerPort`; зависят только от domain.
+4. Core policy и routing: детерминированные политики безопасности и risk routing; зависят только от domain и ports.
+5. Core application: исполняемая оркестрация security-порядка, например memory-write boundary; зависит только от остальных core-слоёв.
+6. Runtime adapter: заменяемая интеграция OpenClaw; все версии и поля сначала валидируются.
+7. Infrastructure adapters: только после отдельного этапа Build.
+
+Зависимости между слоями заданы allowlist-ом и проверяются структурным анализом AST (`npm run check:boundaries`), а не совпадением имён каталогов.
 
 ## Границы этапов
 
 - Build №1 завершён: документы, ADR и нерабочие примеры JSON.
 - Build №2 завершён: TypeScript domain, ports, детерминированные policy/routing, pipeline-контракты, draft skills и автоматические проверки без внешних соединений.
+- Build 2.1A завершён: scoped/expiring/single-use approval, исполняемый memory-write boundary в `src/core/application/`, authenticated memory access context, усиленные scanner и URL policy, allowlist-based architecture checker. Это исправление Build №2, а не новый этап; adapters, providers, runtime и сеть по-прежнему отсутствуют.
 - Следующий этап: локальные адаптеры и runtime policy enforcement после отдельного утверждения.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.

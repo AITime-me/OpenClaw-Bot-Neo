@@ -1,15 +1,85 @@
-export type ConfirmationDecision =
+import { err, isApprovalEffect, isApprovalStatus, ok, type Result } from '../domain/index.js';
+import type {
+  ApprovalDemand,
+  ApprovalEffect,
+  ApprovalFailure,
+  ApprovalGrant,
+  ValidatedApproval,
+} from '../domain/index.js';
+import { sealValidatedApproval } from '../domain/approval.internal.js';
+
+export type EffectDecision =
   | { readonly decision: 'allow' }
-  | { readonly decision: 'approval-required'; readonly reason: string }
+  | { readonly decision: 'approval-required'; readonly effect: ApprovalEffect }
   | { readonly decision: 'deny'; readonly reason: string };
-export function confirmationGate(
-  effect: 'read' | 'write' | 'execute' | 'external-send' | 'payment',
-  approved: boolean,
-): ConfirmationDecision {
+
+/**
+ * Read stays free, payment stays impossible, every other known effect needs a scoped grant
+ * and an unknown effect is denied instead of being treated as harmless.
+ */
+export function classifyEffect(effect: unknown): EffectDecision {
+  if (effect === 'read') return { decision: 'allow' };
   if (effect === 'payment')
     return { decision: 'deny', reason: 'Payment actions are not supported.' };
-  if (effect === 'read') return { decision: 'allow' };
-  return approved
-    ? { decision: 'allow' }
-    : { decision: 'approval-required', reason: 'Explicit owner approval is required.' };
+  if (isApprovalEffect(effect)) return { decision: 'approval-required', effect };
+  return { decision: 'deny', reason: 'Unknown effect is denied by default.' };
+}
+
+const fail = (code: ApprovalFailure['code'], reason: string): Result<never, ApprovalFailure> =>
+  err({ code, reason });
+const instant = (value: string): number | null => {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+const filled = (value: string | undefined): boolean =>
+  typeof value === 'string' && value.length > 0;
+
+/**
+ * Deterministic, fail-closed validation of a single grant against the action being attempted.
+ * Nothing here reads model-produced text: every compared field is an identifier or a digest.
+ */
+export function validateApproval(
+  grant: ApprovalGrant | null | undefined,
+  demand: ApprovalDemand,
+  now: Date,
+): Result<ValidatedApproval, ApprovalFailure> {
+  if (!grant) return fail('MISSING_GRANT', 'No approval grant was supplied.');
+  if (!isApprovalEffect(grant.effect) || !isApprovalEffect(demand.effect))
+    return fail('UNKNOWN_EFFECT', 'Effect is not an approvable effect.');
+  if (
+    !filled(grant.approvalId) ||
+    !filled(grant.ownerId) ||
+    !filled(grant.actorId) ||
+    !filled(grant.target) ||
+    !filled(grant.payloadDigest) ||
+    !filled(grant.nonce)
+  )
+    return fail('INVALID_TIMESTAMP', 'Grant is structurally incomplete.');
+
+  const issuedAt = instant(grant.issuedAt);
+  const expiresAt = instant(grant.expiresAt);
+  const current = now instanceof Date ? now.getTime() : Number.NaN;
+  if (issuedAt === null || expiresAt === null || !Number.isFinite(current))
+    return fail('INVALID_TIMESTAMP', 'Grant timestamps are not usable.');
+  if (expiresAt <= issuedAt) return fail('INVALID_TIMESTAMP', 'Grant expiry precedes issuance.');
+
+  if (!isApprovalStatus(grant.status)) return fail('REVOKED', 'Grant status is not usable.');
+  if (grant.status === 'revoked') return fail('REVOKED', 'Grant was revoked.');
+  if (grant.status === 'consumed') return fail('ALREADY_CONSUMED', 'Grant was already used.');
+  if (current >= expiresAt) return fail('EXPIRED', 'Grant expired.');
+  if (current < issuedAt) return fail('INVALID_TIMESTAMP', 'Grant is not valid yet.');
+
+  if (grant.ownerId !== demand.ownerId)
+    return fail('OWNER_MISMATCH', 'Grant belongs to another owner.');
+  if (grant.actorId !== demand.actorId)
+    return fail('ACTOR_MISMATCH', 'Grant belongs to another actor.');
+  if (grant.effect !== demand.effect)
+    return fail('EFFECT_MISMATCH', 'Grant covers another effect.');
+  if (grant.target !== demand.target)
+    return fail('TARGET_MISMATCH', 'Grant covers another target.');
+  if (grant.payloadDigest !== demand.payloadDigest)
+    return fail('PAYLOAD_DIGEST_MISMATCH', 'Payload changed after approval.');
+  if (grant.nonce !== demand.nonce) return fail('NONCE_MISMATCH', 'Grant nonce does not match.');
+
+  return ok(sealValidatedApproval(grant.approvalId, grant.effect, grant.target));
 }

@@ -2,7 +2,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**'] },
+  { ignores: ['dist/**', 'node_modules/**', 'tests/fixtures/**'] },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   {
@@ -21,6 +21,19 @@ export default tseslint.config(
               message: 'Core cannot depend on implementations.',
             },
           ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'TSAsExpression > TSUnknownKeyword',
+          message:
+            'Double assertions through unknown are forbidden: they would let unchecked data pose as a sealed security type.',
         },
       ],
     },
