@@ -1,0 +1,16 @@
+{
+  "status": "draft",
+  "enabled": false,
+  "timezone": "<owner-timezone>",
+  "quietHours": {
+    "start": "<local-time>",
+    "end": "<local-time>",
+    "urgentBypassRequiresApproval": true
+  },
+  "delivery": {
+    "idempotencyRequired": true,
+    "retryPolicy": "<define-after-scheduler-validation>",
+    "missedRunPolicy": "notify-owner"
+  },
+  "paymentActionsAllowed": false
+}

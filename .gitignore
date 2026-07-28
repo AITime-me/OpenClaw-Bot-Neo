@@ -1,0 +1,52 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+secrets/
+credentials/
+
+# Dependencies and generated output
+node_modules/
+dist/
+build/
+coverage/
+.cache/
+tmp/
+temp/
+
+# Runtime state, databases, logs, backups
+*.log
+*.pid
+*.sqlite
+*.sqlite3
+data/
+state/
+backups/
+sessions/
+runtime-memory/
+memory-data/
+task-ledgers/
+temporary-media/
+quarantine/
+logs/
+*.local.json
+openclaw.local.*
+*.bak
+*.backup
+*.tar
+*.tar.gz
+*.zip
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Test/tool caches
+.pytest_cache/
+__pycache__/
+*.pyc

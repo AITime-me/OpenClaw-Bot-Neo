@@ -1,0 +1,21 @@
+{
+  "status": "draft",
+  "default": "minimum-necessary",
+  "rules": [
+    {
+      "sink": "logs",
+      "rawSensitiveDataAllowed": false,
+      "duration": "<short-policy-duration>"
+    },
+    {
+      "sink": "audit",
+      "rawSensitiveDataAllowed": false,
+      "duration": "<compliance-reviewed-duration>"
+    },
+    {
+      "sink": "external",
+      "retentionControl": "provider-validated-or-deny"
+    }
+  ],
+  "deletionVerificationRequired": true
+}

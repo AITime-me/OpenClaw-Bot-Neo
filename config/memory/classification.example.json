@@ -1,0 +1,23 @@
+{
+  "status": "draft",
+  "defaultClassification": "restricted",
+  "classes": {
+    "public": {
+      "externalProcessingAllowed": "policy-dependent"
+    },
+    "internal": {
+      "externalProcessingAllowed": false
+    },
+    "confidential": {
+      "externalProcessingAllowed": false
+    },
+    "secret": {
+      "storeAllowed": false,
+      "externalProcessingAllowed": false
+    }
+  },
+  "sensitiveDataScan": {
+    "required": true,
+    "failureEffect": "deny"
+  }
+}

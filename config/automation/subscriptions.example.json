@@ -1,0 +1,16 @@
+{
+  "status": "draft",
+  "enabled": false,
+  "mode": "read-only-observation",
+  "sources": [
+    "<owner-approved-source-placeholder>"
+  ],
+  "detect": [
+    "renewal-date",
+    "price-change",
+    "duplicate-subscription"
+  ],
+  "paymentActionsAllowed": false,
+  "cancellationActionsAllowed": false,
+  "changesRequireOwnerApproval": true
+}

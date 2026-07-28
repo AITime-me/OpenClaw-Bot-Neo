@@ -1,0 +1,14 @@
+{
+  "status": "draft",
+  "limits": {
+    "maxInputBytes": "<set-after-threat-model>",
+    "maxOutputBytes": "<set-after-threat-model>",
+    "allowedMimeTypes": [
+      "<allowlisted-mime>"
+    ],
+    "maxDurationSeconds": "<set-after-capability-validation>",
+    "externalProcessing": false
+  },
+  "onUnknownType": "deny",
+  "onLimitExceeded": "deny"
+}

@@ -1,0 +1,39 @@
+{
+  "status": "draft",
+  "modelIdentifiersConfirmed": false,
+  "defaultProviderMode": "subscription-oauth-only",
+  "apiFallbackEnabled": false,
+  "paidFallbackEnabled": false,
+  "routes": [
+    {
+      "risk": "low",
+      "capabilityTier": "<validated-general-tier>",
+      "toolProfile": "read-only-low-risk",
+      "approval": "policy-dependent",
+      "onUnavailable": "fail-closed"
+    },
+    {
+      "risk": "medium",
+      "capabilityTier": "<validated-general-tier>",
+      "toolProfile": "read-only-restricted-tools",
+      "approval": "required-for-external-or-write",
+      "onUnavailable": "fail-closed"
+    },
+    {
+      "risk": "high",
+      "capabilityTier": "<validated-high-assurance-tier>",
+      "toolProfile": "high-risk-no-elevated-tools",
+      "approval": "owner-required",
+      "fallbackToWeakerTier": false,
+      "onUnavailable": "fail-closed"
+    },
+    {
+      "risk": "untrusted",
+      "capabilityTier": "<validated-untrusted-content-tier>",
+      "toolProfile": "untrusted-no-exec-no-network-no-elevated-tools",
+      "approval": "owner-required-for-any-tool-expansion",
+      "onUnavailable": "fail-closed"
+    }
+  ],
+  "onUnavailable": "fail-closed"
+}

@@ -1,0 +1,25 @@
+{
+  "status": "draft",
+  "localFirst": true,
+  "paidProvidersEnabled": false,
+  "capabilities": [
+    {
+      "kind": "image-inspection",
+      "enabled": false,
+      "provider": "<local-placeholder>",
+      "requiresApprovalForExternalProcessing": true
+    },
+    {
+      "kind": "audio-transcription",
+      "enabled": false,
+      "provider": "<local-placeholder>",
+      "requiresApprovalForExternalProcessing": true
+    },
+    {
+      "kind": "document-extraction",
+      "enabled": false,
+      "provider": "<local-placeholder>",
+      "requiresApprovalForExternalProcessing": true
+    }
+  ]
+}

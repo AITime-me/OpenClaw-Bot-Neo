@@ -1,0 +1,19 @@
+{
+  "status": "draft",
+  "defaultEffect": "deny",
+  "readOnlyFirst": true,
+  "paymentActionsAllowed": false,
+  "externalWritesAllowed": false,
+  "ownerApproval": {
+    "required": true,
+    "bindToTargetAndPayload": true,
+    "expires": true,
+    "replayAllowed": false
+  },
+  "sensitiveDataScanner": {
+    "requiredBeforeAllSinks": true,
+    "deterministic": true,
+    "failureEffect": "deny"
+  },
+  "reverseTrustAllowed": false
+}

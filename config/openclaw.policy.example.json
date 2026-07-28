@@ -1,0 +1,28 @@
+{
+  "metadata": {
+    "status": "draft",
+    "runtimeCompatibility": "UNVERIFIED"
+  },
+  "policy": {
+    "defaultEffect": "deny",
+    "readOnlyFirst": true,
+    "ownerApprovalRequiredFor": [
+      "write",
+      "send",
+      "publish",
+      "delete",
+      "execute",
+      "privilege-change"
+    ],
+    "paymentActionsAllowed": false,
+    "apiFallbackEnabled": false,
+    "paidFallbackEnabled": false,
+    "scanBefore": [
+      "memory",
+      "log",
+      "external-call",
+      "audit"
+    ],
+    "scannerFailureEffect": "deny"
+  }
+}

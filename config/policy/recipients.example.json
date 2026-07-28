@@ -1,0 +1,19 @@
+{
+  "status": "draft",
+  "defaultEffect": "deny",
+  "recipients": [
+    {
+      "recipientRef": "<owner-placeholder>",
+      "categories": [
+        "owner"
+      ],
+      "allowedNotifications": [
+        "status",
+        "approval-request",
+        "security-alert"
+      ],
+      "verified": false
+    }
+  ],
+  "arbitraryRecipientsAllowed": false
+}

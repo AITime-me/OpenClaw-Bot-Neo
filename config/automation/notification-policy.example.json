@@ -1,0 +1,16 @@
+{
+  "status": "draft",
+  "defaultDelivery": "defer-during-quiet-hours",
+  "timezone": "<owner-timezone>",
+  "quietHours": {
+    "start": "<local-time>",
+    "end": "<local-time>"
+  },
+  "severity": {
+    "info": "digest",
+    "warning": "timely",
+    "critical": "immediate-after-policy-check"
+  },
+  "includeSensitiveRawData": false,
+  "recipientPolicy": "allowlist-only"
+}

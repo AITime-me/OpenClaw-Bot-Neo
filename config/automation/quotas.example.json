@@ -1,0 +1,16 @@
+{
+  "status": "draft",
+  "enabled": false,
+  "quotaTypes": [
+    "subscription-usage",
+    "storage",
+    "local-resource"
+  ],
+  "thresholds": [
+    "<warning-percent>",
+    "<critical-percent>"
+  ],
+  "apiBillingIsFallback": false,
+  "paidFallbackEnabled": false,
+  "onExceeded": "notify-and-mark-unavailable"
+}

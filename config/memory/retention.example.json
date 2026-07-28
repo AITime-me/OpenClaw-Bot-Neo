@@ -1,0 +1,21 @@
+{
+  "status": "draft",
+  "defaultRetention": "session-only",
+  "classes": {
+    "session-only": {
+      "duration": "<session-lifetime>",
+      "persistent": false
+    },
+    "short-lived": {
+      "duration": "<owner-approved-duration>",
+      "persistent": true
+    },
+    "audit-minimal": {
+      "duration": "<policy-defined-duration>",
+      "persistent": true,
+      "rawContentAllowed": false
+    }
+  },
+  "legalHoldEnabled": false,
+  "deletionVerificationRequired": true
+}
