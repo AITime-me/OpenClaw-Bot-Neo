@@ -110,13 +110,17 @@ manifest регистрируется как `pending-policy`; disabled — ка
 
 Requested permission — запрос. Итог — пересечение manifest request, deployment, role, Security Guard
 и risk policy. Effective risk = max(immutable manifest risk, active registration
-`effectiveRiskClass`, sealed `RuntimeRiskEvidence.classifiedRisk`, source-trust и Security Guard
-floor). Caller-controlled `runtimeRisk` string удалён; ordinary risk object не является proof.
+`effectiveRiskClass`, sealed `RuntimeRiskEvidence.classifiedRisk`, trusted routing/source floor,
+Security Guard floor и operation category). Trust facts и grant arrays поступают только из
+pre-bound `ExtensionPermissionGateway` dependencies, не из request. Caller-controlled
+`sourceTrust`/`securityGuardFloor`/`policyVersion`/grant arrays/`now` удалены как proof.
 Missing/stale/mismatched evidence → deny. Deny приоритетнее allow; Director не обходит Security
 Guard; модель не меняет permissions или risk. Dangerous permissions требуют matching approval
 effects и явного deployment grant. Active registration создаётся только trusted registry
-transition; deployment boolean не является authorization; публичный converter в active evidence
-отсутствует.
+transition через `ExtensionActivationGateway`; deployment authorization требует authenticated
+deployment/owner observation, policy-controlled TTL и trusted clock; публичный issuer из caller
+strings отсутствует. Canonical manifest digest охватывает полный policy-sensitive manifest;
+returned registry entry сверяется полностью.
 
 ## Webhook ingress
 
@@ -135,10 +139,12 @@ extension и не пишет в memory.
 VoiceProfile provider-independent. Для Нео обязательны `ru-RU`, masculine, `fallbackMode:
 text-only`, запрет cross-gender/cloning/imitation и контролируемые style tags. Disabled Neo и
 отсутствие sealed `VerifiedVoiceProviderMatch` всегда дают text-only; feminine fallback запрещён.
-Adapter возвращает untrusted metadata; trusted validation boundary создаёт sealed evidence.
-Ordinary favorable object literal не разрешает voice. До sealing все текстовые поля профиля и
-provider metadata проходят production SensitiveDataScanner; scanner failure/limit/sensitive → deny
-без утечки secret fragments. Caller boolean `{ scanned: true }` не является proof.
+Adapter возвращает untrusted observation; trusted `VoiceResolutionGateway` сверяет facts с
+trusted provider configuration и current voice policy. Favorable booleans
+(`metadataVerified`/`compatibleWithSelector`/`clonedVoice: false`) и caller time/policy/TTL не
+являются proof. Ordinary favorable object literal не разрешает voice. Uncertainty, mismatch и
+unavailable observation → text-only. До sealing все текстовые поля профиля проходят production
+SensitiveDataScanner; scanner failure/limit/sensitive → deny без утечки secret fragments.
 
 ## Память и данные
 
@@ -191,6 +197,8 @@ contracts без loader или integrations. Build 2.1C закрывает OCN-0
 import/require). Build 2.1D закрывает B21-001—B21-004. Build 2.1E закрывает R2.1-003—R2.1-006
 (trusted evidence closure). Build 2.1F закрывает MEDIUM R2.1-001/002/007. Build 2.1G закрывает
 FIN-001/002/003 (immutable sanitized snapshot, authenticated memory gateway, non-forgeable WeakMap
-provenance, restrictive package exports). FIN-004—FIN-014 не объявлены закрытыми. Окончательный
-security approval требует нового независимого Codex review. Эти gates действуют только внутри ядра
-и не означают, что OpenClaw runtime или adapters уже их используют.
+provenance, restrictive package exports). Build 2.1H закрывает FIN-004/005/006 (trusted derivation
+gateways для risk/permissions, deployment activation и voice provider resolution). FIN-007—FIN-014
+не объявлены закрытыми. Окончательный security approval требует нового независимого Codex review.
+Эти gates действуют только внутри ядра и не означают, что OpenClaw runtime или adapters уже их
+используют.

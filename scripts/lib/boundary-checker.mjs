@@ -44,6 +44,7 @@ export const INTERNAL_MODULE_ALLOWLIST = {
     'core/domain/extension-registry-entry.ts',
     'core/domain/extension-registry-entry.internal.ts',
     'core/policy/extension-manifest.ts',
+    'core/application/extension-activation.service.ts',
   ],
   'core/domain/extension-registry-entry.internal.ts': [
     'core/domain/index.ts',
@@ -51,20 +52,34 @@ export const INTERNAL_MODULE_ALLOWLIST = {
     'core/policy/extension-permissions.ts',
     'core/application/extension-registration.service.ts',
     'core/application/extension-activation.service.ts',
+    'core/application/extension-activation.gateway.ts',
     'core/application/runtime-risk-classification.service.ts',
+    'core/application/extension-permission.gateway.ts',
   ],
   'core/domain/extension-runtime-risk.internal.ts': [
     'core/domain/index.ts',
     'core/domain/extension-permission.ts',
     'core/policy/extension-permissions.ts',
     'core/application/runtime-risk-classification.service.ts',
+    'core/application/extension-permission.gateway.ts',
+  ],
+  'core/domain/extension-policy.internal.ts': [
+    'core/domain/index.ts',
+    'core/application/runtime-risk-classification.service.ts',
+    'core/application/extension-permission.gateway.ts',
+    'core/application/extension-activation.service.ts',
+    'core/application/extension-activation.gateway.ts',
   ],
   'core/domain/webhook.internal.ts': [
     'core/domain/index.ts',
     'core/policy/webhook-ingress.ts',
     'core/application/webhook-ingress.service.ts',
   ],
-  'core/domain/voice-profile.internal.ts': ['core/domain/index.ts', 'core/policy/voice-profile.ts'],
+  'core/domain/voice-profile.internal.ts': [
+    'core/domain/index.ts',
+    'core/policy/voice-profile.ts',
+    'core/application/voice-resolution.gateway.ts',
+  ],
   'core/domain/sanitized.internal.ts': [
     'core/domain/index.ts',
     'core/application/memory-write.service.ts',

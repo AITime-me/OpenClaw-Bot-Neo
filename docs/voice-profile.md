@@ -19,11 +19,11 @@ voice ID, API endpoint/key или имени реального актёра. Б
 
 Если `enabled: false`, результат всегда text-only: `primaryAvailable`/`fallbackAvailable` не
 включают voice. Voice availability принимает только sealed `VerifiedVoiceProviderMatch` от trusted
-validation boundary (`validateVoiceProviderMatch`). Adapter возвращает untrusted metadata result;
-ordinary/frozen favorable object literal, model-shaped JSON и mismatch profile/selector/version/
-policy/freshness дают text-only. Cloned voice, identity imitation, actor/celebrity association,
-feminine/unknown gender и unverified metadata — text-only. Автоматический переход на женский голос
-запрещён. Sealer не экспортируется в public API.
+`VoiceResolutionGateway`. Adapter возвращает untrusted observation; core сверяет facts с trusted
+provider configuration и current voice policy. Favorable booleans, caller time/policy/TTL,
+ordinary/frozen favorable object literal и model-shaped JSON дают text-only. Cloned voice, identity
+imitation, actor/celebrity association, feminine/unknown gender и mismatch — text-only.
+Автоматический переход на женский голос запрещён. Sealer не экспортируется в public API.
 
 До sealing `validateVoiceProfile` прогоняет все текстовые поля (id, language, tone, styleTags,
 selectors, schema/fallback identifiers и т.д.) через production SensitiveDataScanner

@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import * as publicApi from '../src/index.js';
+import * as applicationApi from '../src/core/application/index.js';
+import { createExtensionActivationGateway } from '../src/core/application/extension-activation.gateway.js';
+import { createExtensionPermissionGateway } from '../src/core/application/extension-permission.gateway.js';
 
 const exportedNames = Object.keys(publicApi);
+const applicationNames = Object.keys(applicationApi);
 
 describe('public API surface', () => {
   it('exposes the memory-write boundary and the digest helper', () => {
     expect(exportedNames).toContain('executeMemoryWrite');
     expect(exportedNames).toContain('createMemoryAccessGateway');
+    expect(exportedNames).toContain('createExtensionPermissionGateway');
+    expect(exportedNames).toContain('createExtensionActivationGateway');
+    expect(exportedNames).toContain('createVoiceResolutionGateway');
     expect(exportedNames).toContain('computePayloadDigest');
     expect(exportedNames).toContain('executeExtensionRegistration');
     expect(exportedNames).toContain('executeExtensionActivation');
@@ -23,6 +30,10 @@ describe('public API surface', () => {
       'sealVerifiedMemoryWrite',
       'sealValidatedApproval',
       'sealAuthenticatedMemoryAccess',
+      'issueDeploymentAuthorization',
+      'issueDeploymentAuthorizationFromObservation',
+      'classifyExtensionRuntimeRisk',
+      'sealCurrentExtensionPolicySnapshot',
       'sanitizedTextBrand',
       'sanitizedMetadataBrand',
       'verifiedMemoryWriteBrand',
@@ -68,10 +79,24 @@ describe('public API surface', () => {
   });
 
   it('exposes trusted classification and validation services without sealers', () => {
-    expect(exportedNames).toContain('classifyExtensionRuntimeRisk');
-    expect(exportedNames).toContain('issueDeploymentAuthorization');
-    expect(exportedNames).toContain('validateVoiceProviderMatch');
+    expect(exportedNames).toContain('createExtensionPermissionGateway');
+    expect(exportedNames).toContain('createExtensionActivationGateway');
+    expect(exportedNames).toContain('createVoiceResolutionGateway');
     expect(exportedNames).toContain('computeManifestDigest');
+    expect(exportedNames).not.toContain('classifyExtensionRuntimeRisk');
+    expect(exportedNames).not.toContain('issueDeploymentAuthorization');
+    expect(exportedNames).not.toContain('issueDeploymentAuthorizationFromObservation');
+  });
+
+  it('keeps trusted issuers/classifier out of the application barrel', () => {
+    expect(applicationNames).not.toContain('issueDeploymentAuthorizationFromObservation');
+    expect(applicationNames).not.toContain('classifyExtensionRuntimeRisk');
+    expect(applicationNames).toContain('createExtensionPermissionGateway');
+    expect(applicationNames).toContain('createExtensionActivationGateway');
+    expect(applicationNames).toContain('computeManifestDigest');
+    expect(applicationNames).toContain('executeExtensionActivation');
+    expect(typeof createExtensionPermissionGateway).toBe('function');
+    expect(typeof createExtensionActivationGateway).toBe('function');
   });
 
   it('exports no regular expressions and no mutable objects', () => {

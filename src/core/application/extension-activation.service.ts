@@ -10,6 +10,12 @@ import {
   type OperationContext,
   type Result,
 } from '../domain/index.js';
+import type { VerifiedExtensionManifest } from '../domain/extension-manifest.internal.js';
+import { isVerifiedExtensionManifest } from '../domain/extension-manifest.internal.js';
+import {
+  isCurrentExtensionPolicySnapshot,
+  type CurrentExtensionPolicySnapshot,
+} from '../domain/extension-policy.internal.js';
 import {
   isDeploymentAuthorizationEvidence,
   isSealedExtensionRegistryEntry,
@@ -21,7 +27,14 @@ import {
   type DeploymentAuthorizationEvidence,
   type SealedExtensionRegistryEntry,
 } from '../domain/extension-registry-entry.internal.js';
+import {
+  exactPlainObservation,
+  filledString,
+  isFreshWindow,
+  parseIsoInstant,
+} from '../domain/observation-validation.js';
 import type { ClockPort, ExtensionRegistryPort } from '../ports/index.js';
+import type { DeploymentApprovalObservation } from '../ports/trusted-derivation.port.js';
 
 export interface ExtensionActivationDeps {
   readonly registry: ExtensionRegistryPort;
@@ -40,7 +53,9 @@ export type ExtensionActivationFailure =
         | 'NOT_PENDING'
         | 'MANIFEST_MISMATCH'
         | 'POLICY_MISMATCH'
-        | 'INVALID_ENTRY';
+        | 'INVALID_ENTRY'
+        | 'RETURNED_ENTRY_MISMATCH'
+        | 'INVALID_OBSERVATION';
       readonly reason: string;
     };
 
@@ -57,19 +72,51 @@ export interface ExtensionActivationOutcome {
   readonly activeRegistration: ActiveExtensionRegistration | null;
 }
 
-export const computeManifestDigest = (entry: SealedExtensionRegistryEntry): string =>
-  createHash('sha256')
-    .update(
-      JSON.stringify({
-        id: entry.manifest.id,
-        version: entry.manifest.version,
-        riskClass: entry.manifest.riskClass,
-        permissions: entry.manifest.requestedPermissions,
-        enabled: entry.manifest.enabled,
-      }),
-      'utf8',
-    )
-    .digest('hex');
+const sorted = (values: readonly string[]): readonly string[] => [...values].sort();
+
+/**
+ * Canonical digest over the full policy/integrity-sensitive verified manifest.
+ * Caller-supplied digests are never accepted as proof.
+ */
+export const computeManifestDigest = (
+  input: SealedExtensionRegistryEntry | VerifiedExtensionManifest,
+): string => {
+  const manifest: VerifiedExtensionManifest =
+    'manifest' in input && isVerifiedExtensionManifest(input.manifest)
+      ? input.manifest
+      : (input as VerifiedExtensionManifest);
+  if (!isVerifiedExtensionManifest(manifest))
+    throw new TypeError('Verified extension manifest is required for digest.');
+  const canonical = {
+    schemaVersion: manifest.schemaVersion,
+    id: manifest.id,
+    version: manifest.version,
+    kind: manifest.kind,
+    ownerScope: {
+      mode: manifest.ownerScope.mode,
+      ownerReference: manifest.ownerScope.ownerReference,
+    },
+    provenance: {
+      status: manifest.provenance.status,
+      source: manifest.provenance.source,
+      note: manifest.provenance.note,
+    },
+    enabled: manifest.enabled,
+    riskClass: manifest.riskClass,
+    declaredCapabilities: sorted(manifest.declaredCapabilities),
+    requestedPermissions: sorted(manifest.requestedPermissions),
+    approvalPolicy: {
+      mode: manifest.approvalPolicy.mode,
+      effects: sorted(manifest.approvalPolicy.effects),
+    },
+    requiredPorts: sorted(manifest.requiredPorts),
+    dataClassifications: sorted(manifest.dataClassifications),
+    supportedInputKinds: sorted(manifest.supportedInputKinds),
+    supportedOutputKinds: sorted(manifest.supportedOutputKinds),
+    configurationSchemaVersion: manifest.configurationSchemaVersion,
+  };
+  return createHash('sha256').update(JSON.stringify(canonical), 'utf8').digest('hex');
+};
 
 const isFresh = (issuedAt: string, expiresAt: string, now: Date): boolean => {
   const issued = Date.parse(issuedAt);
@@ -85,9 +132,167 @@ const isFresh = (issuedAt: string, expiresAt: string, now: Date): boolean => {
   );
 };
 
+const DEPLOYMENT_OBS_FIELDS = Object.freeze([
+  'deploymentIdentity',
+  'ownerId',
+  'actorId',
+  'sessionId',
+  'channelId',
+  'extensionId',
+  'extensionVersion',
+  'authorizationScope',
+  'correlationId',
+  'issuedAt',
+  'expiresAt',
+] as const);
+
+export const parseDeploymentApprovalObservation = (
+  observation: unknown,
+  expected: {
+    readonly extensionId: string;
+    readonly extensionVersion: string;
+    readonly correlationId: string;
+  },
+  now: Date,
+): DeploymentApprovalObservation | null => {
+  const plain = exactPlainObservation(observation, DEPLOYMENT_OBS_FIELDS);
+  if (plain === null) return null;
+  if (
+    !filledString(plain.deploymentIdentity) ||
+    !filledString(plain.ownerId) ||
+    !filledString(plain.actorId) ||
+    !filledString(plain.sessionId) ||
+    !filledString(plain.channelId) ||
+    !filledString(plain.extensionId) ||
+    !filledString(plain.extensionVersion) ||
+    !filledString(plain.correlationId) ||
+    plain.authorizationScope !== 'activate'
+  )
+    return null;
+  if (
+    plain.extensionId !== expected.extensionId ||
+    plain.extensionVersion !== expected.extensionVersion ||
+    plain.correlationId !== expected.correlationId
+  )
+    return null;
+  const issuedAt = parseIsoInstant(plain.issuedAt);
+  const expiresAt = parseIsoInstant(plain.expiresAt);
+  if (issuedAt === null || expiresAt === null || !isFreshWindow(issuedAt, expiresAt, now))
+    return null;
+  return {
+    deploymentIdentity: plain.deploymentIdentity,
+    ownerId: plain.ownerId,
+    actorId: plain.actorId,
+    sessionId: plain.sessionId,
+    channelId: plain.channelId,
+    extensionId: plain.extensionId,
+    extensionVersion: plain.extensionVersion,
+    authorizationScope: 'activate',
+    correlationId: plain.correlationId,
+    issuedAt: plain.issuedAt as string,
+    expiresAt: plain.expiresAt as string,
+  };
+};
+
 /**
- * Trusted activation step. Active evidence is produced only after a successful registry transition.
- * Ordinary booleans and public converters are not authorization proof.
+ * Issues sealed deployment authorization only from a validated deployment observation,
+ * sealed current policy, and core-computed manifest digest. Not a public caller-string issuer.
+ */
+export function issueDeploymentAuthorizationFromObservation(
+  deps: Pick<ExtensionActivationDeps, 'clock'>,
+  observation: DeploymentApprovalObservation,
+  policy: CurrentExtensionPolicySnapshot,
+  manifestDigest: string,
+): Result<DeploymentAuthorizationEvidence, ExtensionActivationFailure> {
+  if (!isCurrentExtensionPolicySnapshot(policy))
+    return err({ code: 'POLICY_MISMATCH', reason: 'Sealed current policy is required.' });
+  if (
+    observation.extensionId !== policy.extensionId ||
+    observation.extensionVersion !== policy.extensionVersion
+  )
+    return err({
+      code: 'DEPLOYMENT_UNAUTHORIZED',
+      reason: 'Deployment observation does not match policy.',
+    });
+  if (typeof manifestDigest !== 'string' || manifestDigest.length === 0)
+    return err({ code: 'MANIFEST_MISMATCH', reason: 'Manifest digest is required.' });
+
+  const now = deps.clock.now();
+  const issued = parseIsoInstant(observation.issuedAt);
+  const expires = parseIsoInstant(observation.expiresAt);
+  if (issued === null || expires === null || !isFreshWindow(issued, expires, now))
+    return err({ code: 'STALE_AUTHORIZATION', reason: 'Deployment observation is stale.' });
+
+  const ttl = policy.deploymentAuthorizationTtlMs;
+  const policyExpires = issued + ttl;
+  const effectiveExpires = Math.min(expires, policyExpires);
+  if (effectiveExpires <= now.getTime())
+    return err({ code: 'STALE_AUTHORIZATION', reason: 'Policy-controlled TTL already expired.' });
+
+  return ok(
+    sealDeploymentAuthorization({
+      deploymentIdentity: observation.deploymentIdentity,
+      extensionId: observation.extensionId,
+      extensionVersion: observation.extensionVersion,
+      manifestDigest,
+      policyVersion: policy.policyVersion,
+      issuedAt: observation.issuedAt as ISO8601,
+      expiresAt: new Date(effectiveExpires).toISOString() as ISO8601,
+    }),
+  );
+}
+
+const sameStringList = (left: readonly string[], right: readonly string[]): boolean => {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1)
+    if (left[index] !== right[index]) return false;
+  return true;
+};
+
+const verifyReturnedEntry = (
+  pending: SealedExtensionRegistryEntry,
+  returned: SealedExtensionRegistryEntry,
+  decision: {
+    readonly targetState: ExtensionActivationState;
+    readonly policyVersion: string;
+    readonly manifestDigest: string;
+    readonly effectiveRiskClass: string;
+  },
+): ExtensionActivationFailure | null => {
+  if (!isSealedExtensionRegistryEntry(returned))
+    return { code: 'RETURNED_ENTRY_MISMATCH', reason: 'Registry returned an unsealed entry.' };
+  if (returned.extensionId !== pending.extensionId)
+    return { code: 'RETURNED_ENTRY_MISMATCH', reason: 'Returned extension id mismatch.' };
+  if (returned.version !== pending.version)
+    return { code: 'RETURNED_ENTRY_MISMATCH', reason: 'Returned version mismatch.' };
+  if (returned.activationState !== decision.targetState)
+    return { code: 'RETURNED_ENTRY_MISMATCH', reason: 'Returned activation state mismatch.' };
+  if (returned.policyVersion !== decision.policyVersion)
+    return { code: 'RETURNED_ENTRY_MISMATCH', reason: 'Returned policy version mismatch.' };
+  if (returned.effectiveRiskClass !== decision.effectiveRiskClass)
+    return { code: 'RETURNED_ENTRY_MISMATCH', reason: 'Returned effective risk mismatch.' };
+  if (computeManifestDigest(returned) !== decision.manifestDigest)
+    return { code: 'RETURNED_ENTRY_MISMATCH', reason: 'Returned manifest digest mismatch.' };
+  if (
+    returned.manifest.id !== pending.manifest.id ||
+    returned.manifest.version !== pending.manifest.version
+  )
+    return { code: 'RETURNED_ENTRY_MISMATCH', reason: 'Returned manifest identity mismatch.' };
+  if (
+    returned.provenance.status !== pending.provenance.status ||
+    returned.provenance.source !== pending.provenance.source
+  )
+    return { code: 'RETURNED_ENTRY_MISMATCH', reason: 'Returned provenance mismatch.' };
+  if (!sameStringList(returned.grantedCapabilityRefs, pending.grantedCapabilityRefs))
+    return { code: 'RETURNED_ENTRY_MISMATCH', reason: 'Returned capability grants mismatch.' };
+  if (!sameStringList(returned.grantedPermissionRefs, pending.grantedPermissionRefs))
+    return { code: 'RETURNED_ENTRY_MISMATCH', reason: 'Returned permission grants mismatch.' };
+  return null;
+};
+
+/**
+ * Trusted activation step. Active evidence is produced only after a successful registry transition
+ * and full returned-entry verification.
  */
 export async function executeExtensionActivation(
   deps: ExtensionActivationDeps,
@@ -163,10 +368,14 @@ export async function executeExtensionActivation(
   const updated = await deps.registry.updateActivationState(decision, context);
   if (!updated.ok)
     return err({ code: 'REGISTRY_UNAVAILABLE', reason: 'Activation update failed.' });
-  if (!isSealedExtensionRegistryEntry(updated.value))
-    return err({ code: 'REGISTRY_UNAVAILABLE', reason: 'Registry returned an unsealed entry.' });
-  if (updated.value.activationState !== command.targetState)
-    return err({ code: 'INVALID_TRANSITION', reason: 'Registry transition result mismatch.' });
+
+  const mismatch = verifyReturnedEntry(pending, updated.value, {
+    targetState: command.targetState,
+    policyVersion: command.policyVersion,
+    manifestDigest,
+    effectiveRiskClass: pending.effectiveRiskClass,
+  });
+  if (mismatch !== null) return err(mismatch);
 
   const activeRegistration =
     command.targetState === 'active'
@@ -176,53 +385,4 @@ export async function executeExtensionActivation(
     return err({ code: 'INVALID_TRANSITION', reason: 'Active evidence could not be sealed.' });
 
   return ok({ entry: updated.value, activeRegistration });
-}
-
-export interface DeploymentAuthorizationCommand {
-  readonly deploymentIdentity: string;
-  readonly extensionId: string;
-  readonly extensionVersion: string;
-  readonly manifestDigest: string;
-  readonly policyVersion: string;
-  readonly ttlMs: number;
-}
-
-/**
- * Issues sealed deployment authorization inside a trusted deployment boundary.
- * Ordinary booleans are not accepted as proof.
- */
-export function issueDeploymentAuthorization(
-  deps: Pick<ExtensionActivationDeps, 'clock'>,
-  command: DeploymentAuthorizationCommand,
-): Result<DeploymentAuthorizationEvidence, ExtensionActivationFailure> {
-  if (
-    typeof command.deploymentIdentity !== 'string' ||
-    command.deploymentIdentity.length === 0 ||
-    typeof command.extensionId !== 'string' ||
-    command.extensionId.length === 0 ||
-    typeof command.extensionVersion !== 'string' ||
-    command.extensionVersion.length === 0 ||
-    typeof command.manifestDigest !== 'string' ||
-    command.manifestDigest.length === 0 ||
-    typeof command.policyVersion !== 'string' ||
-    command.policyVersion.length === 0 ||
-    !Number.isSafeInteger(command.ttlMs) ||
-    command.ttlMs <= 0
-  )
-    return err({
-      code: 'DEPLOYMENT_UNAUTHORIZED',
-      reason: 'Deployment authorization command is malformed.',
-    });
-  const issuedAt = deps.clock.now();
-  return ok(
-    sealDeploymentAuthorization({
-      deploymentIdentity: command.deploymentIdentity,
-      extensionId: command.extensionId,
-      extensionVersion: command.extensionVersion,
-      manifestDigest: command.manifestDigest,
-      policyVersion: command.policyVersion,
-      issuedAt: issuedAt.toISOString() as ISO8601,
-      expiresAt: new Date(issuedAt.getTime() + command.ttlMs).toISOString() as ISO8601,
-    }),
-  );
 }

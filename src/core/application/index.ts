@@ -22,20 +22,40 @@ export type {
 export {
   computeManifestDigest,
   executeExtensionActivation,
-  issueDeploymentAuthorization,
 } from './extension-activation.service.js';
 export type {
-  DeploymentAuthorizationCommand,
   ExtensionActivationCommand,
   ExtensionActivationDeps,
   ExtensionActivationFailure,
   ExtensionActivationOutcome,
 } from './extension-activation.service.js';
-export { classifyExtensionRuntimeRisk } from './runtime-risk-classification.service.js';
+export { createExtensionActivationGateway } from './extension-activation.gateway.js';
+export type {
+  ExtensionActivationGateway,
+  ExtensionActivationGatewayDeps,
+  ExtensionActivationGatewayFailure,
+  ExtensionActivationGatewayRequest,
+} from './extension-activation.gateway.js';
 export type {
   RuntimeRiskClassificationDeps,
   RuntimeRiskClassificationFailure,
+  RuntimeRiskOperationRequest,
 } from './runtime-risk-classification.service.js';
+export { createExtensionPermissionGateway } from './extension-permission.gateway.js';
+export type {
+  ExtensionPermissionGateway,
+  ExtensionPermissionGatewayDeps,
+  ExtensionPermissionGatewayFailure,
+  ExtensionPermissionGatewayOutcome,
+  ExtensionPermissionResolveRequest,
+} from './extension-permission.gateway.js';
+export { createVoiceResolutionGateway } from './voice-resolution.gateway.js';
+export type {
+  VoiceResolutionGateway,
+  VoiceResolutionGatewayDeps,
+  VoiceResolutionOutcome,
+  VoiceResolutionRequest,
+} from './voice-resolution.gateway.js';
 export { executeWebhookIngress } from './webhook-ingress.service.js';
 export type {
   WebhookIngressDeps,

@@ -14,10 +14,8 @@ import {
 import {
   isVerifiedVoiceProviderMatch,
   sealValidatedVoiceProfile,
-  sealVerifiedVoiceProviderMatch,
   type VerifiedVoiceProviderMatch,
 } from '../domain/voice-profile.internal.js';
-import type { ISO8601 } from '../domain/identity.js';
 import { scanSensitiveData, scanSensitiveMetadata } from './sensitive-data-scanner.js';
 
 export type VoiceProfileValidation =
@@ -401,91 +399,24 @@ export type VoiceProviderValidation =
   | { readonly ok: false; readonly reason: string };
 
 /**
- * Trusted provider validation boundary. Adapters supply untrusted metadata; only this boundary
- * may create sealed VerifiedVoiceProviderMatch evidence.
+ * Fail-closed stub. Favorable provider booleans, caller clock, TTL and policy version are not
+ * accepted. Use createVoiceResolutionGateway with pre-bound trusted dependencies.
  */
 export function validateVoiceProviderMatch(
   profile: ValidatedVoiceProfile,
   metadata: unknown,
   options: {
-    readonly policyVersion: string;
-    readonly now: Date;
-    readonly ttlMs: number;
+    readonly policyVersion?: string;
+    readonly now?: Date;
+    readonly ttlMs?: number;
     readonly providerVoiceReference?: string;
-  },
+  } = {},
 ): VoiceProviderValidation {
-  if (
-    typeof metadata !== 'object' ||
-    metadata === null ||
-    !('providerVoiceReference' in metadata) ||
-    !('language' in metadata) ||
-    !('genderPresentation' in metadata) ||
-    !('compatibleWithSelector' in metadata) ||
-    !('actorOrCelebrityIdentity' in metadata) ||
-    !('clonedVoice' in metadata) ||
-    !('identityImitation' in metadata) ||
-    !('metadataVerified' in metadata) ||
-    typeof metadata.providerVoiceReference !== 'string' ||
-    metadata.providerVoiceReference.length === 0 ||
-    typeof metadata.language !== 'string' ||
-    typeof metadata.genderPresentation !== 'string' ||
-    typeof metadata.compatibleWithSelector !== 'boolean' ||
-    typeof metadata.actorOrCelebrityIdentity !== 'boolean' ||
-    typeof metadata.clonedVoice !== 'boolean' ||
-    typeof metadata.identityImitation !== 'boolean' ||
-    typeof metadata.metadataVerified !== 'boolean'
-  )
-    return { ok: false, reason: 'Provider metadata is malformed.' };
-  if (!metadata.metadataVerified) return { ok: false, reason: 'Provider metadata is unverified.' };
-  if (!metadata.compatibleWithSelector)
-    return { ok: false, reason: 'Provider voice is incompatible with the selector.' };
-  if (metadata.actorOrCelebrityIdentity || metadata.identityImitation)
-    return { ok: false, reason: 'Identity imitation is forbidden.' };
-  if (metadata.clonedVoice) return { ok: false, reason: 'Cloned voices are forbidden.' };
-  if (metadata.language !== profile.language)
-    return { ok: false, reason: 'Provider language does not match the profile.' };
-  if (metadata.genderPresentation !== profile.genderPresentation)
-    return { ok: false, reason: 'Provider gender presentation does not match.' };
-  if (
-    options.providerVoiceReference !== undefined &&
-    options.providerVoiceReference !== metadata.providerVoiceReference
-  )
-    return { ok: false, reason: 'Provider voice reference mismatch.' };
-  if (!Number.isSafeInteger(options.ttlMs) || options.ttlMs <= 0)
-    return { ok: false, reason: 'Provider evidence TTL is invalid.' };
-  if (typeof options.policyVersion !== 'string' || options.policyVersion.length === 0)
-    return { ok: false, reason: 'Provider policy version is invalid.' };
-
-  let providerScan;
-  try {
-    providerScan = scanSensitiveMetadata({
-      providerVoiceReference: metadata.providerVoiceReference,
-      language: metadata.language,
-      genderPresentation: metadata.genderPresentation,
-      policyVersion: options.policyVersion,
-    });
-  } catch {
-    return { ok: false, reason: 'Provider metadata sensitive-data scan failed.' };
-  }
-  if (!providerScan.ok)
-    return { ok: false, reason: 'Provider metadata sensitive-data scan failed.' };
-  if (providerScan.value.decision !== 'allow')
-    return { ok: false, reason: 'Provider metadata contains sensitive data.' };
-
-  const validatedAt = options.now.toISOString() as ISO8601;
-  const expiresAt = new Date(options.now.getTime() + options.ttlMs).toISOString() as ISO8601;
+  void profile;
+  void metadata;
+  void options;
   return {
-    ok: true,
-    evidence: sealVerifiedVoiceProviderMatch({
-      profileId: profile.id,
-      profileSchemaVersion: profile.schemaVersion,
-      selector: profile.primaryVoiceSelector,
-      providerVoiceReference: metadata.providerVoiceReference,
-      language: metadata.language,
-      genderPresentation: metadata.genderPresentation,
-      policyVersion: options.policyVersion,
-      validatedAt,
-      expiresAt,
-    }),
+    ok: false,
+    reason: 'Caller-supplied provider match validation is disabled; use VoiceResolutionGateway.',
   };
 }

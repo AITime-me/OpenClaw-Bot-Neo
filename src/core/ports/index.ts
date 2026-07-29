@@ -35,3 +35,4 @@ export * from './billing-monitor.port.js';
 export * from './subscription-registry.port.js';
 export * from './notification-policy.port.js';
 export * from './sensitive-data-scanner.port.js';
+export * from './trusted-derivation.port.js';

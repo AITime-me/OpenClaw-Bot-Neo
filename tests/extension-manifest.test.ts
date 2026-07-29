@@ -5,11 +5,68 @@ import {
   computeManifestDigest,
   executeExtensionActivation,
   executeExtensionRegistration,
-  issueDeploymentAuthorization,
 } from '../src/core/application/index.js';
+import {
+  issueDeploymentAuthorizationFromObservation,
+  parseDeploymentApprovalObservation,
+} from '../src/core/application/extension-activation.service.js';
+import { sealCurrentExtensionPolicySnapshot } from '../src/core/domain/extension-policy.internal.js';
 import type { ExtensionRegistryPort } from '../src/core/ports/index.js';
 import { validateExtensionManifest } from '../src/core/policy/extension-manifest.js';
-import { fixedClock, operationContext } from './support/fixtures.js';
+import { asCorrelation, fixedClock, operationContext } from './support/fixtures.js';
+
+const NOW = '2026-07-28T12:00:10.000Z';
+
+const issueTrustedAuthorization = (entry: SealedExtensionRegistryEntry) => {
+  const policy = sealCurrentExtensionPolicySnapshot(
+    {
+      extensionId: entry.extensionId,
+      extensionVersion: entry.version,
+      policyVersion: entry.policyVersion,
+      riskPolicyVersion: 'risk-policy@1',
+      deploymentAllowed: [],
+      roleAllowed: [],
+      securityAllowed: [],
+      riskAllowed: [],
+      deploymentAuthorizationTtlMs: 60_000,
+      runtimeEvidenceTtlMs: 60_000,
+      voiceEvidenceTtlMs: 60_000,
+      issuedAt: '2026-07-28T12:00:00.000Z',
+      expiresAt: '2026-07-28T12:30:00.000Z',
+    },
+    new Date(NOW),
+    { extensionId: entry.extensionId, extensionVersion: entry.version },
+  );
+  if (policy === null) throw new Error('policy');
+  const observation = parseDeploymentApprovalObservation(
+    {
+      deploymentIdentity: 'deployment-owner',
+      ownerId: 'owner-1',
+      actorId: 'actor-1',
+      sessionId: 'session-1',
+      channelId: 'channel-1',
+      extensionId: entry.extensionId,
+      extensionVersion: entry.version,
+      authorizationScope: 'activate',
+      correlationId: asCorrelation(),
+      issuedAt: '2026-07-28T12:00:00.000Z',
+      expiresAt: '2026-07-28T12:30:00.000Z',
+    },
+    {
+      extensionId: entry.extensionId,
+      extensionVersion: entry.version,
+      correlationId: asCorrelation(),
+    },
+    new Date(NOW),
+  );
+  if (observation === null) throw new Error('observation');
+  return issueDeploymentAuthorizationFromObservation(
+    { clock: fixedClock(NOW) },
+    observation,
+    policy,
+    computeManifestDigest(entry),
+  );
+};
 
 const manifest = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
   schemaVersion: '1.0',
@@ -230,18 +287,7 @@ describe('trusted activation transition', () => {
       },
     };
 
-    const digest = computeManifestDigest(registered.value.entry);
-    const authorization = issueDeploymentAuthorization(
-      { clock: fixedClock('2026-07-28T12:00:10.000Z') },
-      {
-        deploymentIdentity: 'deployment-owner',
-        extensionId: registered.value.entry.extensionId,
-        extensionVersion: registered.value.entry.version,
-        manifestDigest: digest,
-        policyVersion: registered.value.entry.policyVersion,
-        ttlMs: 60_000,
-      },
-    );
+    const authorization = issueTrustedAuthorization(registered.value.entry);
     expect(authorization.ok).toBe(true);
     if (!authorization.ok) return;
 
@@ -308,18 +354,7 @@ describe('trusted activation transition', () => {
     );
     expect(disabled.ok).toBe(true);
     if (!disabled.ok) return;
-    const digest = computeManifestDigest(disabled.value.entry);
-    const authorization = issueDeploymentAuthorization(
-      { clock: fixedClock('2026-07-28T12:00:10.000Z') },
-      {
-        deploymentIdentity: 'deployment-owner',
-        extensionId: disabled.value.entry.extensionId,
-        extensionVersion: disabled.value.entry.version,
-        manifestDigest: digest,
-        policyVersion: disabled.value.entry.policyVersion,
-        ttlMs: 60_000,
-      },
-    );
+    const authorization = issueTrustedAuthorization(disabled.value.entry);
     expect(authorization.ok).toBe(true);
     if (!authorization.ok) return;
     const nonPending = await executeExtensionActivation(
@@ -342,7 +377,42 @@ describe('trusted activation transition', () => {
     expect(names).not.toContain('toActiveExtensionRegistration');
     expect(names).not.toContain('sealActiveExtensionRegistration');
     expect(names).not.toContain('sealDeploymentAuthorization');
-    expect(names).toContain('issueDeploymentAuthorization');
+    expect(names).not.toContain('issueDeploymentAuthorization');
+    expect(names).toContain('createExtensionActivationGateway');
     expect(names).toContain('executeExtensionActivation');
+  });
+
+  it('canonical digest covers policy-sensitive manifest fields', () => {
+    const result = validateExtensionManifest(manifest());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const entry = sealExtensionRegistryEntry({
+      extensionId: result.value.id,
+      version: result.value.version,
+      manifest: result.value,
+      activationState: 'pending-policy',
+      registeredAt: '2026-07-28T12:00:00.000Z' as never,
+      provenance: result.value.provenance,
+      policyVersion: 'extension-policy@1',
+      effectiveRiskClass: result.value.riskClass,
+      grantedCapabilityRefs: [],
+      grantedPermissionRefs: [],
+      disabledReason: null,
+      pendingReason: 'pending',
+    });
+    const base = computeManifestDigest(entry);
+    expect(computeManifestDigest(entry)).toBe(base);
+    const withRisk = validateExtensionManifest(manifest({ riskClass: 'high' }));
+    expect(withRisk.ok).toBe(true);
+    if (!withRisk.ok) return;
+    expect(
+      computeManifestDigest(
+        sealExtensionRegistryEntry({
+          ...entry,
+          manifest: withRisk.value,
+          effectiveRiskClass: withRisk.value.riskClass,
+        }),
+      ),
+    ).not.toBe(base);
   });
 });

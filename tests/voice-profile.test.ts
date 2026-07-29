@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import type { VoiceProviderMetadataResult } from '../src/core/domain/index.js';
+import { ok, type VoiceProviderMetadataResult } from '../src/core/domain/index.js';
+import { sealVerifiedVoiceProviderMatch } from '../src/core/domain/voice-profile.internal.js';
+import { createVoiceResolutionGateway } from '../src/core/application/voice-resolution.gateway.js';
 import {
   resolveVoiceAvailability,
   validateVoiceProfile,
@@ -15,6 +17,7 @@ import {
   QUOTED_PASSWORD_LINE,
   URL_WITH_CREDENTIALS,
 } from './support/synthetic-secrets.js';
+import { asCorrelation, fixedClock, operationContext } from './support/fixtures.js';
 import * as publicApi from '../src/index.js';
 
 const neoStyleTags = [
@@ -67,17 +70,88 @@ const rawProvider = (
 
 const sealedProvider = (
   profile: ReturnType<typeof validateVoiceProfile> & { valid: true },
-  overrides: Partial<VoiceProviderMetadataResult> = {},
   now = new Date('2026-07-28T12:00:10.000Z'),
-) => {
-  const validated = validateVoiceProviderMatch(profile.profile, rawProvider(overrides), {
+) =>
+  sealVerifiedVoiceProviderMatch({
+    profileId: profile.profile.id,
+    profileSchemaVersion: profile.profile.schemaVersion,
+    selector: profile.profile.primaryVoiceSelector,
+    providerVoiceReference: 'logical-masculine-ru',
+    language: 'ru-RU',
+    genderPresentation: 'masculine',
     policyVersion: 'voice-policy@1',
-    now,
-    ttlMs: 60_000,
+    validatedAt: now.toISOString() as never,
+    expiresAt: new Date(now.getTime() + 60_000).toISOString() as never,
   });
-  if (!validated.ok) throw new Error(validated.reason);
-  return validated.evidence;
-};
+
+const trustedVoiceGateway = (
+  profile: ReturnType<typeof validateVoiceProfile> & { valid: true },
+  overrides: {
+    readonly observation?: Record<string, unknown>;
+    readonly configuration?: Record<string, unknown>;
+    readonly unavailable?: 'provider' | 'configuration' | 'policy';
+  } = {},
+) =>
+  createVoiceResolutionGateway({
+    clock: fixedClock('2026-07-28T12:00:10.000Z'),
+    policy: {
+      currentPolicy: () =>
+        overrides.unavailable === 'policy'
+          ? Promise.resolve({ ok: false, error: { code: 'UNAVAILABLE', reason: 'policy' } })
+          : Promise.resolve(
+              ok({
+                policyVersion: 'voice-policy@1',
+                evidenceTtlMs: 60_000,
+                issuedAt: '2026-07-28T12:00:00.000Z',
+                expiresAt: '2026-07-28T12:30:00.000Z',
+              }),
+            ),
+    },
+    configuration: {
+      currentConfiguration: () =>
+        overrides.unavailable === 'configuration'
+          ? Promise.resolve({ ok: false, error: { code: 'UNAVAILABLE', reason: 'config' } })
+          : Promise.resolve(
+              ok({
+                providerIdentity: 'provider-a',
+                expectedVoiceReference: 'logical-masculine-ru',
+                configurationRevision: 'cfg-1',
+                language: 'ru-RU',
+                genderPresentation: 'masculine',
+                metadataSourceReference: 'meta-src',
+                allowClonedVoice: false,
+                allowIdentityImitation: false,
+                allowActorOrCelebrityIdentity: false,
+                policyVersion: 'voice-policy@1',
+                issuedAt: '2026-07-28T12:00:00.000Z',
+                expiresAt: '2026-07-28T12:30:00.000Z',
+                ...overrides.configuration,
+              }),
+            ),
+    },
+    provider: {
+      observe: () =>
+        overrides.unavailable === 'provider'
+          ? Promise.resolve({ ok: false, error: { code: 'UNAVAILABLE', reason: 'provider' } })
+          : Promise.resolve(
+              ok({
+                providerIdentity: 'provider-a',
+                providerVoiceReference: 'logical-masculine-ru',
+                observedLanguage: 'ru-RU',
+                observedGenderPresentation: 'masculine',
+                metadataSourceReference: 'meta-src',
+                claimsClonedVoice: false,
+                claimsIdentityImitation: false,
+                claimsActorOrCelebrityIdentity: false,
+                providerConfigurationRevision: 'cfg-1',
+                correlationId: asCorrelation(),
+                observedAt: '2026-07-28T12:00:00.000Z',
+                expiresAt: '2026-07-28T12:30:00.000Z',
+                ...overrides.observation,
+              }),
+            ),
+    },
+  });
 
 describe('provider-independent Neo voice profile', () => {
   it('accepts the masculine Russian Neo profile', () => {
@@ -128,7 +202,7 @@ describe('provider-independent Neo voice profile', () => {
     ).toEqual({ mode: 'voice', selector: result.profile.primaryVoiceSelector });
   });
 
-  it('returns text-only for mismatched, stale or unsafe provider metadata', () => {
+  it('returns text-only for mismatched, stale or unsafe provider metadata', async () => {
     const result = validateVoiceProfile(neo());
     expect(result.valid).toBe(true);
     if (!result.valid) return;
@@ -139,41 +213,33 @@ describe('provider-independent Neo voice profile', () => {
         ttlMs: 60_000,
       }).ok,
     ).toBe(false);
-    expect(
-      validateVoiceProviderMatch(result.profile, rawProvider({ genderPresentation: 'feminine' }), {
-        policyVersion: 'voice-policy@1',
-        now: new Date('2026-07-28T12:00:10.000Z'),
-        ttlMs: 60_000,
-      }).ok,
-    ).toBe(false);
-    expect(
-      validateVoiceProviderMatch(result.profile, rawProvider({ clonedVoice: true }), {
-        policyVersion: 'voice-policy@1',
-        now: new Date('2026-07-28T12:00:10.000Z'),
-        ttlMs: 60_000,
-      }).ok,
-    ).toBe(false);
-    expect(
-      validateVoiceProviderMatch(result.profile, rawProvider({ identityImitation: true }), {
-        policyVersion: 'voice-policy@1',
-        now: new Date('2026-07-28T12:00:10.000Z'),
-        ttlMs: 60_000,
-      }).ok,
-    ).toBe(false);
-    expect(
-      validateVoiceProviderMatch(result.profile, rawProvider({ actorOrCelebrityIdentity: true }), {
-        policyVersion: 'voice-policy@1',
-        now: new Date('2026-07-28T12:00:10.000Z'),
-        ttlMs: 60_000,
-      }).ok,
-    ).toBe(false);
-    expect(
-      validateVoiceProviderMatch(result.profile, rawProvider({ metadataVerified: false }), {
-        policyVersion: 'voice-policy@1',
-        now: new Date('2026-07-28T12:00:10.000Z'),
-        ttlMs: 60_000,
-      }).ok,
-    ).toBe(false);
+
+    const feminine = await trustedVoiceGateway(result, {
+      observation: { observedGenderPresentation: 'feminine' },
+      configuration: { genderPresentation: 'feminine' },
+    }).resolve(
+      {
+        profile: result.profile,
+        selector: result.profile.primaryVoiceSelector,
+        correlationId: asCorrelation(),
+        providerReference: 'provider-a',
+      },
+      operationContext(),
+    );
+    expect(feminine.ok && feminine.value.mode).toBe('text-only');
+
+    const cloned = await trustedVoiceGateway(result, {
+      observation: { claimsClonedVoice: true },
+    }).resolve(
+      {
+        profile: result.profile,
+        selector: result.profile.primaryVoiceSelector,
+        correlationId: asCorrelation(),
+        providerReference: 'provider-a',
+      },
+      operationContext(),
+    );
+    expect(cloned.ok && cloned.value.mode).toBe('text-only');
 
     const evidence = sealedProvider(result);
     expect(
@@ -185,6 +251,36 @@ describe('provider-independent Neo voice profile', () => {
         new Date('2026-07-28T13:00:10.000Z'),
       ),
     ).toEqual({ mode: 'text-only', reason: 'Provider evidence is stale.' });
+  });
+
+  it('resolves masculine ru-RU voice only through trusted gateway dependencies', async () => {
+    const result = validateVoiceProfile(neo());
+    expect(result.valid).toBe(true);
+    if (!result.valid) return;
+    const resolved = await trustedVoiceGateway(result).resolve(
+      {
+        profile: result.profile,
+        selector: result.profile.primaryVoiceSelector,
+        correlationId: asCorrelation(),
+        providerReference: 'provider-a',
+      },
+      operationContext(),
+    );
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(resolved.value.mode).toBe('voice');
+    if (resolved.value.mode === 'voice') {
+      expect(Object.isFrozen(resolved.value.evidence)).toBe(true);
+      expect(
+        resolveVoiceAvailability(
+          result.profile,
+          true,
+          [],
+          resolved.value.evidence,
+          new Date('2026-07-28T12:00:10.000Z'),
+        ),
+      ).toEqual({ mode: 'voice', selector: result.profile.primaryVoiceSelector });
+    }
   });
 
   it('returns text-only when Neo is disabled', () => {
@@ -299,5 +395,16 @@ describe('provider-independent Neo voice profile', () => {
     expect(names).not.toContain('sealValidatedVoiceProfile');
     expect(names).not.toContain('scanVoiceProfileSecrets');
     expect(names).toContain('validateVoiceProviderMatch');
+    expect(names).toContain('createVoiceResolutionGateway');
+    const profile = validateVoiceProfile(neo());
+    expect(profile.valid).toBe(true);
+    if (!profile.valid) return;
+    expect(
+      validateVoiceProviderMatch(profile.profile, rawProvider(), {
+        policyVersion: 'voice-policy@1',
+        now: new Date(),
+        ttlMs: 60_000,
+      }).ok,
+    ).toBe(false);
   });
 });

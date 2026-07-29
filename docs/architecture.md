@@ -89,8 +89,13 @@ provider: если совместимого мужского голоса нет
   для approval digest и MemoryPort); opaque `AuthenticatedMemoryAccessContext` через trusted
   `MemoryAccessGateway` (request body не назначает owner/actor/role); security evidence использует
   module-private WeakMap identity membership вместо transferable Symbol property. Package `exports`
-  разрешает только root public API. FIN-004—FIN-014 не закрыты. Реальный authentication adapter не
-  реализован. Окончательный security approval отсутствует до нового Codex review.
+  разрешает только root public API.
+- Build 2.1H закрывает FIN-004/005/006: `ExtensionPermissionGateway`, `ExtensionActivationGateway` и
+  `VoiceResolutionGateway` получают pre-bound observation/policy/clock dependencies; request не
+  назначает trust floors, grants, policy version, TTL или favorable voice booleans; canonical
+  manifest digest покрывает policy-sensitive manifest; returned registry entry полностью сверяется;
+  uncertainty provider → text-only. FIN-007—FIN-014 не закрыты. Реальный authentication/provider
+  adapter не реализован. Окончательный security approval отсутствует до нового Codex review.
 - Следующий этап: локальные адаптеры и runtime policy enforcement после отдельного утверждения.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.

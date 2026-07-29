@@ -38,17 +38,21 @@ security primitives. Новая capability не создаёт новый permis
 Dangerous permissions (`memory-write`, `secrets-read`, `exec`, `external-send`, `integration-write`,
 `schedule-write`, `notifications-send`) требуют matching approval effects. Пустой или неверный
 список effects — deny. Manifest risk нельзя понизить runtime-параметром: effective risk = max
-(manifest, registration `effectiveRiskClass`, sealed `RuntimeRiskEvidence`, source-trust /
-Security Guard floor). Caller-controlled `runtimeRisk` string удалён. Sealed risk evidence создаёт
-только trusted classification boundary; ordinary risk object — deny.
+(manifest, registration `effectiveRiskClass`, sealed `RuntimeRiskEvidence`, trusted routing/source
+floor / Security Guard floor / operation category). Trust facts и grant arrays поступают только из
+pre-bound `ExtensionPermissionGateway` dependencies. Caller-controlled `sourceTrust` /
+`securityGuardFloor` / grant arrays / `policyVersion` / `now` не являются proof. Sealed risk
+evidence создаёт только trusted classification boundary; ordinary risk object — deny.
 
 ## Registry activation
 
 Sealed registry entry хранит `activationState`: `disabled` | `pending-policy` | `active` |
-`rejected`. Permissions выдаются только sealed active evidence после atomic registry transition.
-`manifest.enabled` не означает active. Deployment authorization — sealed evidence с identity,
-manifest digest, policy version и freshness; ordinary boolean `authorized`/`registered` не
-является proof. Публичный converter в active registration отсутствует; sealer не экспортируется.
+`rejected`. Permissions выдаются только sealed active evidence после atomic registry transition
+через `ExtensionActivationGateway`. `manifest.enabled` не означает active. Deployment authorization
+требует authenticated deployment/owner observation, policy-controlled TTL и trusted clock;
+ordinary boolean `authorized`/`registered` и публичный issuer из caller strings не являются proof.
+Canonical manifest digest охватывает полный policy-sensitive manifest; returned registry entry
+сверяется полностью. Sealer не экспортируется.
 
 ## Permission composition
 

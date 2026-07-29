@@ -126,8 +126,11 @@
   AST) и R2.1-007 (VoiceProfile + production SensitiveDataScanner).
 - Build 2.1G закрывает FIN-001 (immutable sanitized snapshot), FIN-002 (authenticated memory
   gateway context) и FIN-003 (WeakMap identity membership вместо Symbol-brand; package exports
-  закрывают internal subpaths). FIN-004—FIN-014 не объявлены закрытыми. Окончательный security
-  approval до нового Codex review не объявляется. Реальный authentication adapter отсутствует.
+  закрывают internal subpaths).
+- Build 2.1H закрывает FIN-004 (trusted risk/permission derivation), FIN-005 (trusted deployment
+  activation + full manifest digest + returned entry verification) и FIN-006 (trusted voice
+  provider resolution). FIN-007—FIN-014 не объявлены закрытыми. Окончательный security approval
+  до нового Codex review не объявляется. Реальный authentication/provider adapter отсутствует.
 
 ## Deployment
 

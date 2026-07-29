@@ -28,20 +28,35 @@ export type {
 export {
   computeManifestDigest,
   executeExtensionActivation,
-  issueDeploymentAuthorization,
 } from './core/application/extension-activation.service.js';
 export type {
-  DeploymentAuthorizationCommand,
   ExtensionActivationCommand,
   ExtensionActivationDeps,
   ExtensionActivationFailure,
   ExtensionActivationOutcome,
 } from './core/application/extension-activation.service.js';
-export { classifyExtensionRuntimeRisk } from './core/application/runtime-risk-classification.service.js';
+export { createExtensionActivationGateway } from './core/application/extension-activation.gateway.js';
 export type {
-  RuntimeRiskClassificationDeps,
-  RuntimeRiskClassificationFailure,
-} from './core/application/runtime-risk-classification.service.js';
+  ExtensionActivationGateway,
+  ExtensionActivationGatewayDeps,
+  ExtensionActivationGatewayFailure,
+  ExtensionActivationGatewayRequest,
+} from './core/application/extension-activation.gateway.js';
+export { createExtensionPermissionGateway } from './core/application/extension-permission.gateway.js';
+export type {
+  ExtensionPermissionGateway,
+  ExtensionPermissionGatewayDeps,
+  ExtensionPermissionGatewayFailure,
+  ExtensionPermissionGatewayOutcome,
+  ExtensionPermissionResolveRequest,
+} from './core/application/extension-permission.gateway.js';
+export { createVoiceResolutionGateway } from './core/application/voice-resolution.gateway.js';
+export type {
+  VoiceResolutionGateway,
+  VoiceResolutionGatewayDeps,
+  VoiceResolutionOutcome,
+  VoiceResolutionRequest,
+} from './core/application/voice-resolution.gateway.js';
 export { executeWebhookIngress } from './core/application/webhook-ingress.service.js';
 export type {
   WebhookIngressDeps,

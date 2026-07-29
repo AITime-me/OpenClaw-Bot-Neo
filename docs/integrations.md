@@ -1,10 +1,9 @@
 # Будущие integrations
 
-Build 2.1B/2.1D/2.1E содержат только provider-independent contracts и отключённые example manifests.
-Реальных adapter, integration, webhook endpoint, cryptographic verifier и сетевого вызова нет.
-Webhook orchestration в core владеет canonical payload bytes, принимает untrusted primitive
-verification result от adapter и только затем seals signature evidence. HTTP server и crypto
-provider не реализованы.
+Build 2.1B/2.1D/2.1E/2.1H содержат только provider-independent contracts и отключённые example
+manifests. Реальных adapter, integration, webhook endpoint, cryptographic verifier и сетевого
+вызова нет. Trusted derivation gateways принимают untrusted observations от будущих adapters и
+создают sealed evidence только после exact validation. HTTP server и crypto provider не реализованы.
 
 ## Webhook boundary
 

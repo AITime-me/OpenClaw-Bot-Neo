@@ -12,6 +12,11 @@ import {
 import { resolveEffectiveExtensionRisk } from '../src/core/domain/extension-risk.js';
 import { sealRuntimeRiskEvidence } from '../src/core/domain/extension-runtime-risk.internal.js';
 import { classifyExtensionRuntimeRisk } from '../src/core/application/runtime-risk-classification.service.js';
+import {
+  parseRoutingObservation,
+  parseSecurityGuardObservation,
+} from '../src/core/application/runtime-risk-classification.service.js';
+import { sealCurrentExtensionPolicySnapshot } from '../src/core/domain/extension-policy.internal.js';
 import { resolveExtensionPermissions } from '../src/core/policy/extension-permissions.js';
 import { validateExtensionManifest } from '../src/core/policy/extension-manifest.js';
 import { asCorrelation, fixedClock, iso, operationContext } from './support/fixtures.js';
@@ -272,22 +277,85 @@ describe('extension permission resolution', () => {
     if (decision.allowed) expect(decision.effectivePermissions).toEqual([]);
   });
 
-  it('classifies sealed runtime risk only through the trusted boundary', () => {
+  it('classifies sealed runtime risk only through trusted observations', () => {
     const registration = activeRegistration({ riskClass: 'low' }, 'low');
-    const classified = classifyExtensionRuntimeRisk(
-      { clock: fixedClock(NOW), evidenceTtlMs: 60_000 },
-      registration,
+    const policy = sealCurrentExtensionPolicySnapshot(
+      {
+        extensionId: registration.extensionId,
+        extensionVersion: registration.version,
+        policyVersion: registration.policyVersion,
+        riskPolicyVersion: 'risk-policy@1',
+        deploymentAllowed: ['external-read'],
+        roleAllowed: ['external-read'],
+        securityAllowed: ['external-read'],
+        riskAllowed: ['external-read'],
+        deploymentAuthorizationTtlMs: 60_000,
+        runtimeEvidenceTtlMs: 60_000,
+        voiceEvidenceTtlMs: 60_000,
+        issuedAt: '2026-07-28T12:00:00.000Z',
+        expiresAt: '2026-07-28T12:30:00.000Z',
+      },
+      new Date(NOW),
+      {
+        extensionId: registration.extensionId,
+        extensionVersion: registration.version,
+      },
+    );
+    expect(policy).not.toBeNull();
+    if (policy === null) return;
+    const routing = parseRoutingObservation(
       {
         extensionId: registration.extensionId,
         extensionVersion: registration.version,
         correlationId: asCorrelation(),
-        policyVersion: 'risk-policy@1',
-        registrationPolicyVersion: registration.policyVersion,
-        registrationEffectiveRisk: registration.effectiveRiskClass,
         sourceTrust: 'owner-stated',
+        routingRiskFloor: 'low',
+        sourceReference: 'channel-ref',
+        channelId: 'channel',
+        sessionId: 'session',
+        observedAt: '2026-07-28T12:00:00.000Z',
+        expiresAt: '2026-07-28T12:30:00.000Z',
+      },
+      {
+        extensionId: registration.extensionId,
+        extensionVersion: registration.version,
+        correlationId: asCorrelation(),
+        sourceReference: 'channel-ref',
+      },
+      new Date(NOW),
+    );
+    const guard = parseSecurityGuardObservation(
+      {
+        extensionId: registration.extensionId,
+        extensionVersion: registration.version,
+        correlationId: asCorrelation(),
         securityGuardFloor: 'low',
-        externalEffect: true,
-        untrustedContentPresent: false,
+        denied: false,
+        allowedPermissions: ['external-read'],
+        observedAt: '2026-07-28T12:00:00.000Z',
+        expiresAt: '2026-07-28T12:30:00.000Z',
+      },
+      {
+        extensionId: registration.extensionId,
+        extensionVersion: registration.version,
+        correlationId: asCorrelation(),
+      },
+      new Date(NOW),
+    );
+    expect(routing).not.toBeNull();
+    expect(guard).not.toBeNull();
+    if (routing === null || guard === null) return;
+    const classified = classifyExtensionRuntimeRisk(
+      { clock: fixedClock(NOW) },
+      registration,
+      policy,
+      routing,
+      guard,
+      {
+        correlationId: asCorrelation(),
+        operationCategory: 'external-effect',
+        sourceReference: 'channel-ref',
+        operationHints: { externalEffect: true, untrustedContentPresent: false },
       },
       operationContext(),
     );
@@ -321,9 +389,12 @@ describe('extension permission resolution', () => {
       'sealActiveExtensionRegistration',
       'sealTrustedActivationDecision',
       'sealDeploymentAuthorization',
+      'issueDeploymentAuthorization',
       'toActiveExtensionRegistration',
       'runtimeRiskEvidenceBrand',
+      'sealCurrentExtensionPolicySnapshot',
     ])
       expect(names).not.toContain(forbidden);
+    expect(names).toContain('createExtensionPermissionGateway');
   });
 });

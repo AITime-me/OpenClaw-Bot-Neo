@@ -59,3 +59,4 @@ export type {
   AuthenticatedMemoryAccessContext,
   AuthenticationObservation,
 } from './memory-access.internal.js';
+export type { CurrentExtensionPolicySnapshot } from './extension-policy.internal.js';

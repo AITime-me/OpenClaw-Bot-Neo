@@ -30,7 +30,7 @@ Multimodal workflow — общая техническая capability обраб�
 
 ## Статус
 
-**Build №2 + Security Remediation 2.1A–2.1G + Extensibility 2.1B/2.1D + Trusted Evidence 2.1E:
+**Build №2 + Security Remediation 2.1A–2.1H + Extensibility 2.1B/2.1D + Trusted Evidence 2.1E:
 verifiable core.**
 Build 2.1B добавляет versioned declarative manifests, default-deny permission composition,
 provider-independent registry/webhook contracts, отключённые examples для call-analysis и external
@@ -55,10 +55,16 @@ Build 2.1F закрывает MEDIUM R2.1-001/002/007: единый fail-closed 
 (normalization + untrusted marking в обязательном порядке; split-branch → fail); VoiceProfile
 проходит production SensitiveDataScanner до sealing.
 
-Build 2.1G закрывает FIN-001/002/003 независимого Codex Review №4: immutable sanitized snapshot,
+Build 2.1G закрывает FIN-001/002/003: immutable sanitized snapshot,
 opaque `AuthenticatedMemoryAccessContext` через trusted `MemoryAccessGateway`, и non-forgeable
 WeakMap/WeakSet identity membership вместо transferable Symbol-brand. Package `exports` разрешает
-только documented root API; internal subpaths закрыты. FIN-004—FIN-014 намеренно не закрыты.
+только documented root API; internal subpaths закрыты.
+
+Build 2.1H закрывает FIN-004/005/006: trust/risk/policy grants и deployment/voice safety facts
+derive только через pre-bound trusted ports (`ExtensionPermissionGateway`,
+`ExtensionActivationGateway`, `VoiceResolutionGateway`). Request-level caller не назначает
+sourceTrust, Security Guard floor, grant arrays, policy version, clock или TTL. Favorable provider
+booleans не создают evidence; неопределённость → text-only. FIN-007—FIN-014 намеренно не закрыты.
 Окончательный security approval отсутствует до нового Codex review. Реальных
 adapters/providers/runtime/authentication по-прежнему нет.
 
