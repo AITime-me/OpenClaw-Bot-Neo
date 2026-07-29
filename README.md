@@ -33,11 +33,18 @@ Multimodal workflow — общая техническая capability обраб�
 **Build №2 + Security Remediation 2.1A–2.1J-R4: implemented contracts and pure core logic;
 not deployed; pending independent Codex Review №6.**
 
+**Build 3.0 (Host Boundary and Local Composition Root): implementation revised after
+adversarial review; pending independent re-review and Codex Review №6.** App-private `src/host`
+composition only; in-memory ephemeral stores; deny-by-default memory policy; read/write
+authorization enforced; composition creates no built-in network clients; absolute network
+sandbox isolation is not enforced; not a production runtime.
+
 | Слой | Статус |
 |------|--------|
 | Target architecture | planned |
 | Pure core policies / contracts | implemented |
 | Trusted composition gateways | implemented |
+| App-private local host composition (Build 3.0) | implemented (ephemeral / non-durable) |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
@@ -83,14 +90,19 @@ FIN-012 **CLOSED / VERIFIED**: production runtime contract `Node >=22.13.0 <23` 
 реальном Node **22.13.0** (npm **10.9.2**) со strict gate `OPENCLAW_PRODUCTION_NODE_GATE=1` и без
 `OPENCLAW_REVIEW_NODE_OVERRIDE`. Typings: exact pin `@types/node@22.13.10` (undici-types 6.20.0).
 Полный suite на этом runtime: 21 files / 547 tests PASS; boundaries/secrets/hygiene PASS.
-Закрытие FIN-012 не означает production-ready проект и не открывает Build №3 / deployment.
+Закрытие FIN-012 не означает production-ready проект.
 Build 2.1J-R4 не является security-approved (Codex Review №6 pending).
 
-Build №3 ещё не начат. Сервер не куплен. Deployment не разрешён. Реальных
-adapters/providers/runtime/authentication и persistent atomic replay/idempotency store нет. URL
-policy не является полной SSRF-защитой. Path/symlink-root isolation, MIME content sniffing,
-decompression-bomb limits, quarantine, VPS hardening и production entrypoint Node-gate wiring
-остаются contract-only/planned и не реализованы.
+**Build 3.0 implementation revised after adversarial review; pending independent re-review and
+Codex Review №6.** Появился app-private слой `src/host` с local-only composition root
+(`createLocalHost`): in-memory ephemeral stores, deny-by-default memory policy, read/write
+authorization via public `authorizeMemoryAccess`, composition не создаёт built-in network clients,
+абсолютная network sandbox isolation не реализована, injected dependencies — отдельная trust
+boundary. Telegram отсутствует, OpenClaw/Codex route отсутствует и требует external verification,
+OAuth отсутствует, API fallback disabled, production entrypoint отсутствует, persistent stores
+отсутствуют. Package `exports` по-прежнему только root; host не публикуется. Сервер/VPS не куплен.
+Deployment запрещён. Security approval отсутствует. Build №3 целиком не завершён — это первый
+implementation slice.
 
 Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate
 (override запрещён). Review/tooling runner может использовать `OPENCLAW_REVIEW_NODE_OVERRIDE=1`

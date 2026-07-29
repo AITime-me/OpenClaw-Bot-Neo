@@ -40,8 +40,9 @@ flowchart LR
 3. Core ports: контракты LLM, media, memory, scheduler, notifications, observed systems, approvals и `SensitiveDataScannerPort`; зависят только от domain.
 4. Core policy и routing: детерминированные политики безопасности и risk routing; зависят только от domain и ports.
 5. Core application: исполняемая оркестрация security-порядка, например memory-write boundary; зависит только от остальных core-слоёв.
-6. Runtime adapter: заменяемая интеграция OpenClaw; все версии и поля сначала валидируются.
-7. Infrastructure adapters: только после отдельного этапа Build.
+6. App-private host (Build 3.0): локальный composition root вне core; собирает public core + ephemeral in-memory adapters; не публикуется через package exports; не создаёт trusted evidence.
+7. Runtime adapter: заменяемая интеграция OpenClaw; все версии и поля сначала валидируются.
+8. Infrastructure adapters: только после отдельного этапа Build.
 
 Зависимости между слоями заданы allowlist-ом и проверяются структурным анализом AST (`npm run check:boundaries`), а не совпадением имён каталогов.
 
@@ -117,10 +118,18 @@ provider: если совместимого мужского голоса нет
   authorization-before-atomic-replay semantics, semantic exact schemas для всех status-C config
   families, scoped identity grammars и validated no-shell review runner. Это remediation Build №2,
   не начало Build №3.
-- Build №3 не начат. Сервер не куплен. Deployment не разрешён.
+- **Build 3.0 implementation revised after adversarial review; pending independent re-review and
+  Codex Review №6.** App-private `src/host` local composition root (`createLocalHost`): in-memory
+  ephemeral stores, deny-by-default memory policy, read/write authorization enforced through public
+  `authorizeMemoryAccess`, credential-free, side-effect-free on import. Composition does not create
+  built-in network clients; absolute network sandbox isolation is not enforced; injected
+  dependencies remain a separate trust boundary. Trusted clock и authenticated access не inventятся
+  host-ом. Telegram, OpenClaw/Codex route, OAuth, API fallback, production entrypoint и persistent
+  stores отсутствуют. Package public API остаётся root-only. Build №3 целиком не завершён.
+- Сервер не куплен. Deployment не разрешён.
 - Реальный authentication/provider adapter и persistent atomic replay/idempotency store не
   реализованы. Окончательный security approval отсутствует pending Codex Review №6.
-- Следующий этап: локальные адаптеры и runtime policy enforcement после отдельного утверждения.
+- Следующие slices Build №3 — только после independent review текущего host slice.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.
 

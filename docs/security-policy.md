@@ -228,6 +228,12 @@ drafts проверяются semantic exact schemas, а не равенство
 **CLOSED / VERIFIED** на реальном Node 22.13.0 (npm 10.9.2) со strict
 `OPENCLAW_PRODUCTION_NODE_GATE=1`, без review override, и exact pin `@types/node@22.13.10`.
 Окончательный security approval отсутствует pending Review №6.
-Build №3 не начат; VPS не куплен; deployment
-не разрешён. Эти gates действуют только внутри ядра и не означают, что OpenClaw runtime или
-adapters уже их используют.
+**Build 3.0** (revised after adversarial review) добавляет app-private `src/host` composition вне
+core: host не inventит authenticated context, trusted clock evidence, approval validation evidence
+или иные sealed values; clock inject-ится явно; memory policy по умолчанию deny-by-default; read/
+write/query/delete в in-memory adapter fail-closed через публичный `authorizeMemoryAccess`;
+in-memory approval seed хранит только plain `ApprovalGrant` (не sealed evidence и не issuer);
+composition не создаёт built-in network clients, но абсолютная network sandbox isolation не
+заявляется. Core не зависит от host; host не импортирует `*.internal` sealers. Build №3 целиком не
+завершён; VPS не куплен; deployment не разрешён. Эти gates действуют внутри ядра/host и не означают,
+что OpenClaw runtime или channel adapters уже их используют.

@@ -26,6 +26,11 @@ export const CORE_LAYER_RULES = {
     'core/routing',
     'core/application',
   ],
+  /**
+   * App-private local composition (Build 3.0). May use public core surfaces only.
+   * Must not import core internals, tests, scripts, or future channel/adapters trees.
+   */
+  host: ['core/domain', 'core/ports', 'core/policy', 'core/application', 'host'],
   root: [
     'core/domain',
     'core/ports',

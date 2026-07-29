@@ -56,6 +56,15 @@ describe('allowlist-based layer rules', () => {
     expect(report.filesAnalyzed).toBeGreaterThan(0);
   });
 
+  it('accepts a compliant host composition fixture', () => {
+    const report = analyzeBoundaries({
+      rootDir: fixture('host-allowed'),
+      requiredLayers: [],
+    });
+    expect(report.violations).toEqual([]);
+    expect(report.filesAnalyzed).toBeGreaterThan(0);
+  });
+
   it.each([
     ['forbidden-static', 'FORBIDDEN_DEPENDENCY'],
     ['forbidden-export-from', 'FORBIDDEN_DEPENDENCY'],
@@ -74,6 +83,12 @@ describe('allowlist-based layer rules', () => {
     ['forbidden-computed-require-call', 'COMPUTED_MODULE_SPECIFIER'],
     ['forbidden-computed-import-manifest', 'COMPUTED_MODULE_SPECIFIER'],
     ['forbidden-computed-require-config', 'COMPUTED_MODULE_SPECIFIER'],
+    ['forbidden-core-to-host', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-host-internal', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-to-tests', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-host-to-scripts', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-host-channel', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-host-sealer', 'INTERNAL_MODULE_LEAK'],
   ])('rejects the %s fixture with %s', (name, code) => {
     const report = analyzeBoundaries({ rootDir: fixture(name), requiredLayers: [] });
     expect(codes(report)).toContain(code);

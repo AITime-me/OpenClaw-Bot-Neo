@@ -74,6 +74,12 @@ describe('public API surface', () => {
       'authenticatedRegistry',
       'createHarness',
       'accessContext',
+      'createLocalHost',
+      'LOCAL_HOST_DIAGNOSTICS',
+      'createExplicitAllowMemoryPolicy',
+      'createDenyByDefaultMemoryPolicy',
+      'createInMemoryMemoryStore',
+      'seedLocalApprovalGrant',
       'parseContractDraftExample',
       'parseExactDraft',
       'exactJsonDto',
@@ -118,6 +124,15 @@ describe('public API surface', () => {
       expect(value instanceof RegExp).toBe(false);
       if (Array.isArray(value)) expect(Object.isFrozen(value)).toBe(true);
     }
+  });
+
+  it('keeps the app-private host composition out of the package root', () => {
+    expect(exportedNames).not.toContain('createLocalHost');
+    expect(exportedNames).not.toContain('LOCAL_HOST_DIAGNOSTICS');
+    expect(exportedNames).not.toContain('createInMemoryMemoryStore');
+    expect(exportedNames).not.toContain('createInMemoryApprovalStore');
+    expect(exportedNames).not.toContain('createExplicitAllowMemoryPolicy');
+    expect(exportedNames).not.toContain('seedLocalApprovalGrant');
   });
 
   it('exports safe identity/config/node helpers without internals', () => {
