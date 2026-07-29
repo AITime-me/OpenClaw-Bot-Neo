@@ -79,12 +79,12 @@ schemas для всех status-C families, runtime identity parsers и quality-c
 Windows npm fallback допускается только после realpath-привязки к фактической Node/npm installation
 и является исключительно local review tooling, а не production runtime path.
 
-FIN-012 **PARTIALLY CLOSED / BLOCKED**: production Node contract `>=22.13.0 <23`
-и review override (`OPENCLAW_REVIEW_NODE_OVERRIDE=1`) реализованы и тестируются; однако
-`@types/node` в lockfile остаётся `26.1.2` — подходящий `@types/node@22` в локальном npm cache
-не найден, offline upgrade без сети не выполнен. Переход к Build №3 запрещён до установки
-Node 22 typings и повторной проверки на реальном Node 22.13+. FIN-012 не объявляется закрытым;
-Build 2.1J-R4 не является security-approved.
+FIN-012 **CLOSED / VERIFIED**: production runtime contract `Node >=22.13.0 <23` подтверждён на
+реальном Node **22.13.0** (npm **10.9.2**) со strict gate `OPENCLAW_PRODUCTION_NODE_GATE=1` и без
+`OPENCLAW_REVIEW_NODE_OVERRIDE`. Typings: exact pin `@types/node@22.13.10` (undici-types 6.20.0).
+Полный suite на этом runtime: 21 files / 547 tests PASS; boundaries/secrets/hygiene PASS.
+Закрытие FIN-012 не означает production-ready проект и не открывает Build №3 / deployment.
+Build 2.1J-R4 не является security-approved (Codex Review №6 pending).
 
 Build №3 ещё не начат. Сервер не куплен. Deployment не разрешён. Реальных
 adapters/providers/runtime/authentication и persistent atomic replay/idempotency store нет. URL
@@ -92,9 +92,9 @@ policy не является полной SSRF-защитой. Path/symlink-root
 decompression-bomb limits, quarantine, VPS hardening и production entrypoint Node-gate wiring
 остаются contract-only/planned и не реализованы.
 
-Проверка ядра: `npm run check` — non-production review/tooling runner (может выставить
-`OPENCLAW_REVIEW_NODE_OVERRIDE=1` с предупреждением; это не production PASS).
-Production start: `OPENCLAW_PRODUCTION_NODE_GATE=1` (override запрещён).
+Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate
+(override запрещён). Review/tooling runner может использовать `OPENCLAW_REVIEW_NODE_OVERRIDE=1`
+только для локального tooling вне production gate; это не замена verified Node 22.13.0 PASS.
 Публичные контракты экспортируются из `src/index.ts`.
 
 Навигация: [архитектура](docs/architecture.md), [расширяемость](docs/extensibility.md),

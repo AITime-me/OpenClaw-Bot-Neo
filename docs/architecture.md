@@ -98,6 +98,8 @@ provider: если совместимого мужского голоса нет
   approval CFG checker, webhook verifier single-read snapshot + distinct idempotency/replay
   outcomes, bounded token-family detectors, production config parsers, Node `>=22.13.0 <23`
   with documented review override, validated identity constructors, documentation truthfulness.
+  FIN-012 later **CLOSED / VERIFIED** on real Node 22.13.0 (npm 10.9.2) with strict production
+  gate and exact `@types/node@22.13.10` — without treating the project as production-ready.
 - Build 2.1J-R4 — REV9-001: generator/async-generator executeMemoryWrite targets
   fail closed (`UNSUPPORTED_CONTROL_FLOW`) before body/stage accounting;
   **implemented, pending independent Codex Review №6**

@@ -224,8 +224,10 @@ REV7-003 expression-container policy for security stages — **implemented, pend
 Codex Review №6**. Build 2.1J-R1 remediation
 CR5-001—CR5-008, REV6-001—REV6-010 и связанных FIN-002/004/006/008/009/011/013/014
 **implemented, pending repeated independent pre-commit review and Codex Review №6**. Status-C
-drafts проверяются semantic exact schemas, а не равенством одному example. FIN-012 остаётся
-**PARTIALLY CLOSED / BLOCKED**. Окончательный security approval отсутствует pending Review №6.
+drafts проверяются semantic exact schemas, а не равенством одному example. FIN-012 —
+**CLOSED / VERIFIED** на реальном Node 22.13.0 (npm 10.9.2) со strict
+`OPENCLAW_PRODUCTION_NODE_GATE=1`, без review override, и exact pin `@types/node@22.13.10`.
+Окончательный security approval отсутствует pending Review №6.
 Build №3 не начат; VPS не куплен; deployment
 не разрешён. Эти gates действуют только внутри ядра и не означают, что OpenClaw runtime или
 adapters уже их используют.
