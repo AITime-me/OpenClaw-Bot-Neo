@@ -5,6 +5,7 @@ import {
   sealExtensionRegistryEntry,
 } from '../src/core/domain/extension-registry-entry.internal.js';
 import { createExtensionPermissionGateway } from '../src/core/application/extension-permission.gateway.js';
+import { parseSecurityGuardObservation } from '../src/core/application/runtime-risk-classification.service.js';
 import { createExtensionActivationGateway } from '../src/core/application/extension-activation.gateway.js';
 import { validateExtensionManifest } from '../src/core/policy/extension-manifest.js';
 import { asCorrelation, fixedClock, iso, operationContext } from './support/fixtures.js';
@@ -54,6 +55,56 @@ const activeRegistration = () => {
 };
 
 describe('FIN-004 trusted permission gateway', () => {
+  it('copies and validates Security Guard permission observations exactly', () => {
+    const permissions = ['external-read'];
+    const raw = {
+      extensionId: 'derivation-test',
+      extensionVersion: '1.0.0',
+      correlationId: asCorrelation(),
+      securityGuardFloor: 'low',
+      denied: false,
+      allowedPermissions: permissions,
+      observedAt: '2026-07-28T12:00:00.000Z',
+      expiresAt: '2026-07-28T12:30:00.000Z',
+    };
+    const parsed = parseSecurityGuardObservation(
+      raw,
+      {
+        extensionId: 'derivation-test',
+        extensionVersion: '1.0.0',
+        correlationId: asCorrelation(),
+      },
+      new Date(NOW),
+    );
+    expect(parsed).not.toBeNull();
+    if (parsed === null) return;
+    permissions[0] = 'external-send';
+    expect(parsed.allowedPermissions).toEqual(['external-read']);
+    expect(Object.isFrozen(parsed.allowedPermissions)).toBe(true);
+    expect(
+      parseSecurityGuardObservation(
+        { ...raw, allowedPermissions: ['external-read', 'external-read'] },
+        {
+          extensionId: 'derivation-test',
+          extensionVersion: '1.0.0',
+          correlationId: asCorrelation(),
+        },
+        new Date(NOW),
+      ),
+    ).toBeNull();
+    expect(
+      parseSecurityGuardObservation(
+        { ...raw, allowedPermissions: ['external-read', 1] },
+        {
+          extensionId: 'derivation-test',
+          extensionVersion: '1.0.0',
+          correlationId: asCorrelation(),
+        },
+        new Date(NOW),
+      ),
+    ).toBeNull();
+  });
+
   it('creates risk decisions from pre-bound observations and rejects caller trust facts', async () => {
     const registration = activeRegistration();
     const gateway = createExtensionPermissionGateway({

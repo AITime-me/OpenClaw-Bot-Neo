@@ -68,6 +68,18 @@ describe('memory-write orchestration order', () => {
 });
 
 describe('memory-write refusals never touch a sink', () => {
+  it('rejects a malformed wire record ID before scanner, policy or storage', async () => {
+    const harness = createHarness();
+    const result = await executeMemoryWrite(
+      harness.deps,
+      authenticatedAccess(),
+      writeCommand({ recordId: '../escape' }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('INVALID_IDENTITY');
+    expect(harness.calls).toEqual([]);
+  });
+
   it('denies a critical secret before the policy or sinks run', async () => {
     const harness = createHarness();
     const result = await executeMemoryWrite(

@@ -3,11 +3,19 @@
  * Does not execute accessors, methods, or user-defined iterators.
  */
 
-import { isProxy } from 'node:util/types';
+import { snapshotPlainJsonDto, type JsonDto } from './json-dto-snapshot.js';
+import { parseISO8601 } from './identity.js';
 
-const isPlainPrototype = (value: object): boolean => {
-  const proto: unknown = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
+const observationSnapshot = (value: unknown): JsonDto | null => {
+  const snapshot = snapshotPlainJsonDto(value, {
+    maxNodes: 256,
+    maxDepth: 8,
+    maxObjectKeys: 64,
+    maxArrayLength: 128,
+    maxStringLength: 2_048,
+    maxKeyLength: 128,
+  });
+  return snapshot.ok ? snapshot.value : null;
 };
 
 /** Reads one own data property without invoking getters. */
@@ -27,26 +35,17 @@ export const exactPlainObservation = (
   value: unknown,
   fields: readonly string[],
 ): Readonly<Record<string, unknown>> | null => {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
-  if (isProxy(value)) return null;
-  if (!isPlainPrototype(value)) return null;
-  if (Object.getOwnPropertySymbols(value).length > 0) return null;
-
-  const ownKeys = Object.getOwnPropertyNames(value);
+  const snapshot = observationSnapshot(value);
+  if (snapshot === null || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null;
+  const ownKeys = Object.keys(snapshot);
   if (ownKeys.length !== fields.length) return null;
   const allowed = new Set(fields);
   for (const key of ownKeys) if (!allowed.has(key)) return null;
 
-  const snapshot: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   for (const field of fields) {
-    if (!Object.prototype.hasOwnProperty.call(value, field)) return null;
-    const descriptor = Object.getOwnPropertyDescriptor(value, field);
-    if (descriptor === undefined) return null;
-    if (descriptor.get !== undefined || descriptor.set !== undefined) return null;
-    if (typeof descriptor.value === 'function') return null;
-    snapshot[field] = descriptor.value;
+    if (!Object.prototype.hasOwnProperty.call(snapshot, field)) return null;
   }
-  return snapshot;
+  return snapshot as Readonly<Record<string, unknown>>;
 };
 
 /**
@@ -58,26 +57,14 @@ export const exactPlainRecord = (
   required: readonly string[],
   optional: readonly string[] = [],
 ): Readonly<Record<string, unknown>> | null => {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
-  if (isProxy(value)) return null;
-  if (!isPlainPrototype(value)) return null;
-  if (Object.getOwnPropertySymbols(value).length > 0) return null;
-
+  const snapshot = observationSnapshot(value);
+  if (snapshot === null || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null;
   const allowed = new Set<string>([...required, ...optional]);
-  const ownKeys = Object.getOwnPropertyNames(value);
+  const ownKeys = Object.keys(snapshot);
   for (const key of ownKeys) if (!allowed.has(key)) return null;
   for (const field of required)
-    if (!Object.prototype.hasOwnProperty.call(value, field)) return null;
-
-  const snapshot: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
-  for (const key of ownKeys) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (descriptor === undefined) return null;
-    if (descriptor.get !== undefined || descriptor.set !== undefined) return null;
-    if (typeof descriptor.value === 'function') return null;
-    snapshot[key] = descriptor.value;
-  }
-  return snapshot;
+    if (!Object.prototype.hasOwnProperty.call(snapshot, field)) return null;
+  return snapshot as Readonly<Record<string, unknown>>;
 };
 
 export const filledString = (value: unknown, max = 256): value is string =>
@@ -87,9 +74,11 @@ export const exactStringArray = (
   value: unknown,
   allowed?: ReadonlySet<string> | readonly string[],
 ): readonly string[] | null => {
-  if (!Array.isArray(value)) return null;
+  const snapshot = observationSnapshot(value);
+  if (!Array.isArray(snapshot) || snapshot.length > 128) return null;
   const copy: string[] = [];
-  for (const item of value) {
+  const seen = new Set<string>();
+  for (const item of snapshot) {
     if (typeof item !== 'string' || item.length === 0 || item.length > 128) return null;
     if (allowed !== undefined) {
       const ok = Array.isArray(allowed)
@@ -97,15 +86,17 @@ export const exactStringArray = (
         : (allowed as ReadonlySet<string>).has(item);
       if (!ok) return null;
     }
+    if (seen.has(item)) return null;
+    seen.add(item);
     copy.push(item);
   }
   return Object.freeze(copy);
 };
 
 export const parseIsoInstant = (value: unknown): number | null => {
-  if (typeof value !== 'string' || value.length === 0) return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  const parsed = parseISO8601(value);
+  if (!parsed.ok) return null;
+  return new Date(parsed.value).getTime();
 };
 
 export const isFreshWindow = (issuedAt: number, expiresAt: number, now: Date): boolean => {

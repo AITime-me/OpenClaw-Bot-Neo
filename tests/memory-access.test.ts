@@ -105,6 +105,57 @@ describe('authenticated context is mandatory', () => {
     expect(decision.allowed).toBe(false);
     if (!decision.allowed) expect(decision.code).toBe('OWNER_MISMATCH');
   });
+
+  it('rejects authentication getters/proxies and retains no mutable authority arrays', () => {
+    const base = {
+      ownerId: asOwner(),
+      actorId: asActor(),
+      roles: ['personal-assistant'],
+      activeNamespace: 'personal',
+      projectScope: {
+        primary: 'personal',
+        permitted: ['personal'],
+        crossProjectPermitted: false,
+      },
+      channelId: 'channel',
+      sessionId: 'session',
+      issuedAt: '2026-07-01T11:59:00.000Z',
+      expiresAt: '2026-07-01T12:30:00.000Z',
+      correlationId: asCorrelation(),
+    };
+    let reads = 0;
+    const getter = { ...base };
+    Object.defineProperty(getter, 'ownerId', {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return asOwner();
+      },
+    });
+    expect(sealAuthenticatedMemoryAccess(getter, operationContext(), new Date(NOW))).toBeNull();
+    expect(reads).toBe(0);
+    expect(
+      sealAuthenticatedMemoryAccess(new Proxy(base, {}), operationContext(), new Date(NOW)),
+    ).toBeNull();
+
+    const mutable = structuredClone(base);
+    const sealed = sealAuthenticatedMemoryAccess(mutable, operationContext(), new Date(NOW));
+    expect(sealed).not.toBeNull();
+    if (sealed === null) return;
+    mutable.roles[0] = 'security-guard';
+    mutable.projectScope.permitted[0] = 'security-restricted';
+    expect(sealed.role).toBe('personal-assistant');
+    expect(sealed.projectScope.permitted).toEqual(['personal']);
+    expect(Object.isFrozen(sealed.projectScope.permitted)).toBe(true);
+
+    expect(
+      sealAuthenticatedMemoryAccess(
+        { ...base, roles: ['personal-assistant', 'personal-assistant'] },
+        operationContext(),
+        new Date(NOW),
+      ),
+    ).toBeNull();
+  });
 });
 
 describe('namespace isolation', () => {

@@ -28,6 +28,15 @@ export interface JsonDtoFailure {
   readonly reason: string;
 }
 
+export interface JsonDtoSnapshotLimits {
+  readonly maxNodes: number;
+  readonly maxDepth: number;
+  readonly maxObjectKeys?: number;
+  readonly maxArrayLength?: number;
+  readonly maxStringLength?: number;
+  readonly maxKeyLength?: number;
+}
+
 type WalkResult =
   | { readonly ok: true; readonly value: JsonDto }
   | { readonly ok: false; readonly error: JsonDtoFailure };
@@ -58,19 +67,30 @@ const fail = (code: JsonDtoFailureCode, reason: string): WalkResult => ({
  */
 export const snapshotPlainJsonDto = (
   input: unknown,
-  limits: { readonly maxNodes: number; readonly maxDepth: number } = {
+  limits: JsonDtoSnapshotLimits = {
     maxNodes: 512,
     maxDepth: 8,
   },
 ): WalkResult => {
   let nodes = 0;
   const seen = new WeakSet();
+  const maxObjectKeys = limits.maxObjectKeys ?? 128;
+  const maxArrayLength = limits.maxArrayLength ?? 128;
+  const maxStringLength = limits.maxStringLength ?? 16_384;
+  const maxKeyLength = limits.maxKeyLength ?? 256;
 
   const walk = (value: unknown, depth: number): WalkResult => {
     if (depth > limits.maxDepth) return fail('TOO_COMPLEX', 'JSON DTO exceeds depth limits.');
     if (value === null) return { ok: true, value: null };
-    if (typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string')
-      return { ok: true, value };
+    if (typeof value === 'boolean') return { ok: true, value };
+    if (typeof value === 'number')
+      return Number.isFinite(value)
+        ? { ok: true, value }
+        : fail('UNSUPPORTED_VALUE', 'JSON DTO numbers must be finite.');
+    if (typeof value === 'string')
+      return value.length <= maxStringLength
+        ? { ok: true, value }
+        : fail('TOO_COMPLEX', 'JSON DTO string exceeds limits.');
     if (typeof value === 'bigint' || typeof value === 'symbol' || typeof value === 'undefined')
       return fail('UNSUPPORTED_VALUE', 'JSON DTO contains an unsupported primitive.');
     if (typeof value === 'function')
@@ -86,6 +106,13 @@ export const snapshotPlainJsonDto = (
 
     if (Array.isArray(value)) {
       const length = value.length;
+      if (length > maxArrayLength)
+        return fail('TOO_COMPLEX', 'JSON DTO array exceeds length limits.');
+      if (Object.getOwnPropertySymbols(value).length > 0)
+        return fail('SYMBOL_KEY', 'Symbol keys are not admitted.');
+      const names = Object.getOwnPropertyNames(value);
+      if (names.length !== length + 1 || !names.includes('length'))
+        return fail('NON_PLAIN', 'Arrays must not contain custom properties.');
       const copy: JsonDto[] = [];
       for (let index = 0; index < length; index += 1) {
         if (!Object.prototype.hasOwnProperty.call(value, index))
@@ -110,8 +137,12 @@ export const snapshotPlainJsonDto = (
       return fail('SYMBOL_KEY', 'Symbol keys are not admitted.');
 
     const names = Object.getOwnPropertyNames(value);
+    if (names.length > maxObjectKeys)
+      return fail('TOO_COMPLEX', 'JSON DTO object exceeds key limits.');
     const snapshot: Record<string, JsonDto> = Object.create(null) as Record<string, JsonDto>;
     for (const key of names) {
+      if (key.length === 0 || key.length > maxKeyLength)
+        return fail('TOO_COMPLEX', 'JSON DTO key exceeds limits.');
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
       if (descriptor === undefined)
         return fail('UNSUPPORTED_VALUE', 'Missing property descriptor.');
@@ -119,7 +150,8 @@ export const snapshotPlainJsonDto = (
         return fail('ACCESSOR', 'Object accessors are not admitted.');
       if (typeof descriptor.value === 'function')
         return fail('FUNCTION', 'JSON DTO must not contain functions.');
-      if (!descriptor.enumerable) continue;
+      if (!descriptor.enumerable)
+        return fail('NON_PLAIN', 'Non-enumerable JSON DTO properties are not admitted.');
       const nested = walk(descriptor.value, depth + 1);
       if (!nested.ok) return nested;
       snapshot[key] = nested.value;

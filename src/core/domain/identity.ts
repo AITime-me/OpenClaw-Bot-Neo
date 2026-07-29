@@ -94,10 +94,23 @@ const parseBoundedToken = (
 };
 
 /** Visible ASCII token without whitespace/control; used for most opaque IDs. */
-const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@+/-]{0,127}$/;
+const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,127}$/;
+/** Provider references may contain controlled non-empty path segments; general IDs may not. */
+const PROVIDER_REFERENCE_PATTERN =
+  /^[A-Za-z0-9][A-Za-z0-9._:@+-]*(?:\/[A-Za-z0-9][A-Za-z0-9._:@+-]*)*$/;
+const PATH_SEGMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,127}$/;
 const VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/;
 const HEX_DIGEST_64 = /^[a-f0-9]{64}$/;
 const HEX_DIGEST_FLEX = /^[a-f0-9]{32,128}$/;
+const CANONICAL_ISO_UTC =
+  /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})\.([0-9]{3})Z$/;
+const MEMORY_NAMESPACES = new Set([
+  'tvoe-vremya',
+  'ai-my-time',
+  'personal',
+  'shared-public',
+  'security-restricted',
+]);
 
 const parseId = (
   value: unknown,
@@ -270,7 +283,11 @@ export const parseProviderReference = (
 ):
   | { readonly ok: true; readonly value: ProviderReference }
   | { readonly ok: false; readonly error: IdentityFailure } => {
-  const parsed = parseId(value, 'ProviderReference');
+  const parsed = parseBoundedToken(value, {
+    max: 128,
+    pattern: PROVIDER_REFERENCE_PATTERN,
+    label: 'ProviderReference',
+  });
   if (!parsed.ok) return parsed;
   return { ok: true, value: parsed.value as ProviderReference };
 };
@@ -343,4 +360,148 @@ export const parseApprovalNonce = (
   const parsed = parseId(value, 'ApprovalNonce');
   if (!parsed.ok) return parsed;
   return { ok: true, value: parsed.value as ApprovalNonce };
+};
+
+const parsePathSegmentId = (
+  value: unknown,
+  label: string,
+):
+  | { readonly ok: true; readonly value: string }
+  | { readonly ok: false; readonly error: IdentityFailure } => {
+  const parsed = parseBoundedToken(value, {
+    max: 128,
+    pattern: PATH_SEGMENT_PATTERN,
+    label,
+  });
+  if (!parsed.ok) return parsed;
+  if (parsed.value === '.' || parsed.value === '..' || parsed.value.includes('..'))
+    return {
+      ok: false,
+      error: { code: 'MALFORMED', reason: `${label} must not contain traversal segments.` },
+    };
+  return parsed;
+};
+
+export const parseMemoryRecordId = (
+  value: unknown,
+):
+  | { readonly ok: true; readonly value: MemoryRecordId }
+  | { readonly ok: false; readonly error: IdentityFailure } => {
+  const parsed = parsePathSegmentId(value, 'MemoryRecordId');
+  if (!parsed.ok) return parsed;
+  return { ok: true, value: parsed.value as MemoryRecordId };
+};
+
+export const parseJobId = (
+  value: unknown,
+):
+  | { readonly ok: true; readonly value: JobId }
+  | { readonly ok: false; readonly error: IdentityFailure } => {
+  const parsed = parsePathSegmentId(value, 'JobId');
+  if (!parsed.ok) return parsed;
+  return { ok: true, value: parsed.value as JobId };
+};
+
+export const parseReminderId = (
+  value: unknown,
+):
+  | { readonly ok: true; readonly value: ReminderId }
+  | { readonly ok: false; readonly error: IdentityFailure } => {
+  const parsed = parsePathSegmentId(value, 'ReminderId');
+  if (!parsed.ok) return parsed;
+  return { ok: true, value: parsed.value as ReminderId };
+};
+
+export const parseScheduledJobId = (
+  value: unknown,
+):
+  | { readonly ok: true; readonly value: ScheduledJobId }
+  | { readonly ok: false; readonly error: IdentityFailure } => {
+  const parsed = parsePathSegmentId(value, 'ScheduledJobId');
+  if (!parsed.ok) return parsed;
+  return { ok: true, value: parsed.value as ScheduledJobId };
+};
+
+/**
+ * Canonical timestamps use the exact UTC millisecond form emitted by Date#toISOString.
+ * Offsets and timezone-less forms are rejected instead of being normalized implicitly.
+ */
+export const parseISO8601 = (
+  value: unknown,
+):
+  | { readonly ok: true; readonly value: ISO8601 }
+  | { readonly ok: false; readonly error: IdentityFailure } => {
+  if (typeof value !== 'string')
+    return { ok: false, error: { code: 'MALFORMED', reason: 'ISO8601 must be a string.' } };
+  if (value.length === 0)
+    return { ok: false, error: { code: 'EMPTY', reason: 'ISO8601 must not be empty.' } };
+  if (hasWhitespace(value) || hasControl(value))
+    return {
+      ok: false,
+      error: { code: 'CONTROL_CHAR', reason: 'ISO8601 must not contain whitespace or controls.' },
+    };
+  const match = CANONICAL_ISO_UTC.exec(value);
+  if (match === null || Number(match[1]) === 0)
+    return {
+      ok: false,
+      error: {
+        code: 'MALFORMED',
+        reason: 'ISO8601 must use canonical YYYY-MM-DDTHH:mm:ss.sssZ UTC form.',
+      },
+    };
+  const instant = new Date(value);
+  if (!Number.isFinite(instant.getTime()) || instant.toISOString() !== value)
+    return {
+      ok: false,
+      error: { code: 'MALFORMED', reason: 'ISO8601 must identify a real canonical instant.' },
+    };
+  return { ok: true, value: value as ISO8601 };
+};
+
+/** Safe canonical formatter for trusted Date instances. */
+export const iso8601FromDate = (instant: Date): ISO8601 => {
+  if (!(instant instanceof Date) || !Number.isFinite(instant.getTime()))
+    throw new RangeError('A finite Date is required.');
+  const parsed = parseISO8601(instant.toISOString());
+  if (!parsed.ok) throw new RangeError('Date did not produce a canonical ISO8601 instant.');
+  return parsed.value;
+};
+
+export const parseResourceRef = (
+  value: unknown,
+):
+  | { readonly ok: true; readonly value: ResourceRef }
+  | { readonly ok: false; readonly error: IdentityFailure } => {
+  if (typeof value !== 'string')
+    return { ok: false, error: { code: 'MALFORMED', reason: 'ResourceRef must be a string.' } };
+  if (value.length > 384)
+    return {
+      ok: false,
+      error: { code: 'TOO_LONG', reason: 'ResourceRef exceeds the maximum length.' },
+    };
+  if (
+    value.length === 0 ||
+    hasWhitespace(value) ||
+    hasControl(value) ||
+    value.includes('\\') ||
+    value.includes('%')
+  )
+    return {
+      ok: false,
+      error: { code: 'MALFORMED', reason: 'ResourceRef contains an unsafe representation.' },
+    };
+  const parts = value.split('/');
+  if (
+    parts.length !== 3 ||
+    parts[0] !== 'memory' ||
+    !MEMORY_NAMESPACES.has(parts[1] ?? '') ||
+    parts[2] === undefined
+  )
+    return {
+      ok: false,
+      error: { code: 'MALFORMED', reason: 'ResourceRef must use memory/<namespace>/<recordId>.' },
+    };
+  const record = parseMemoryRecordId(parts[2]);
+  if (!record.ok) return record;
+  return { ok: true, value: value as ResourceRef };
 };

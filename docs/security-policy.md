@@ -87,10 +87,14 @@ Prompt injection рассматривается как данные, а не и�
 
 - Текущая URL policy детерминирована и синтаксична: она отклоняет raw whitespace и control characters, malformed URL, неразрешённые схемы, любой userinfo, `localhost` во всех формах включая trailing dot, зарезервированные локальные суффиксы, loopback/private/link-local/metadata IPv4, IPv6 loopback, unspecified, ULA `fc00::/7`, link-local `fe80::/10`, multicast и IPv4-embedded IPv6. IP-диапазоны проверяются структурно через `node:net`, самодельный IPv6 parser не используется.
 - Это **не** полная SSRF-защита. DNS resolution, проверка resolved IP, повторная проверка каждого redirect и защита от DNS rebinding остаются обязательными runtime gates будущего adapter и сейчас не реализованы.
-- Path traversal блокирует absolute/parent/symlink escape и доступ вне назначенного local root.
-- MIME spoofing проверяется content sniffing и allowlist; extension/header недостаточны.
-- Decompression bombs ограничиваются compressed/uncompressed size, ratio, entry/page count, recursion depth и timeout.
-- Quarantine используется до успешных scanner/MIME/size checks; cleanup и expiry обязательны.
+- Path/symlink-root isolation — **planned/contract-only, not implemented**. Будущий file adapter
+  обязан блокировать absolute/parent/symlink escape и доступ вне назначенного local root.
+- MIME content sniffing/allowlist — **planned/contract-only, not implemented**; extension/header
+  сами по себе недостаточны.
+- Decompression-bomb limits — **planned/contract-only, not implemented**: обязательны bounds для
+  compressed/uncompressed size, ratio, entry/page count, recursion depth и timeout.
+- Quarantine, cleanup и expiry — **planned/contract-only, not implemented** до появления media
+  adapters.
 
 ## Tools и отказ
 
@@ -124,15 +128,19 @@ returned registry entry сверяется полностью.
 
 ## Webhook ingress
 
-Authorization формируется только `executeWebhookIngress`: trusted clock → limits → core-owned
-canonical payload copy → digest → envelope validation → authenticate → disposable copy для
-verifier → untrusted primitive verification result → core binding checks → timestamp → replay →
-rate limit → scanner на canonical bytes → core-sealed evidence → safe audit. Ordinary boolean
-verification state не является proof. Adapter не создаёт core-branded signature evidence; sealing
-выполняет core после проверки sourceId/digest/algorithm/keyReference. Canonical bytes не
-разделяются writable reference с caller или adapter. Audit содержит только безопасные
-identifiers/digest prefix; raw payload, signature и secrets отсутствуют. Webhook не активирует
-extension и не пишет в memory.
+Authorization формируется только `executeWebhookIngress`: exact immutable command/signature
+snapshot → canonical payload digest → length-framed canonical signed representation → full
+signed-envelope digest → immutable verifier request → exact verifier-result snapshot → полная
+binding envelope version/source/event/timestamp/idempotency/nonce/payload/signature material/
+algorithm/key reference → rate limit → scanner → policy authorization → atomic replay/idempotency
+check-and-record → sealed evidence → safe audit.
+Ordinary boolean state не является proof. Caller и adapters получают только immutable records или
+disposable byte copies; повторного чтения raw command после snapshot нет. Audit содержит только
+безопасные identifiers/digest prefix, без raw payload/signature/secrets. `REPLAY_DETECTED` и
+`DUPLICATE_IDEMPOTENCY_KEY` различаются. Persistent atomic replay/idempotency store —
+**contract-only/not implemented** и обязателен до deployment. Pre-authorization deny не занимает
+replay/idempotency key; после успешного atomic check-and-record последующий dispatch/audit failure
+не освобождает key и безопасный retry получает duplicate/replay outcome.
 
 ## Voice safety
 
@@ -185,9 +193,15 @@ sandbox.
 Memory AST checker (`verify-memory-isolation.mjs`) анализирует тело `executeMemoryWrite`
 path-aware / conservative: обязательный порядок включает context validation, input normalization,
 untrusted marking, scanner, authorization, policy, approval demand/validation/consume, write и
-safe audit. Stages/write внутри split if/else (кроме early deny и approval gate), loops, callbacks,
-try/catch/finally или logical/conditional expressions → fail. Dead helper и другая функция не
-засчитываются. Checker не является formal verification или полноценным interprocedural proof;
+safe audit. Разрешена только canonical AST grammar (statements/if/return/throw/block и
+canonical approval gate). Labels, loops, switch, try/catch/finally, break/continue и прочий
+unsupported control-flow → `UNSUPPORTED_CONTROL_FLOW` даже без security stages. Stages/write
+внутри split if/else (кроме early deny и approval gate), callbacks или logical/conditional
+expressions → fail. Dead helper и другая функция не засчитываются. Сохранение, destructuring,
+binding, passing, returning, wrapping, optional/computed access, `.bind`, `.call` и `.apply` для
+security-stage functions запрещены; разрешён только canonical direct call. Условие
+approval-required доказывается AST-only (property chain + string literal), без getText в
+security decision. Checker не является formal verification или полноценным interprocedural proof;
 сложная неоднозначная структура отклоняется. Runtime correctness по-прежнему требует tests и review.
 
 Локальные проверки запускаются командой `npm run check`. Build 2.1A закрыл первичные HIGH findings
@@ -200,7 +214,18 @@ FIN-001/002/003 (immutable sanitized snapshot, authenticated memory gateway, non
 provenance, restrictive package exports). Build 2.1H — FIN-004/005/006 implemented, pending
 independent confirmation. Build 2.1I — FIN-007—FIN-014 implemented, pending independent
 confirmation (metadata DTO boundary, approval CFG, webhook snapshot/idempotency, token families,
-config parsers, Node contract, identity constructors, docs truthfulness). Окончательный security
-approval требует нового независимого Codex review. Build №3 не начат; VPS не куплен; deployment
+config parsers, Node contract, identity constructors, docs truthfulness). Build 2.1J-R4 closes
+REV9-001 (generator executeMemoryWrite target allowlist gap) —
+**implemented, pending independent Codex Review №6**. Build 2.1J-R3 closes
+REV8-001/002 (unsupported control-flow allowlist; AST-only approval-required condition) —
+**implemented, pending independent Codex Review №6**. Build 2.1J-R2 closes
+REV7-001/002 (unreachable stage credit; naked approval without gated AST data-flow) and applies
+REV7-003 expression-container policy for security stages — **implemented, pending independent
+Codex Review №6**. Build 2.1J-R1 remediation
+CR5-001—CR5-008, REV6-001—REV6-010 и связанных FIN-002/004/006/008/009/011/013/014
+**implemented, pending repeated independent pre-commit review and Codex Review №6**. Status-C
+drafts проверяются semantic exact schemas, а не равенством одному example. FIN-012 остаётся
+**PARTIALLY CLOSED / BLOCKED**. Окончательный security approval отсутствует pending Review №6.
+Build №3 не начат; VPS не куплен; deployment
 не разрешён. Эти gates действуют только внутри ядра и не означают, что OpenClaw runtime или
 adapters уже их используют.

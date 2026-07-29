@@ -1,11 +1,14 @@
-import type { CorrelationId, IdempotencyKey, ISO8601, PayloadDigest } from './identity.js';
+import type { CorrelationId, IdempotencyKey, ISO8601, Nonce, PayloadDigest } from './identity.js';
 import type { PrivacyClassification } from './privacy.js';
+
+export const WEBHOOK_ENVELOPE_VERSION = 'openclaw.webhook.v1' as const;
+export type WebhookEnvelopeVersion = typeof WEBHOOK_ENVELOPE_VERSION;
 
 export interface WebhookSignatureMetadata {
   readonly algorithm: string;
   readonly keyReference: string;
-  readonly signaturePresent: boolean;
-  /** The signature value and verification secret are intentionally absent. */
+  /** Detached encoded signature. It is snapshotted by core and never copied to audit metadata. */
+  readonly value: string;
 }
 
 /**
@@ -13,14 +16,18 @@ export interface WebhookSignatureMetadata {
  * trusted orchestration boundary — callers must not supply an unbound digest as proof.
  */
 export interface WebhookEnvelope {
+  readonly envelopeVersion: WebhookEnvelopeVersion;
   readonly sourceId: string;
   readonly eventId: string;
   readonly eventType: string;
   readonly occurredAt: ISO8601;
   readonly receivedAt: ISO8601;
   readonly payloadDigest: PayloadDigest;
+  readonly signedEnvelopeDigest: PayloadDigest;
+  readonly signatureDigest: PayloadDigest;
   readonly signature: WebhookSignatureMetadata;
   readonly idempotencyKey: IdempotencyKey;
+  readonly nonce: Nonce;
   readonly contentType: string;
   readonly contentLength: number;
   readonly correlationId: CorrelationId;
@@ -62,6 +69,7 @@ export type WebhookFailureCode =
   | 'MALFORMED_DIGEST'
   | 'SCANNER_DENIED'
   | 'SCANNER_UNAVAILABLE'
+  | 'POLICY_DENIED'
   | 'UNAUTHORIZED_BOOLEAN_STATE';
 
 /** Controlled replay / idempotency outcomes returned by ReplayProtectionPort. */
@@ -93,6 +101,7 @@ export interface SafeWebhookAuditEvent {
 }
 
 export interface WebhookIngressCommand {
+  readonly envelopeVersion: WebhookEnvelopeVersion;
   readonly sourceId: string;
   readonly eventId: string;
   readonly eventType: string;
@@ -103,6 +112,7 @@ export interface WebhookIngressCommand {
   readonly privacyClassification: PrivacyClassification;
   readonly signature: WebhookSignatureMetadata;
   readonly idempotencyKey: IdempotencyKey;
+  readonly nonce: Nonce;
   readonly rawPayload: Uint8Array;
 }
 
@@ -119,9 +129,27 @@ export interface WebhookIngressLimits {
  */
 export interface WebhookSignatureVerificationResult {
   readonly verified: boolean;
+  readonly envelopeVersion: string;
   readonly sourceId: string;
+  readonly eventId: string;
+  readonly occurredAt: string;
+  readonly idempotencyKey: string;
+  readonly nonce: string;
   readonly payloadDigest: string;
+  readonly signedEnvelopeDigest: string;
+  readonly signatureDigest: string;
   readonly algorithm: string;
   readonly keyReference: string;
   readonly verifiedAt: string;
+}
+
+/**
+ * Immutable request assembled by core from one exact command snapshot. Disposable copies prevent
+ * verifier mutation from changing the canonical payload or signed representation.
+ */
+export interface WebhookCanonicalVerificationRequest {
+  readonly envelope: WebhookEnvelope;
+  readonly verificationRequestedAt: ISO8601;
+  copyPayloadBytes(): Uint8Array;
+  copyCanonicalSignedBytes(): Uint8Array;
 }

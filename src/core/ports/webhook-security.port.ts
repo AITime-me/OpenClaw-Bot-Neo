@@ -2,6 +2,7 @@ import type {
   DomainError,
   Result,
   SafeWebhookAuditEvent,
+  WebhookCanonicalVerificationRequest,
   WebhookEnvelope,
   WebhookReplayCheckOutcome,
   WebhookSignatureVerificationResult,
@@ -21,9 +22,7 @@ export interface WebhookSourceAuthenticationPort {
  */
 export interface WebhookSignatureVerificationPort {
   verify(
-    envelope: WebhookEnvelope,
-    disposablePayloadBytes: Uint8Array,
-    payloadDigest: string,
+    request: WebhookCanonicalVerificationRequest,
     context: OperationContext,
   ): Promise<Result<WebhookSignatureVerificationResult | null, DomainError>>;
 }
@@ -39,6 +38,13 @@ export interface WebhookRateLimitPort {
   decide(
     sourceId: string,
     eventType: string,
+    context: OperationContext,
+  ): Promise<Result<'allow' | 'deny', DomainError>>;
+}
+
+export interface WebhookIngressAuthorizationPort {
+  authorize(
+    envelope: WebhookEnvelope,
     context: OperationContext,
   ): Promise<Result<'allow' | 'deny', DomainError>>;
 }

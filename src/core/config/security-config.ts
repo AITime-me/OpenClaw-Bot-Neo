@@ -64,6 +64,12 @@ const MAX_ROUTES = 16;
 const MAX_STRING = 128;
 const MAX_DRAFT_STRING = 256;
 const MAX_ARRAY = 32;
+const PLACEHOLDER_PATTERN = /^<[a-z0-9]+(?:-[a-z0-9]+)*>$/;
+const LOCAL_TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+const TIMEZONE_PATTERN = /^(?:UTC|[A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)+)$/;
+const ISO_DURATION_PATTERN =
+  /^P(?=\d|T\d)(?:\d+Y)?(?:\d+M)?(?:\d+W)?(?:\d+D)?(?:T(?=\d)(?:\d+H)?(?:\d+M)?(?:\d+(?:\.\d+)?S)?)?$/;
+const MIME_PATTERN = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/;
 
 const readExact = (
   value: unknown,
@@ -516,6 +522,7 @@ export const parseSecurityPolicyConfig = (
 };
 
 export interface OpenClawDraftConfig {
+  readonly schemaVersion: '1.0-draft';
   readonly metadata: {
     readonly status: 'draft';
     readonly runtime: 'OpenClaw';
@@ -539,8 +546,10 @@ export interface OpenClawDraftConfig {
 export const parseOpenClawDraftConfig = (
   value: unknown,
 ): Result<OpenClawDraftConfig, ConfigFailure> => {
-  const top = readExact(value, ['metadata', 'proposedConfig']);
+  const top = readExact(value, ['schemaVersion', 'metadata', 'proposedConfig']);
   if (!top.ok) return top;
+  if (top.value.schemaVersion !== '1.0-draft')
+    return fail('WRONG_SCHEMA_VERSION', 'OpenClaw draft schemaVersion must be 1.0-draft.');
   const metadata = readExact(top.value.metadata, [
     'status',
     'runtime',
@@ -587,6 +596,7 @@ export const parseOpenClawDraftConfig = (
 
   return ok(
     Object.freeze({
+      schemaVersion: '1.0-draft' as const,
       metadata: Object.freeze({
         status: 'draft' as const,
         runtime: 'OpenClaw' as const,
@@ -610,6 +620,7 @@ export const parseOpenClawDraftConfig = (
 };
 
 export interface OpenClawPolicyDraftConfig {
+  readonly schemaVersion: '1.0-draft';
   readonly metadata: {
     readonly status: 'draft';
     readonly runtimeCompatibility: 'UNVERIFIED';
@@ -629,8 +640,10 @@ export interface OpenClawPolicyDraftConfig {
 export const parseOpenClawPolicyDraftConfig = (
   value: unknown,
 ): Result<OpenClawPolicyDraftConfig, ConfigFailure> => {
-  const top = readExact(value, ['metadata', 'policy']);
+  const top = readExact(value, ['schemaVersion', 'metadata', 'policy']);
   if (!top.ok) return top;
+  if (top.value.schemaVersion !== '1.0-draft')
+    return fail('WRONG_SCHEMA_VERSION', 'OpenClaw policy schemaVersion must be 1.0-draft.');
   const metadata = readExact(top.value.metadata, ['status', 'runtimeCompatibility']);
   if (!metadata.ok) return metadata;
   if (metadata.value.status !== 'draft' || metadata.value.runtimeCompatibility !== 'UNVERIFIED')
@@ -676,6 +689,7 @@ export const parseOpenClawPolicyDraftConfig = (
 
   return ok(
     Object.freeze({
+      schemaVersion: '1.0-draft' as const,
       metadata: Object.freeze({
         status: 'draft' as const,
         runtimeCompatibility: 'UNVERIFIED' as const,
@@ -694,52 +708,584 @@ export const parseOpenClawPolicyDraftConfig = (
   );
 };
 
-export interface ContractDraftConfig {
+export type ExactDraftKind =
+  | 'automation-notification-policy'
+  | 'automation-quotas'
+  | 'automation-reminders'
+  | 'automation-subscriptions'
+  | 'media-capabilities'
+  | 'media-limits'
+  | 'memory-retention'
+  | 'policy-recipients'
+  | 'policy-retention';
+
+export interface ExactDraftConfig {
   readonly status: 'draft';
   readonly schemaVersion: '1.0-draft';
-  readonly rawKind: string;
+  readonly kind: ExactDraftKind;
   readonly payload: Readonly<Record<string, JsonDto>>;
 }
 
-/**
- * Contract-only draft examples: deep plain-JSON snapshot first, then fail-closed flag checks.
- * Nested values are immutable copies and do not retain references to the input.
- */
-export const parseContractDraftExample = (
+const readSemanticDraft = (
   value: unknown,
-  expectedKind: string,
-): Result<ContractDraftConfig, ConfigFailure> => {
-  const dto = snapshotPlainJsonDto(value, { maxNodes: 256, maxDepth: 8 });
+  fields: readonly string[],
+): Result<Readonly<Record<string, JsonDto>>, ConfigFailure> => {
+  const dto = snapshotPlainJsonDto(value, {
+    maxNodes: 512,
+    maxDepth: 8,
+    maxObjectKeys: 64,
+    maxArrayLength: 64,
+    maxStringLength: MAX_DRAFT_STRING,
+    maxKeyLength: MAX_STRING,
+  });
   if (!dto.ok) return fail('ACCESSOR', 'Contract draft is not a trusted plain JSON DTO.');
   if (dto.value === null || typeof dto.value !== 'object' || Array.isArray(dto.value))
     return fail('NOT_OBJECT', 'Contract draft must be an object.');
   const payload = dto.value as Readonly<Record<string, JsonDto>>;
+  const exact = readExact(payload, fields);
+  if (!exact.ok) return exact;
+  if (payload.schemaVersion !== '1.0-draft')
+    return fail('WRONG_SCHEMA_VERSION', 'Contract draft schemaVersion must be 1.0-draft.');
   if (payload.status !== 'draft')
     return fail('UNKNOWN_ENUM', 'Contract draft status must be draft.');
-  if (payload.paidFallbackEnabled === true || payload.apiBillingIsFallback === true)
-    return fail('INVALID_VALUE', 'Paid/API billing fallback must remain disabled.');
-  if (payload.paymentActionsAllowed === true)
-    return fail('INVALID_VALUE', 'paymentActionsAllowed must remain false.');
-  if (payload.paidProvidersEnabled === true)
-    return fail('INVALID_VALUE', 'paidProvidersEnabled must remain false.');
-  if (payload.enabled === true)
-    return fail(
-      'INVALID_VALUE',
-      'Contract draft examples must remain disabled when enabled is set.',
-    );
-  if (payload.includeSensitiveRawData === true)
-    return fail('INVALID_VALUE', 'includeSensitiveRawData must remain false.');
-  if (payload.arbitraryRecipientsAllowed === true)
-    return fail('INVALID_VALUE', 'arbitraryRecipientsAllowed must remain false.');
+  return ok(payload);
+};
 
-  return ok(
-    Object.freeze({
-      status: 'draft' as const,
-      schemaVersion: '1.0-draft' as const,
-      rawKind: expectedKind,
-      payload,
-    }),
+const finishSemanticDraft = (
+  kind: ExactDraftKind,
+  payload: Readonly<Record<string, JsonDto>>,
+): Result<ExactDraftConfig, ConfigFailure> =>
+  ok(Object.freeze({ status: 'draft', schemaVersion: '1.0-draft', kind, payload }));
+
+const controlledString = (
+  value: unknown,
+  label: string,
+  allowed: readonly string[],
+): Result<string, ConfigFailure> => {
+  const parsed = boundedString(value, label, MAX_DRAFT_STRING);
+  if (!parsed.ok) return parsed;
+  return allowed.includes(parsed.value)
+    ? parsed
+    : fail('UNKNOWN_ENUM', `${label} contains an uncontrolled value.`);
+};
+
+const matchesSemanticString = (
+  value: unknown,
+  label: string,
+  pattern: RegExp,
+): Result<string, ConfigFailure> => {
+  const parsed = boundedString(value, label, MAX_DRAFT_STRING);
+  if (!parsed.ok) return parsed;
+  return pattern.test(parsed.value) || PLACEHOLDER_PATTERN.test(parsed.value)
+    ? parsed
+    : fail('INVALID_VALUE', `${label} has an invalid semantic format.`);
+};
+
+const localTimeOrPlaceholder = (value: unknown, label: string): Result<string, ConfigFailure> =>
+  matchesSemanticString(value, label, LOCAL_TIME_PATTERN);
+
+const timezoneOrPlaceholder = (value: unknown, label: string): Result<string, ConfigFailure> =>
+  matchesSemanticString(value, label, TIMEZONE_PATTERN);
+
+const durationOrPlaceholder = (value: unknown, label: string): Result<string, ConfigFailure> =>
+  matchesSemanticString(value, label, ISO_DURATION_PATTERN);
+
+const mimeOrPlaceholder = (value: unknown, label: string): Result<string, ConfigFailure> =>
+  matchesSemanticString(value, label, MIME_PATTERN);
+
+const percentOrPlaceholder = (
+  value: unknown,
+  label: string,
+): Result<number | null, ConfigFailure> => {
+  const parsed = boundedString(value, label, MAX_STRING);
+  if (!parsed.ok) return parsed;
+  if (PLACEHOLDER_PATTERN.test(parsed.value)) return ok(null);
+  if (!/^(?:100|[1-9]\d?)$/.test(parsed.value))
+    return fail('INVALID_VALUE', `${label} must be a whole percentage from 1 through 100.`);
+  return ok(Number(parsed.value));
+};
+
+const exactBoolean = (
+  value: unknown,
+  label: string,
+  required?: boolean,
+): Result<boolean, ConfigFailure> => {
+  if (typeof value !== 'boolean' || (required !== undefined && value !== required))
+    return fail('INVALID_VALUE', `${label} has an invalid boolean value.`);
+  return ok(value);
+};
+
+const objectArray = (
+  value: unknown,
+  label: string,
+  max = MAX_ARRAY,
+): Result<readonly JsonDto[], ConfigFailure> => {
+  if (!Array.isArray(value) || value.length === 0 || value.length > max)
+    return fail('INVALID_VALUE', `${label} must be a non-empty bounded array.`);
+  return ok(value);
+};
+
+export const parseAutomationNotificationPolicyDraft = (
+  value: unknown,
+): Result<ExactDraftConfig, ConfigFailure> => {
+  const top = readSemanticDraft(value, [
+    'schemaVersion',
+    'status',
+    'defaultDelivery',
+    'timezone',
+    'quietHours',
+    'severity',
+    'includeSensitiveRawData',
+    'recipientPolicy',
+  ]);
+  if (!top.ok) return top;
+  const delivery = controlledString(top.value.defaultDelivery, 'defaultDelivery', [
+    'defer-during-quiet-hours',
+    'immediate',
+    'digest',
+  ]);
+  const timezone = timezoneOrPlaceholder(top.value.timezone, 'timezone');
+  const quiet = readExact(top.value.quietHours, ['start', 'end']);
+  const severity = readExact(top.value.severity, ['info', 'warning', 'critical']);
+  if (!delivery.ok) return err(delivery.error);
+  if (!timezone.ok) return err(timezone.error);
+  if (!quiet.ok) return err(quiet.error);
+  if (!severity.ok) return err(severity.error);
+  const start = localTimeOrPlaceholder(quiet.value.start, 'quietHours.start');
+  const end = localTimeOrPlaceholder(quiet.value.end, 'quietHours.end');
+  const info = controlledString(severity.value.info, 'severity.info', ['digest', 'timely']);
+  const warning = controlledString(severity.value.warning, 'severity.warning', [
+    'digest',
+    'timely',
+  ]);
+  const critical = controlledString(severity.value.critical, 'severity.critical', [
+    'immediate-after-policy-check',
+  ]);
+  if (!start.ok) return err(start.error);
+  if (!end.ok) return err(end.error);
+  if (!info.ok) return err(info.error);
+  if (!warning.ok) return err(warning.error);
+  if (!critical.ok) return err(critical.error);
+  if (start.value === end.value && !start.value.startsWith('<'))
+    return fail('INVALID_VALUE', 'quietHours start and end must differ.');
+  if (
+    !exactBoolean(top.value.includeSensitiveRawData, 'includeSensitiveRawData', false).ok ||
+    top.value.recipientPolicy !== 'allowlist-only'
+  )
+    return fail('INVALID_VALUE', 'Notification policy safety invariants are invalid.');
+  return finishSemanticDraft('automation-notification-policy', top.value);
+};
+
+export const parseAutomationQuotasDraft = (
+  value: unknown,
+): Result<ExactDraftConfig, ConfigFailure> => {
+  const top = readSemanticDraft(value, [
+    'schemaVersion',
+    'status',
+    'enabled',
+    'quotaTypes',
+    'thresholds',
+    'apiBillingIsFallback',
+    'paidFallbackEnabled',
+    'onExceeded',
+  ]);
+  if (!top.ok) return top;
+  const quotaTypes = copyPlainStringArray(top.value.quotaTypes, {
+    label: 'quotaTypes',
+    maxItems: 3,
+    maxItemLength: MAX_STRING,
+    allowed: ['subscription-usage', 'storage', 'local-resource'],
+    unique: true,
+  });
+  const thresholds = copyPlainStringArray(top.value.thresholds, {
+    label: 'thresholds',
+    maxItems: 4,
+    maxItemLength: MAX_STRING,
+    unique: true,
+  });
+  const parsedThresholds = thresholds.ok
+    ? thresholds.value.map((threshold, index) =>
+        percentOrPlaceholder(threshold, `thresholds[${String(index)}]`),
+      )
+    : [];
+  if (
+    !exactBoolean(top.value.enabled, 'enabled').ok ||
+    !quotaTypes.ok ||
+    quotaTypes.value.length === 0 ||
+    !thresholds.ok ||
+    thresholds.value.length < 2 ||
+    parsedThresholds.some((threshold) => !threshold.ok) ||
+    !exactBoolean(top.value.apiBillingIsFallback, 'apiBillingIsFallback', false).ok ||
+    !exactBoolean(top.value.paidFallbackEnabled, 'paidFallbackEnabled', false).ok ||
+    !controlledString(top.value.onExceeded, 'onExceeded', [
+      'notify-and-mark-unavailable',
+      'deny-and-notify',
+    ]).ok
+  )
+    return fail('INVALID_VALUE', 'Automation quota schema or safety invariants are invalid.');
+  const numericThresholds = parsedThresholds.flatMap((threshold) =>
+    threshold.ok && threshold.value !== null ? [threshold.value] : [],
   );
+  if (
+    numericThresholds.length === parsedThresholds.length &&
+    numericThresholds.some(
+      (threshold, index) => index > 0 && threshold <= (numericThresholds[index - 1] ?? 0),
+    )
+  )
+    return fail('INVALID_VALUE', 'Automation quota thresholds must be strictly increasing.');
+  return finishSemanticDraft('automation-quotas', top.value);
+};
+
+export const parseAutomationRemindersDraft = (
+  value: unknown,
+): Result<ExactDraftConfig, ConfigFailure> => {
+  const top = readSemanticDraft(value, [
+    'schemaVersion',
+    'status',
+    'enabled',
+    'timezone',
+    'quietHours',
+    'delivery',
+    'paymentActionsAllowed',
+  ]);
+  if (!top.ok) return top;
+  const timezone = timezoneOrPlaceholder(top.value.timezone, 'timezone');
+  const quiet = readExact(top.value.quietHours, ['start', 'end', 'urgentBypassRequiresApproval']);
+  const delivery = readExact(top.value.delivery, [
+    'idempotencyRequired',
+    'retryPolicy',
+    'missedRunPolicy',
+  ]);
+  if (!timezone.ok) return err(timezone.error);
+  if (!quiet.ok) return err(quiet.error);
+  if (!delivery.ok) return err(delivery.error);
+  const start = localTimeOrPlaceholder(quiet.value.start, 'quietHours.start');
+  const end = localTimeOrPlaceholder(quiet.value.end, 'quietHours.end');
+  const retry = controlledString(delivery.value.retryPolicy, 'delivery.retryPolicy', [
+    '<define-after-scheduler-validation>',
+    'no-retry',
+    'single-retry',
+    'bounded-exponential-backoff',
+  ]);
+  if (
+    !start.ok ||
+    !end.ok ||
+    (start.value === end.value && !start.value.startsWith('<')) ||
+    !retry.ok ||
+    !exactBoolean(top.value.enabled, 'enabled').ok ||
+    !exactBoolean(quiet.value.urgentBypassRequiresApproval, 'urgentBypass', true).ok ||
+    !exactBoolean(delivery.value.idempotencyRequired, 'idempotencyRequired', true).ok ||
+    !controlledString(delivery.value.missedRunPolicy, 'missedRunPolicy', [
+      'notify-owner',
+      'skip-and-notify',
+    ]).ok ||
+    !exactBoolean(top.value.paymentActionsAllowed, 'paymentActionsAllowed', false).ok
+  )
+    return fail('INVALID_VALUE', 'Reminder schema or safety invariants are invalid.');
+  return finishSemanticDraft('automation-reminders', top.value);
+};
+
+export const parseAutomationSubscriptionsDraft = (
+  value: unknown,
+): Result<ExactDraftConfig, ConfigFailure> => {
+  const top = readSemanticDraft(value, [
+    'schemaVersion',
+    'status',
+    'enabled',
+    'mode',
+    'sources',
+    'detect',
+    'paymentActionsAllowed',
+    'cancellationActionsAllowed',
+    'changesRequireOwnerApproval',
+  ]);
+  if (!top.ok) return top;
+  const sources = copyPlainStringArray(top.value.sources, {
+    label: 'sources',
+    maxItems: MAX_ARRAY,
+    maxItemLength: MAX_DRAFT_STRING,
+    unique: true,
+  });
+  const detect = copyPlainStringArray(top.value.detect, {
+    label: 'detect',
+    maxItems: 3,
+    maxItemLength: MAX_STRING,
+    allowed: ['renewal-date', 'price-change', 'duplicate-subscription'],
+    unique: true,
+  });
+  if (
+    !exactBoolean(top.value.enabled, 'enabled').ok ||
+    top.value.mode !== 'read-only-observation' ||
+    !sources.ok ||
+    sources.value.length === 0 ||
+    !detect.ok ||
+    detect.value.length === 0 ||
+    !exactBoolean(top.value.paymentActionsAllowed, 'paymentActionsAllowed', false).ok ||
+    !exactBoolean(top.value.cancellationActionsAllowed, 'cancellationActionsAllowed', false).ok ||
+    !exactBoolean(top.value.changesRequireOwnerApproval, 'changesRequireOwnerApproval', true).ok
+  )
+    return fail('INVALID_VALUE', 'Subscription schema or safety invariants are invalid.');
+  return finishSemanticDraft('automation-subscriptions', top.value);
+};
+
+export const parseMediaCapabilitiesDraft = (
+  value: unknown,
+): Result<ExactDraftConfig, ConfigFailure> => {
+  const top = readSemanticDraft(value, [
+    'schemaVersion',
+    'status',
+    'localFirst',
+    'paidProvidersEnabled',
+    'capabilities',
+  ]);
+  if (!top.ok) return top;
+  const capabilities = objectArray(top.value.capabilities, 'capabilities', 16);
+  if (
+    !capabilities.ok ||
+    !exactBoolean(top.value.localFirst, 'localFirst', true).ok ||
+    !exactBoolean(top.value.paidProvidersEnabled, 'paidProvidersEnabled', false).ok
+  )
+    return fail('INVALID_VALUE', 'Media capability safety flags are invalid.');
+  const kinds = new Set<string>();
+  for (const item of capabilities.value) {
+    const capability = readExact(item, [
+      'kind',
+      'enabled',
+      'provider',
+      'requiresApprovalForExternalProcessing',
+    ]);
+    if (!capability.ok) return capability;
+    const kind = controlledString(capability.value.kind, 'capability.kind', [
+      'image-inspection',
+      'audio-transcription',
+      'document-extraction',
+    ]);
+    const provider = boundedString(
+      capability.value.provider,
+      'capability.provider',
+      MAX_DRAFT_STRING,
+    );
+    if (
+      !kind.ok ||
+      kinds.has(kind.value) ||
+      !provider.ok ||
+      !exactBoolean(capability.value.enabled, 'capability.enabled').ok ||
+      !exactBoolean(
+        capability.value.requiresApprovalForExternalProcessing,
+        'requiresApprovalForExternalProcessing',
+        true,
+      ).ok
+    )
+      return fail('INVALID_VALUE', 'Media capability entry is invalid or duplicated.');
+    kinds.add(kind.value);
+  }
+  return finishSemanticDraft('media-capabilities', top.value);
+};
+
+const positiveNumberOrPlaceholder = (value: unknown, max: number): boolean =>
+  (typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= max) ||
+  (typeof value === 'string' && PLACEHOLDER_PATTERN.test(value));
+
+export const parseMediaLimitsDraft = (value: unknown): Result<ExactDraftConfig, ConfigFailure> => {
+  const top = readSemanticDraft(value, [
+    'schemaVersion',
+    'status',
+    'limits',
+    'onUnknownType',
+    'onLimitExceeded',
+  ]);
+  if (!top.ok) return top;
+  const limits = readExact(top.value.limits, [
+    'maxInputBytes',
+    'maxOutputBytes',
+    'allowedMimeTypes',
+    'maxDurationSeconds',
+    'externalProcessing',
+  ]);
+  if (!limits.ok) return limits;
+  const mime = copyPlainStringArray(limits.value.allowedMimeTypes, {
+    label: 'allowedMimeTypes',
+    maxItems: MAX_ARRAY,
+    maxItemLength: MAX_STRING,
+    unique: true,
+  });
+  if (
+    !positiveNumberOrPlaceholder(limits.value.maxInputBytes, 1_073_741_824) ||
+    !positiveNumberOrPlaceholder(limits.value.maxOutputBytes, 1_073_741_824) ||
+    !positiveNumberOrPlaceholder(limits.value.maxDurationSeconds, 86_400) ||
+    !mime.ok ||
+    mime.value.length === 0 ||
+    mime.value.some(
+      (item, index) => !mimeOrPlaceholder(item, `allowedMimeTypes[${String(index)}]`).ok,
+    ) ||
+    !exactBoolean(limits.value.externalProcessing, 'externalProcessing', false).ok ||
+    top.value.onUnknownType !== 'deny' ||
+    top.value.onLimitExceeded !== 'deny'
+  )
+    return fail('INVALID_VALUE', 'Media limit schema or deny invariants are invalid.');
+  if (
+    typeof limits.value.maxInputBytes === 'number' &&
+    typeof limits.value.maxOutputBytes === 'number' &&
+    limits.value.maxOutputBytes > limits.value.maxInputBytes
+  )
+    return fail('INVALID_VALUE', 'maxOutputBytes must not exceed maxInputBytes.');
+  return finishSemanticDraft('media-limits', top.value);
+};
+
+export const parseMemoryRetentionDraft = (
+  value: unknown,
+): Result<ExactDraftConfig, ConfigFailure> => {
+  const top = readSemanticDraft(value, [
+    'schemaVersion',
+    'status',
+    'defaultRetention',
+    'classes',
+    'legalHoldEnabled',
+    'deletionVerificationRequired',
+  ]);
+  if (!top.ok) return top;
+  const defaultRetention = controlledString(top.value.defaultRetention, 'defaultRetention', [
+    'session-only',
+    'short-lived',
+    'audit-minimal',
+  ]);
+  const classes = readExact(top.value.classes, ['session-only', 'short-lived', 'audit-minimal']);
+  if (!defaultRetention.ok) return err(defaultRetention.error);
+  if (!classes.ok) return err(classes.error);
+  for (const name of ['session-only', 'short-lived', 'audit-minimal'] as const) {
+    const item = readExact(
+      classes.value[name],
+      name === 'audit-minimal'
+        ? ['duration', 'persistent', 'rawContentAllowed']
+        : ['duration', 'persistent'],
+    );
+    if (!item.ok) return item;
+    if (!durationOrPlaceholder(item.value.duration, `${name}.duration`).ok)
+      return fail('INVALID_VALUE', `${name} duration is invalid.`);
+    const expectedPersistent = name !== 'session-only';
+    if (!exactBoolean(item.value.persistent, `${name}.persistent`, expectedPersistent).ok)
+      return fail('INVALID_VALUE', `${name} persistence invariant is invalid.`);
+    if (
+      name === 'audit-minimal' &&
+      !exactBoolean(item.value.rawContentAllowed, 'rawContentAllowed', false).ok
+    )
+      return fail('INVALID_VALUE', 'Audit-minimal raw content must remain denied.');
+  }
+  if (
+    !exactBoolean(top.value.legalHoldEnabled, 'legalHoldEnabled').ok ||
+    !exactBoolean(top.value.deletionVerificationRequired, 'deletionVerificationRequired', true).ok
+  )
+    return fail('INVALID_VALUE', 'Memory retention safety flags are invalid.');
+  return finishSemanticDraft('memory-retention', top.value);
+};
+
+export const parsePolicyRecipientsDraft = (
+  value: unknown,
+): Result<ExactDraftConfig, ConfigFailure> => {
+  const top = readSemanticDraft(value, [
+    'schemaVersion',
+    'status',
+    'defaultEffect',
+    'recipients',
+    'arbitraryRecipientsAllowed',
+  ]);
+  if (!top.ok) return top;
+  const recipients = objectArray(top.value.recipients, 'recipients');
+  if (
+    !recipients.ok ||
+    top.value.defaultEffect !== 'deny' ||
+    !exactBoolean(top.value.arbitraryRecipientsAllowed, 'arbitraryRecipientsAllowed', false).ok
+  )
+    return fail('INVALID_VALUE', 'Recipient policy deny invariants are invalid.');
+  const references = new Set<string>();
+  for (const item of recipients.value) {
+    const recipient = readExact(item, [
+      'recipientRef',
+      'categories',
+      'allowedNotifications',
+      'verified',
+    ]);
+    if (!recipient.ok) return recipient;
+    const reference = boundedString(recipient.value.recipientRef, 'recipientRef', MAX_DRAFT_STRING);
+    const categories = copyPlainStringArray(recipient.value.categories, {
+      label: 'recipient.categories',
+      maxItems: 8,
+      maxItemLength: MAX_STRING,
+      allowed: ['owner', 'project', 'system'],
+      unique: true,
+    });
+    const notifications = copyPlainStringArray(recipient.value.allowedNotifications, {
+      label: 'allowedNotifications',
+      maxItems: 8,
+      maxItemLength: MAX_STRING,
+      allowed: ['status', 'approval-request', 'security-alert', 'digest'],
+      unique: true,
+    });
+    if (
+      !reference.ok ||
+      references.has(reference.value) ||
+      !categories.ok ||
+      categories.value.length === 0 ||
+      !notifications.ok ||
+      notifications.value.length === 0 ||
+      !exactBoolean(recipient.value.verified, 'recipient.verified').ok
+    )
+      return fail('INVALID_VALUE', 'Recipient entry is invalid or duplicated.');
+    references.add(reference.value);
+  }
+  return finishSemanticDraft('policy-recipients', top.value);
+};
+
+export const parsePolicyRetentionDraft = (
+  value: unknown,
+): Result<ExactDraftConfig, ConfigFailure> => {
+  const top = readSemanticDraft(value, [
+    'schemaVersion',
+    'status',
+    'default',
+    'rules',
+    'deletionVerificationRequired',
+  ]);
+  if (!top.ok) return top;
+  const rules = objectArray(top.value.rules, 'rules');
+  if (
+    !rules.ok ||
+    top.value.default !== 'minimum-necessary' ||
+    !exactBoolean(top.value.deletionVerificationRequired, 'deletionVerificationRequired', true).ok
+  )
+    return fail('INVALID_VALUE', 'Retention policy safety invariants are invalid.');
+  const sinks = new Set<string>();
+  for (const item of rules.value) {
+    const discriminator = readExact(
+      item,
+      ['sink'],
+      ['rawSensitiveDataAllowed', 'duration', 'retentionControl'],
+    );
+    if (!discriminator.ok) return discriminator;
+    const sink = controlledString(discriminator.value.sink, 'rule.sink', [
+      'logs',
+      'audit',
+      'external',
+    ]);
+    if (!sink.ok || sinks.has(sink.value))
+      return fail('INVALID_VALUE', 'Retention sink is invalid or duplicated.');
+    sinks.add(sink.value);
+    if (sink.value === 'external') {
+      const external = readExact(item, ['sink', 'retentionControl']);
+      if (!external.ok || external.value.retentionControl !== 'provider-validated-or-deny')
+        return fail('INVALID_VALUE', 'External retention rule is invalid.');
+    } else {
+      const internal = readExact(item, ['sink', 'rawSensitiveDataAllowed', 'duration']);
+      if (
+        !internal.ok ||
+        !exactBoolean(internal.value.rawSensitiveDataAllowed, 'rawSensitiveDataAllowed', false)
+          .ok ||
+        !durationOrPlaceholder(internal.value.duration, 'rule.duration').ok
+      )
+        return fail('INVALID_VALUE', 'Internal retention rule is invalid.');
+    }
+  }
+  return finishSemanticDraft('policy-retention', top.value);
 };
 
 export type ConfigValidatorKind =
@@ -751,7 +1297,7 @@ export type ConfigValidatorKind =
   | 'voice-profile'
   | 'openclaw-draft'
   | 'openclaw-policy-draft'
-  | 'contract-draft';
+  | ExactDraftKind;
 
 export interface ConfigInventoryEntry {
   readonly path: string;
@@ -817,55 +1363,55 @@ export const CONFIG_JSON_INVENTORY: readonly ConfigInventoryEntry[] = Object.fre
   },
   {
     path: 'config/automation/quotas.example.json',
-    kind: 'contract-draft',
+    kind: 'automation-quotas',
     status: 'C',
     note: 'Contract-only automation quotas draft.',
   },
   {
     path: 'config/automation/subscriptions.example.json',
-    kind: 'contract-draft',
+    kind: 'automation-subscriptions',
     status: 'C',
     note: 'Contract-only subscriptions draft.',
   },
   {
     path: 'config/automation/reminders.example.json',
-    kind: 'contract-draft',
+    kind: 'automation-reminders',
     status: 'C',
     note: 'Contract-only reminders draft.',
   },
   {
     path: 'config/automation/notification-policy.example.json',
-    kind: 'contract-draft',
+    kind: 'automation-notification-policy',
     status: 'C',
     note: 'Contract-only notification policy draft.',
   },
   {
     path: 'config/media/limits.example.json',
-    kind: 'contract-draft',
+    kind: 'media-limits',
     status: 'C',
     note: 'Contract-only media limits draft.',
   },
   {
     path: 'config/media/capabilities.example.json',
-    kind: 'contract-draft',
+    kind: 'media-capabilities',
     status: 'C',
     note: 'Contract-only media capabilities draft.',
   },
   {
     path: 'config/memory/retention.example.json',
-    kind: 'contract-draft',
+    kind: 'memory-retention',
     status: 'C',
     note: 'Contract-only memory retention draft.',
   },
   {
     path: 'config/policy/retention.example.json',
-    kind: 'contract-draft',
+    kind: 'policy-retention',
     status: 'C',
     note: 'Contract-only policy retention draft.',
   },
   {
     path: 'config/policy/recipients.example.json',
-    kind: 'contract-draft',
+    kind: 'policy-recipients',
     status: 'C',
     note: 'Contract-only recipients draft.',
   },

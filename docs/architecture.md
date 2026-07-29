@@ -98,9 +98,26 @@ provider: если совместимого мужского голоса нет
   approval CFG checker, webhook verifier single-read snapshot + distinct idempotency/replay
   outcomes, bounded token-family detectors, production config parsers, Node `>=22.13.0 <23`
   with documented review override, validated identity constructors, documentation truthfulness.
+- Build 2.1J-R4 — REV9-001: generator/async-generator executeMemoryWrite targets
+  fail closed (`UNSUPPORTED_CONTROL_FLOW`) before body/stage accounting;
+  **implemented, pending independent Codex Review №6**
+- Build 2.1J-R3 — REV8-001/002: strict canonical AST allowlist
+  (`UNSUPPORTED_CONTROL_FLOW` for labels/loops/switch/try/break/continue even without stages);
+  approval-required condition AST-only (no getText security decision);
+  **implemented, pending independent Codex Review №6**
+- Build 2.1J-R2 — REV7-001/002/003: unreachable-after-return/throw fail-closed,
+  naked approval outside gated AST sequence deny, security stages forbidden in
+  expression containers; **implemented, pending independent Codex Review №6**
+- Build 2.1J-R1 — CR5-001—CR5-008, REV6-001—REV6-010 и связанные
+  FIN-002/004/006/008/009/011/013/014 **implemented, pending repeated independent pre-commit
+  review and Codex Review №6**: recursive immutable authority/webhook snapshots, canonical
+  AST-only memory-stage and approval data-flow checks, trusted-clock pre-write ordering,
+  authorization-before-atomic-replay semantics, semantic exact schemas для всех status-C config
+  families, scoped identity grammars и validated no-shell review runner. Это remediation Build №2,
+  не начало Build №3.
 - Build №3 не начат. Сервер не куплен. Deployment не разрешён.
-- Реальный authentication/provider adapter не реализован. Окончательный security approval
-  отсутствует до нового независимого Codex review.
+- Реальный authentication/provider adapter и persistent atomic replay/idempotency store не
+  реализованы. Окончательный security approval отсутствует pending Codex Review №6.
 - Следующий этап: локальные адаптеры и runtime policy enforcement после отдельного утверждения.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.

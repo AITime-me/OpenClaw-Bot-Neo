@@ -500,6 +500,10 @@ export function scanSensitiveMetadata(input: unknown): Result<MetadataScanReport
   const snapshot = snapshotPlainJsonDto(input, {
     maxNodes: MAX_METADATA_NODES + 8,
     maxDepth: MAX_METADATA_DEPTH + 2,
+    maxObjectKeys: MAX_METADATA_NODES,
+    maxArrayLength: MAX_METADATA_NODES,
+    maxStringLength: MAX_SCAN_INPUT_LENGTH,
+    maxKeyLength: MAX_METADATA_TOTAL_KEY_LENGTH,
   });
   if (!snapshot.ok)
     return err({

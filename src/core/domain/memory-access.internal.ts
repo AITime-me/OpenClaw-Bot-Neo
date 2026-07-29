@@ -1,4 +1,15 @@
-import type { ActorId, CorrelationId, ISO8601, OwnerId } from './identity.js';
+import {
+  parseActorId,
+  parseChannelId,
+  parseCorrelationId,
+  parseISO8601,
+  parseOwnerId,
+  parseSessionId,
+  type ActorId,
+  type CorrelationId,
+  type ISO8601,
+  type OwnerId,
+} from './identity.js';
 import type { MemoryNamespace } from './memory-namespace.js';
 import {
   isMemoryNamespace,
@@ -9,6 +20,7 @@ import {
 import type { OperationContext } from './operation-context.js';
 import { deepFreeze } from './immutable.js';
 import { validateOperationContext } from './operation-context.js';
+import { exactPlainObservation, exactStringArray } from './observation-validation.js';
 
 /**
  * Opaque authenticated memory access evidence.
@@ -77,15 +89,6 @@ const OBSERVATION_FIELDS = Object.freeze([
   'correlationId',
 ] as const);
 
-const isPlainObject = (value: unknown): value is Record<string, unknown> => {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  const protoUnknown: unknown = Object.getPrototypeOf(value);
-  return protoUnknown === Object.prototype || protoUnknown === null;
-};
-
-const filled = (value: unknown): value is string =>
-  typeof value === 'string' && value.length > 0 && value.length <= 256;
-
 /**
  * Validates an untrusted authentication observation and seals authenticated access evidence.
  * Callers cannot supply ready-made evidence; only this module registers membership.
@@ -96,47 +99,50 @@ export const sealAuthenticatedMemoryAccess = (
   now: Date,
 ): AuthenticatedMemoryAccessContext | null => {
   if (validateOperationContext(operation) !== null) return null;
-  if (!isPlainObject(observation)) return null;
-  const keys = Object.keys(observation);
-  if (keys.length !== OBSERVATION_FIELDS.length) return null;
-  for (const key of OBSERVATION_FIELDS) if (!Object.hasOwn(observation, key)) return null;
-  for (const key of keys) if (!(OBSERVATION_FIELDS as readonly string[]).includes(key)) return null;
+  const plain = exactPlainObservation(observation, OBSERVATION_FIELDS);
+  if (plain === null) return null;
 
+  const ownerId = parseOwnerId(plain.ownerId);
+  const actorId = parseActorId(plain.actorId);
+  const channelId = parseChannelId(plain.channelId);
+  const sessionId = parseSessionId(plain.sessionId);
+  const correlationId = parseCorrelationId(plain.correlationId);
+  const issuedAtIdentity = parseISO8601(plain.issuedAt);
+  const expiresAtIdentity = parseISO8601(plain.expiresAt);
+  const roles = exactStringArray(plain.roles);
   if (
-    Object.hasOwn(observation, 'authenticated') ||
-    Object.hasOwn(observation, 'trusted') ||
-    Object.hasOwn(observation, 'role')
+    !ownerId.ok ||
+    !actorId.ok ||
+    !channelId.ok ||
+    !sessionId.ok ||
+    !correlationId.ok ||
+    !issuedAtIdentity.ok ||
+    !expiresAtIdentity.ok ||
+    !isMemoryNamespace(plain.activeNamespace) ||
+    roles === null ||
+    roles.length === 0 ||
+    !roles.every((role) => isMemoryRole(role))
   )
     return null;
 
-  if (
-    !filled(observation.ownerId) ||
-    !filled(observation.actorId) ||
-    !filled(observation.channelId) ||
-    !filled(observation.sessionId) ||
-    !filled(observation.correlationId) ||
-    !filled(observation.issuedAt) ||
-    !filled(observation.expiresAt) ||
-    !isMemoryNamespace(observation.activeNamespace) ||
-    !Array.isArray(observation.roles) ||
-    observation.roles.length === 0 ||
-    !observation.roles.every((role) => isMemoryRole(role))
-  )
-    return null;
-
-  if (!isPlainObject(observation.projectScope)) return null;
-  const scope = observation.projectScope;
+  const scope = exactPlainObservation(plain.projectScope, [
+    'primary',
+    'permitted',
+    'crossProjectPermitted',
+  ]);
+  if (scope === null) return null;
+  const permitted = exactStringArray(scope.permitted);
   if (
     !isMemoryNamespace(scope.primary) ||
-    !Array.isArray(scope.permitted) ||
-    scope.permitted.length === 0 ||
-    !scope.permitted.every((item) => isMemoryNamespace(item)) ||
+    permitted === null ||
+    permitted.length === 0 ||
+    !permitted.every((item) => isMemoryNamespace(item)) ||
     typeof scope.crossProjectPermitted !== 'boolean'
   )
     return null;
 
-  const issuedAt = Date.parse(observation.issuedAt);
-  const expiresAt = Date.parse(observation.expiresAt);
+  const issuedAt = new Date(issuedAtIdentity.value).getTime();
+  const expiresAt = new Date(expiresAtIdentity.value).getTime();
   const current = now.getTime();
   if (
     !Number.isFinite(issuedAt) ||
@@ -148,29 +154,28 @@ export const sealAuthenticatedMemoryAccess = (
   )
     return null;
 
-  const role = observation.roles[0];
+  const role = roles[0];
   if (role === undefined || !isMemoryRole(role)) return null;
-  if (observation.roles.some((item) => item === 'security-guard') && role !== 'security-guard')
-    return null;
+  if (roles.some((item) => item === 'security-guard') && role !== 'security-guard') return null;
 
   const projectScope: ProjectScope = deepFreeze({
     primary: scope.primary,
-    permitted: Object.freeze([...scope.permitted]),
+    permitted: Object.freeze([...permitted]),
     crossProjectPermitted: scope.crossProjectPermitted,
   });
 
   const view = deepFreeze({
-    ownerId: observation.ownerId as OwnerId,
-    actorId: observation.actorId as ActorId,
+    ownerId: ownerId.value,
+    actorId: actorId.value,
     role,
-    activeNamespace: observation.activeNamespace,
+    activeNamespace: plain.activeNamespace,
     projectScope,
-    correlationId: observation.correlationId as CorrelationId,
+    correlationId: correlationId.value,
     operation,
-    channelId: observation.channelId,
-    sessionId: observation.sessionId,
-    issuedAt: observation.issuedAt as ISO8601,
-    expiresAt: observation.expiresAt as ISO8601,
+    channelId: channelId.value,
+    sessionId: sessionId.value,
+    issuedAt: issuedAtIdentity.value,
+    expiresAt: expiresAtIdentity.value,
     authenticationProvenance: 'trusted-channel-auth' as const,
   });
 

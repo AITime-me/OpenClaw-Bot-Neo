@@ -11,6 +11,7 @@ import {
 } from '../domain/extension-policy.internal.js';
 import type { ActiveExtensionRegistration } from '../domain/extension-registry-entry.internal.js';
 import type { RuntimeRiskEvidence } from '../domain/extension-runtime-risk.internal.js';
+import { exactPlainRecord, filledString } from '../domain/observation-validation.js';
 import { resolveExtensionPermissions } from '../policy/extension-permissions.js';
 import type { ExtensionPermissionDecision } from '../domain/extension-permission.js';
 import type { ClockPort } from '../ports/index.js';
@@ -23,8 +24,8 @@ import {
   classifyExtensionRuntimeRisk,
   parseRoutingObservation,
   parseSecurityGuardObservation,
+  snapshotRuntimeRiskOperationRequest,
   type RuntimeRiskClassificationFailure,
-  type RuntimeRiskOperationRequest,
 } from './runtime-risk-classification.service.js';
 
 export interface ExtensionPermissionGatewayDeps {
@@ -83,11 +84,46 @@ export function createExtensionPermissionGateway(
 ): ExtensionPermissionGateway {
   return {
     async resolve(registration, request, context) {
+      const plain = exactPlainRecord(
+        request,
+        [
+          'extensionId',
+          'extensionVersion',
+          'correlationId',
+          'operationCategory',
+          'sourceReference',
+        ],
+        ['operationHints'],
+      );
+      if (
+        plain === null ||
+        !filledString(plain.extensionId) ||
+        !filledString(plain.extensionVersion)
+      )
+        return err({
+          code: 'INVALID_OBSERVATION',
+          reason: 'Extension permission request was rejected.',
+        });
+      const operation = snapshotRuntimeRiskOperationRequest({
+        correlationId: plain.correlationId,
+        operationCategory: plain.operationCategory,
+        sourceReference: plain.sourceReference,
+        ...(Object.prototype.hasOwnProperty.call(plain, 'operationHints')
+          ? { operationHints: plain.operationHints }
+          : {}),
+      });
+      if (operation === null)
+        return err({
+          code: 'INVALID_OBSERVATION',
+          reason: 'Runtime operation request was rejected.',
+        });
+      const extensionId = plain.extensionId;
+      const extensionVersion = plain.extensionVersion;
       const now = deps.clock.now();
       const expected = {
-        extensionId: request.extensionId,
-        extensionVersion: request.extensionVersion,
-        correlationId: request.correlationId,
+        extensionId,
+        extensionVersion,
+        correlationId: operation.correlationId,
       };
 
       const policyResult = await deps.policy.currentPolicy(expected, context);
@@ -97,8 +133,8 @@ export function createExtensionPermissionGateway(
           reason: 'Current extension policy dependency failed.',
         });
       const policy = sealCurrentExtensionPolicySnapshot(policyResult.value, now, {
-        extensionId: request.extensionId,
-        extensionVersion: request.extensionVersion,
+        extensionId,
+        extensionVersion,
       });
       if (policy === null)
         return err({
@@ -108,11 +144,11 @@ export function createExtensionPermissionGateway(
 
       const routingResult = await deps.routing.observe(
         {
-          extensionId: request.extensionId,
-          extensionVersion: request.extensionVersion,
-          correlationId: request.correlationId,
-          operationCategory: request.operationCategory,
-          sourceReference: request.sourceReference,
+          extensionId,
+          extensionVersion,
+          correlationId: operation.correlationId,
+          operationCategory: operation.operationCategory,
+          sourceReference: operation.sourceReference,
         },
         context,
       );
@@ -125,7 +161,7 @@ export function createExtensionPermissionGateway(
         routingResult.value,
         {
           ...expected,
-          sourceReference: request.sourceReference,
+          sourceReference: operation.sourceReference,
         },
         now,
       );
@@ -137,10 +173,10 @@ export function createExtensionPermissionGateway(
 
       const guardResult = await deps.securityGuard.decide(
         {
-          extensionId: request.extensionId,
-          extensionVersion: request.extensionVersion,
-          correlationId: request.correlationId,
-          operationCategory: request.operationCategory,
+          extensionId,
+          extensionVersion,
+          correlationId: operation.correlationId,
+          operationCategory: operation.operationCategory,
         },
         context,
       );
@@ -156,12 +192,6 @@ export function createExtensionPermissionGateway(
           reason: 'Security Guard observation was rejected.',
         });
 
-      const operation: RuntimeRiskOperationRequest = {
-        correlationId: request.correlationId,
-        operationCategory: request.operationCategory,
-        sourceReference: request.sourceReference,
-        ...(request.operationHints === undefined ? {} : { operationHints: request.operationHints }),
-      };
       const classified = classifyExtensionRuntimeRisk(
         { clock: deps.clock },
         registration,
@@ -182,7 +212,7 @@ export function createExtensionPermissionGateway(
       const decision = resolveExtensionPermissions({
         registration,
         runtimeRiskEvidence: classified.value,
-        correlationId: request.correlationId,
+        correlationId: operation.correlationId,
         policy: {
           deploymentAllowed: policy.deploymentAllowed,
           roleAllowed: policy.roleAllowed,

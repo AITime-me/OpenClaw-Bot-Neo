@@ -3,12 +3,20 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   CONFIG_JSON_INVENTORY,
-  parseContractDraftExample,
+  parseAutomationNotificationPolicyDraft,
+  parseAutomationQuotasDraft,
+  parseAutomationRemindersDraft,
+  parseAutomationSubscriptionsDraft,
+  parseMediaCapabilitiesDraft,
+  parseMediaLimitsDraft,
+  parseMemoryRetentionDraft,
   parseMemoryClassificationConfig,
   parseMemoryNamespacesConfig,
   parseModelRoutingConfig,
   parseOpenClawDraftConfig,
   parseOpenClawPolicyDraftConfig,
+  parsePolicyRecipientsDraft,
+  parsePolicyRetentionDraft,
   parseSecurityPolicyConfig,
 } from '../src/core/config/index.js';
 import { validateExtensionManifest } from '../src/core/policy/extension-manifest.js';
@@ -49,11 +57,90 @@ const validateInventoryEntry = (path: string, kind: string, value: unknown): boo
       return parseOpenClawDraftConfig(value).ok;
     case 'openclaw-policy-draft':
       return parseOpenClawPolicyDraftConfig(value).ok;
-    case 'contract-draft':
-      return parseContractDraftExample(value, path).ok;
+    case 'automation-notification-policy':
+      return parseAutomationNotificationPolicyDraft(value).ok;
+    case 'automation-quotas':
+      return parseAutomationQuotasDraft(value).ok;
+    case 'automation-reminders':
+      return parseAutomationRemindersDraft(value).ok;
+    case 'automation-subscriptions':
+      return parseAutomationSubscriptionsDraft(value).ok;
+    case 'media-capabilities':
+      return parseMediaCapabilitiesDraft(value).ok;
+    case 'media-limits':
+      return parseMediaLimitsDraft(value).ok;
+    case 'memory-retention':
+      return parseMemoryRetentionDraft(value).ok;
+    case 'policy-recipients':
+      return parsePolicyRecipientsDraft(value).ok;
+    case 'policy-retention':
+      return parsePolicyRetentionDraft(value).ok;
     default:
       return false;
   }
+};
+
+const parseStatusCDraft = (kind: string, value: unknown) => {
+  switch (kind) {
+    case 'openclaw-draft':
+      return parseOpenClawDraftConfig(value);
+    case 'openclaw-policy-draft':
+      return parseOpenClawPolicyDraftConfig(value);
+    case 'automation-notification-policy':
+      return parseAutomationNotificationPolicyDraft(value);
+    case 'automation-quotas':
+      return parseAutomationQuotasDraft(value);
+    case 'automation-reminders':
+      return parseAutomationRemindersDraft(value);
+    case 'automation-subscriptions':
+      return parseAutomationSubscriptionsDraft(value);
+    case 'media-capabilities':
+      return parseMediaCapabilitiesDraft(value);
+    case 'media-limits':
+      return parseMediaLimitsDraft(value);
+    case 'memory-retention':
+      return parseMemoryRetentionDraft(value);
+    case 'policy-recipients':
+      return parsePolicyRecipientsDraft(value);
+    case 'policy-retention':
+      return parsePolicyRetentionDraft(value);
+    default:
+      return null;
+  }
+};
+
+const recordAt = (value: Record<string, unknown>, key: string): Record<string, unknown> => {
+  const nested = value[key];
+  if (nested === null || typeof nested !== 'object' || Array.isArray(nested))
+    throw new TypeError(`${key} is not a record`);
+  return nested as Record<string, unknown>;
+};
+
+const arrayAt = (value: Record<string, unknown>, key: string): unknown[] => {
+  const nested = value[key];
+  if (!Array.isArray(nested)) throw new TypeError(`${key} is not an array`);
+  return nested;
+};
+
+const mutateSourceDeep = (value: unknown): void => {
+  if (Array.isArray(value)) {
+    value.push('__source-mutation__');
+    for (const item of value.slice(0, -1)) mutateSourceDeep(item);
+    return;
+  }
+  if (value === null || typeof value !== 'object') return;
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item === 'string') (value as Record<string, unknown>)[key] = `${item}-mutated`;
+    else if (typeof item === 'boolean') (value as Record<string, unknown>)[key] = !item;
+    else if (typeof item === 'number') (value as Record<string, unknown>)[key] = item + 1;
+    else mutateSourceDeep(item);
+  }
+};
+
+const expectDeepFrozen = (value: unknown): void => {
+  if (value === null || typeof value !== 'object') return;
+  expect(Object.isFrozen(value)).toBe(true);
+  for (const item of Object.values(value)) expectDeepFrozen(item);
 };
 
 describe('example configuration semantic consistency', () => {
@@ -231,6 +318,393 @@ describe('example configuration semantic consistency', () => {
     expect(
       parseOpenClawPolicyDraftConfig(load('config/openclaw.policy.example.json').value).ok,
     ).toBe(true);
+  });
+
+  it('enforces exact schemas for every contract-draft family', () => {
+    const entries = CONFIG_JSON_INVENTORY.filter((entry) => entry.status === 'C');
+    for (const entry of entries) {
+      const valid = load(entry.path).value;
+      expect(validateInventoryEntry(entry.path, entry.kind, valid), entry.path).toBe(true);
+
+      const missingSchema = structuredClone(valid) as Record<string, unknown>;
+      delete missingSchema.schemaVersion;
+      expect(validateInventoryEntry(entry.path, entry.kind, missingSchema), entry.path).toBe(false);
+
+      const wrongSchema = structuredClone(valid) as Record<string, unknown>;
+      wrongSchema.schemaVersion = '2.0';
+      expect(validateInventoryEntry(entry.path, entry.kind, wrongSchema), entry.path).toBe(false);
+
+      const extra = structuredClone(valid) as Record<string, unknown>;
+      extra.unexpected = true;
+      expect(validateInventoryEntry(entry.path, entry.kind, extra), entry.path).toBe(false);
+
+      const mutable = structuredClone(valid) as Record<string, unknown>;
+      const parsed =
+        entry.kind === 'openclaw-draft'
+          ? parseOpenClawDraftConfig(mutable)
+          : entry.kind === 'openclaw-policy-draft'
+            ? parseOpenClawPolicyDraftConfig(mutable)
+            : null;
+      if (parsed !== null && parsed.ok) {
+        mutable.schemaVersion = 'changed';
+        expect(parsed.value.schemaVersion).toBe('1.0-draft');
+        expect(Object.isFrozen(parsed.value)).toBe(true);
+      }
+    }
+  });
+
+  it('accepts semantic status-C variations and rejects invalid cross-field combinations', () => {
+    const cases: Array<{
+      readonly path: string;
+      readonly kind: string;
+      readonly vary: (value: Record<string, unknown>) => void;
+      readonly breakInvariant: (value: Record<string, unknown>) => void;
+      readonly duplicate: (value: Record<string, unknown>) => void;
+      readonly oversize: (value: Record<string, unknown>) => void;
+    }> = [
+      {
+        path: 'config/openclaw.example.draft.json',
+        kind: 'openclaw-draft',
+        vary: (value) => {
+          recordAt(value, 'proposedConfig').channelAdapter = '<second-safe-adapter>';
+        },
+        breakInvariant: (value) => {
+          recordAt(value, 'proposedConfig').apiFallbackEnabled = true;
+        },
+        duplicate: (value) => {
+          recordAt(value, 'proposedConfig').channelAdapterAlias = '<second-safe-adapter>';
+        },
+        oversize: (value) => {
+          recordAt(value, 'proposedConfig').channelAdapter = 'x'.repeat(300);
+        },
+      },
+      {
+        path: 'config/openclaw.policy.example.json',
+        kind: 'openclaw-policy-draft',
+        vary: (value) => {
+          const policy = recordAt(value, 'policy');
+          policy.ownerApprovalRequiredFor = arrayAt(policy, 'ownerApprovalRequiredFor').reverse();
+        },
+        breakInvariant: (value) => {
+          recordAt(value, 'policy').paymentActionsAllowed = true;
+        },
+        duplicate: (value) => {
+          const policy = recordAt(value, 'policy');
+          const effects = arrayAt(policy, 'ownerApprovalRequiredFor');
+          effects.push(effects[0]);
+        },
+        oversize: (value) => {
+          const policy = recordAt(value, 'policy');
+          arrayAt(policy, 'ownerApprovalRequiredFor')[0] = 'x'.repeat(300);
+        },
+      },
+      {
+        path: 'config/automation/notification-policy.example.json',
+        kind: 'automation-notification-policy',
+        vary: (value) => {
+          value.timezone = 'Asia/Yekaterinburg';
+        },
+        breakInvariant: (value) => {
+          value.includeSensitiveRawData = true;
+        },
+        duplicate: (value) => {
+          value.timezoneAlias = value.timezone;
+        },
+        oversize: (value) => {
+          value.timezone = 'x'.repeat(300);
+        },
+      },
+      {
+        path: 'config/automation/quotas.example.json',
+        kind: 'automation-quotas',
+        vary: (value) => {
+          value.thresholds = ['75', '95'];
+        },
+        breakInvariant: (value) => {
+          value.paidFallbackEnabled = true;
+        },
+        duplicate: (value) => {
+          const thresholds = arrayAt(value, 'thresholds');
+          thresholds.push(thresholds[0]);
+        },
+        oversize: (value) => {
+          arrayAt(value, 'thresholds')[0] = 'x'.repeat(300);
+        },
+      },
+      {
+        path: 'config/automation/reminders.example.json',
+        kind: 'automation-reminders',
+        vary: (value) => {
+          value.timezone = 'UTC';
+        },
+        breakInvariant: (value) => {
+          recordAt(value, 'quietHours').urgentBypassRequiresApproval = false;
+        },
+        duplicate: (value) => {
+          value.timezoneAlias = value.timezone;
+        },
+        oversize: (value) => {
+          value.timezone = 'x'.repeat(300);
+        },
+      },
+      {
+        path: 'config/automation/subscriptions.example.json',
+        kind: 'automation-subscriptions',
+        vary: (value) => {
+          value.sources = ['owner-approved-source-2'];
+        },
+        breakInvariant: (value) => {
+          value.cancellationActionsAllowed = true;
+        },
+        duplicate: (value) => {
+          const sources = arrayAt(value, 'sources');
+          sources.push(sources[0]);
+        },
+        oversize: (value) => {
+          arrayAt(value, 'sources')[0] = 'x'.repeat(300);
+        },
+      },
+      {
+        path: 'config/media/capabilities.example.json',
+        kind: 'media-capabilities',
+        vary: (value) => {
+          const first = arrayAt(value, 'capabilities')[0];
+          if (first !== null && typeof first === 'object' && !Array.isArray(first))
+            (first as Record<string, unknown>).provider = '<second-local-provider>';
+        },
+        breakInvariant: (value) => {
+          const first = arrayAt(value, 'capabilities')[0];
+          if (first !== null && typeof first === 'object' && !Array.isArray(first))
+            (first as Record<string, unknown>).requiresApprovalForExternalProcessing = false;
+        },
+        duplicate: (value) => {
+          const capabilities = arrayAt(value, 'capabilities');
+          capabilities.push(structuredClone(capabilities[0]));
+        },
+        oversize: (value) => {
+          const first = arrayAt(value, 'capabilities')[0];
+          if (first !== null && typeof first === 'object' && !Array.isArray(first))
+            (first as Record<string, unknown>).provider = 'x'.repeat(300);
+        },
+      },
+      {
+        path: 'config/media/limits.example.json',
+        kind: 'media-limits',
+        vary: (value) => {
+          recordAt(value, 'limits').allowedMimeTypes = ['image/png'];
+        },
+        breakInvariant: (value) => {
+          recordAt(value, 'limits').externalProcessing = true;
+        },
+        duplicate: (value) => {
+          const mime = arrayAt(recordAt(value, 'limits'), 'allowedMimeTypes');
+          mime.push(mime[0]);
+        },
+        oversize: (value) => {
+          arrayAt(recordAt(value, 'limits'), 'allowedMimeTypes')[0] = 'x'.repeat(300);
+        },
+      },
+      {
+        path: 'config/memory/retention.example.json',
+        kind: 'memory-retention',
+        vary: (value) => {
+          recordAt(recordAt(value, 'classes'), 'short-lived').duration = 'P7D';
+        },
+        breakInvariant: (value) => {
+          recordAt(recordAt(value, 'classes'), 'audit-minimal').rawContentAllowed = true;
+        },
+        duplicate: (value) => {
+          recordAt(value, 'classes')['short-lived-alias'] = structuredClone(
+            recordAt(recordAt(value, 'classes'), 'short-lived'),
+          );
+        },
+        oversize: (value) => {
+          recordAt(recordAt(value, 'classes'), 'short-lived').duration = 'x'.repeat(300);
+        },
+      },
+      {
+        path: 'config/policy/recipients.example.json',
+        kind: 'policy-recipients',
+        vary: (value) => {
+          const first = arrayAt(value, 'recipients')[0];
+          if (first !== null && typeof first === 'object' && !Array.isArray(first))
+            (first as Record<string, unknown>).recipientRef = 'owner-2';
+        },
+        breakInvariant: (value) => {
+          value.arbitraryRecipientsAllowed = true;
+        },
+        duplicate: (value) => {
+          const recipients = arrayAt(value, 'recipients');
+          recipients.push(structuredClone(recipients[0]));
+        },
+        oversize: (value) => {
+          const first = arrayAt(value, 'recipients')[0];
+          if (first !== null && typeof first === 'object' && !Array.isArray(first))
+            (first as Record<string, unknown>).recipientRef = 'x'.repeat(300);
+        },
+      },
+      {
+        path: 'config/policy/retention.example.json',
+        kind: 'policy-retention',
+        vary: (value) => {
+          const first = arrayAt(value, 'rules')[0];
+          if (first !== null && typeof first === 'object' && !Array.isArray(first))
+            (first as Record<string, unknown>).duration = 'P3D';
+        },
+        breakInvariant: (value) => {
+          const first = arrayAt(value, 'rules')[0];
+          if (first !== null && typeof first === 'object' && !Array.isArray(first))
+            (first as Record<string, unknown>).rawSensitiveDataAllowed = true;
+        },
+        duplicate: (value) => {
+          const rules = arrayAt(value, 'rules');
+          rules.push(structuredClone(rules[0]));
+        },
+        oversize: (value) => {
+          const first = arrayAt(value, 'rules')[0];
+          if (first !== null && typeof first === 'object' && !Array.isArray(first))
+            (first as Record<string, unknown>).duration = 'x'.repeat(300);
+        },
+      },
+    ];
+
+    for (const item of cases) {
+      const original = load(item.path).value as Record<string, unknown>;
+      expect(parseStatusCDraft(item.kind, original)?.ok, `${item.kind} example`).toBe(true);
+
+      const variation = structuredClone(original);
+      item.vary(variation);
+      const parsed = parseStatusCDraft(item.kind, variation);
+      expect(parsed?.ok, `${item.kind} valid variation`).toBe(true);
+      if (parsed?.ok) {
+        const immutableSnapshot = JSON.stringify(parsed.value);
+        mutateSourceDeep(variation);
+        expect(JSON.stringify(parsed.value), `${item.kind} detached snapshot`).toBe(
+          immutableSnapshot,
+        );
+        expectDeepFrozen(parsed.value);
+      }
+
+      const invalid = structuredClone(original);
+      item.breakInvariant(invalid);
+      expect(parseStatusCDraft(item.kind, invalid)?.ok, `${item.kind} cross-field deny`).toBe(
+        false,
+      );
+
+      const wrongType = structuredClone(original);
+      wrongType.status = 1;
+      expect(parseStatusCDraft(item.kind, wrongType)?.ok, `${item.kind} wrong type`).toBe(false);
+
+      const unknownEnum = structuredClone(original);
+      unknownEnum.status = 'active';
+      expect(parseStatusCDraft(item.kind, unknownEnum)?.ok, `${item.kind} unknown enum`).toBe(
+        false,
+      );
+
+      const duplicate = structuredClone(original);
+      item.duplicate(duplicate);
+      expect(parseStatusCDraft(item.kind, duplicate)?.ok, `${item.kind} duplicate`).toBe(false);
+
+      const oversize = structuredClone(original);
+      item.oversize(oversize);
+      expect(parseStatusCDraft(item.kind, oversize)?.ok, `${item.kind} out of range`).toBe(false);
+
+      let getterReads = 0;
+      const withGetter = structuredClone(original);
+      Object.defineProperty(withGetter, 'status', {
+        enumerable: true,
+        get() {
+          getterReads += 1;
+          return 'draft';
+        },
+      });
+      expect(parseStatusCDraft(item.kind, withGetter)?.ok, `${item.kind} accessor`).toBe(false);
+      expect(getterReads, `${item.kind} accessor execution`).toBe(0);
+      expect(
+        parseStatusCDraft(item.kind, new Proxy(structuredClone(original), {}))?.ok,
+        `${item.kind} proxy`,
+      ).toBe(false);
+    }
+  });
+
+  it('rejects nested drift, accessors, proxies, invalid semantic strings and bounds', () => {
+    const quotas = load('config/automation/quotas.example.json').value as Record<string, unknown>;
+    const extraNested = structuredClone(quotas);
+    extraNested.thresholds = ['<warning-percent>', '<critical-percent>', '<warning-percent>'];
+    expect(parseAutomationQuotasDraft(extraNested).ok).toBe(false);
+
+    let reads = 0;
+    const withGetter = structuredClone(quotas);
+    Object.defineProperty(withGetter, 'enabled', {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return false;
+      },
+    });
+    expect(parseAutomationQuotasDraft(withGetter).ok).toBe(false);
+    expect(reads).toBe(0);
+
+    const proxied = new Proxy(structuredClone(quotas), {});
+    expect(parseAutomationQuotasDraft(proxied).ok).toBe(false);
+
+    const oversized = structuredClone(quotas);
+    oversized.onExceeded = 'x'.repeat(300);
+    expect(parseAutomationQuotasDraft(oversized).ok).toBe(false);
+
+    for (const invalidThresholds of [
+      ['95', '75'],
+      ['0', '101'],
+      ['warning', 'critical'],
+    ]) {
+      const invalidQuotas = structuredClone(quotas);
+      invalidQuotas.thresholds = invalidThresholds;
+      expect(parseAutomationQuotasDraft(invalidQuotas).ok).toBe(false);
+    }
+
+    const notification = load('config/automation/notification-policy.example.json').value as Record<
+      string,
+      unknown
+    >;
+    const invalidTimezone = structuredClone(notification);
+    invalidTimezone.timezone = 'tomorrow';
+    expect(parseAutomationNotificationPolicyDraft(invalidTimezone).ok).toBe(false);
+    const invalidTime = structuredClone(notification);
+    recordAt(invalidTime, 'quietHours').start = '25:00';
+    expect(parseAutomationNotificationPolicyDraft(invalidTime).ok).toBe(false);
+
+    const reminders = load('config/automation/reminders.example.json').value as Record<
+      string,
+      unknown
+    >;
+    const invalidRetry = structuredClone(reminders);
+    recordAt(invalidRetry, 'delivery').retryPolicy = 'retry-forever';
+    expect(parseAutomationRemindersDraft(invalidRetry).ok).toBe(false);
+
+    const mediaLimits = load('config/media/limits.example.json').value as Record<string, unknown>;
+    const zeroLimit = structuredClone(mediaLimits);
+    recordAt(zeroLimit, 'limits').maxInputBytes = 0;
+    expect(parseMediaLimitsDraft(zeroLimit).ok).toBe(false);
+    const invalidMime = structuredClone(mediaLimits);
+    recordAt(invalidMime, 'limits').allowedMimeTypes = ['not-a-mime'];
+    expect(parseMediaLimitsDraft(invalidMime).ok).toBe(false);
+
+    const memoryRetention = load('config/memory/retention.example.json').value as Record<
+      string,
+      unknown
+    >;
+    const invalidMemoryDuration = structuredClone(memoryRetention);
+    recordAt(recordAt(invalidMemoryDuration, 'classes'), 'short-lived').duration = 'forever';
+    expect(parseMemoryRetentionDraft(invalidMemoryDuration).ok).toBe(false);
+
+    const policyRetention = load('config/policy/retention.example.json').value as Record<
+      string,
+      unknown
+    >;
+    const invalidPolicyDuration = structuredClone(policyRetention);
+    const firstRule = arrayAt(invalidPolicyDuration, 'rules')[0] as Record<string, unknown>;
+    firstRule.duration = 'forever';
+    expect(parsePolicyRetentionDraft(invalidPolicyDuration).ok).toBe(false);
   });
 
   it('preserves eight business skills and one technical multimodal skill', () => {

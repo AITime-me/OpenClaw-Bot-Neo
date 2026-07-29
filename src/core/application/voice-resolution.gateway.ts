@@ -1,6 +1,14 @@
-import { ok, type CorrelationId, type OperationContext, type Result } from '../domain/index.js';
+import {
+  iso8601FromDate,
+  ok,
+  parseCorrelationId,
+  type CorrelationId,
+  type OperationContext,
+  type Result,
+} from '../domain/index.js';
 import {
   exactPlainObservation,
+  exactStringArray,
   filledString,
   isFreshWindow,
   parseIsoInstant,
@@ -21,7 +29,6 @@ import type {
   VoiceProviderObservation,
   VoiceProviderObservationPort,
 } from '../ports/trusted-derivation.port.js';
-import type { ISO8601 } from '../domain/identity.js';
 import { scanSensitiveMetadata } from '../policy/sensitive-data-scanner.js';
 
 export interface VoiceResolutionGatewayDeps {
@@ -85,6 +92,7 @@ const POLICY_FIELDS = Object.freeze([
   'issuedAt',
   'expiresAt',
 ] as const);
+const SELECTOR_FIELDS = Object.freeze(['language', 'genderPresentation', 'styleTags'] as const);
 
 const isGender = (value: unknown): value is (typeof GENDER_PRESENTATIONS)[number] =>
   typeof value === 'string' && (GENDER_PRESENTATIONS as readonly string[]).includes(value);
@@ -121,7 +129,7 @@ export const parseVoiceProviderObservation = (
   const expiresAt = parseIsoInstant(plain.expiresAt);
   if (observedAt === null || expiresAt === null || !isFreshWindow(observedAt, expiresAt, now))
     return null;
-  return {
+  return Object.freeze({
     providerIdentity: plain.providerIdentity,
     providerVoiceReference: plain.providerVoiceReference,
     observedLanguage: plain.observedLanguage,
@@ -134,7 +142,7 @@ export const parseVoiceProviderObservation = (
     correlationId: plain.correlationId,
     observedAt: plain.observedAt as string,
     expiresAt: plain.expiresAt as string,
-  };
+  });
 };
 
 export const parseVoiceProviderConfiguration = (
@@ -160,7 +168,7 @@ export const parseVoiceProviderConfiguration = (
   const expiresAt = parseIsoInstant(plain.expiresAt);
   if (issuedAt === null || expiresAt === null || !isFreshWindow(issuedAt, expiresAt, now))
     return null;
-  return {
+  return Object.freeze({
     providerIdentity: plain.providerIdentity,
     expectedVoiceReference: plain.expectedVoiceReference,
     configurationRevision: plain.configurationRevision,
@@ -173,7 +181,7 @@ export const parseVoiceProviderConfiguration = (
     policyVersion: plain.policyVersion,
     issuedAt: plain.issuedAt as string,
     expiresAt: plain.expiresAt as string,
-  };
+  });
 };
 
 const textOnly = (reason: string): Result<VoiceResolutionOutcome, never> =>
@@ -188,13 +196,34 @@ export function createVoiceResolutionGateway(
 ): VoiceResolutionGateway {
   return {
     async resolve(request, context) {
-      if (!isValidatedVoiceProfile(request.profile))
+      const profile = request.profile;
+      if (!isValidatedVoiceProfile(profile))
         return textOnly('Validated voice profile evidence is required.');
-      if (!request.profile.enabled) return textOnly('Voice profile is disabled.');
+      if (!profile.enabled) return textOnly('Voice profile is disabled.');
+
+      const selectorPlain = exactPlainObservation(request.selector, SELECTOR_FIELDS);
+      const styleTags = selectorPlain === null ? null : exactStringArray(selectorPlain.styleTags);
+      if (
+        selectorPlain === null ||
+        !filledString(selectorPlain.language) ||
+        !isGender(selectorPlain.genderPresentation) ||
+        styleTags === null ||
+        selectorPlain.language !== profile.primaryVoiceSelector.language ||
+        selectorPlain.genderPresentation !== profile.primaryVoiceSelector.genderPresentation ||
+        !sameTags(styleTags, profile.primaryVoiceSelector.styleTags)
+      )
+        return textOnly('Selector mismatch.');
+      const selector = profile.primaryVoiceSelector;
+
+      const parsedCorrelationId = parseCorrelationId(request.correlationId);
+      if (!parsedCorrelationId.ok) return textOnly('Correlation identity is invalid.');
+      const correlationId = parsedCorrelationId.value;
+      const providerReference = request.providerReference;
+      if (!filledString(providerReference)) return textOnly('Provider reference is invalid.');
 
       const now = deps.clock.now();
       const policyResult = await deps.policy.currentPolicy(
-        { profileId: request.profile.id, correlationId: request.correlationId },
+        { profileId: profile.id, correlationId },
         context,
       );
       if (!policyResult.ok) return textOnly('Voice policy unavailable.');
@@ -218,9 +247,9 @@ export function createVoiceResolutionGateway(
 
       const configResult = await deps.configuration.currentConfiguration(
         {
-          profileId: request.profile.id,
-          providerReference: request.providerReference,
-          selector: request.selector,
+          profileId: profile.id,
+          providerReference,
+          selector,
         },
         context,
       );
@@ -232,17 +261,17 @@ export function createVoiceResolutionGateway(
 
       const observationResult = await deps.provider.observe(
         {
-          profileId: request.profile.id,
-          correlationId: request.correlationId,
-          providerReference: request.providerReference,
-          selector: request.selector,
+          profileId: profile.id,
+          correlationId,
+          providerReference,
+          selector,
         },
         context,
       );
       if (!observationResult.ok) return textOnly('Provider observation unavailable.');
       const observation = parseVoiceProviderObservation(
         observationResult.value,
-        { correlationId: request.correlationId },
+        { correlationId },
         now,
       );
       if (observation === null) return textOnly('Provider observation rejected.');
@@ -259,21 +288,14 @@ export function createVoiceResolutionGateway(
         return textOnly('Provider language mismatch.');
       if (observation.observedGenderPresentation !== configuration.genderPresentation)
         return textOnly('Provider gender mismatch.');
-      if (observation.observedLanguage !== request.profile.language)
+      if (observation.observedLanguage !== profile.language)
         return textOnly('Profile language mismatch.');
-      if (observation.observedGenderPresentation !== request.profile.genderPresentation)
+      if (observation.observedGenderPresentation !== profile.genderPresentation)
         return textOnly('Profile gender mismatch.');
-      if (request.profile.id === 'neo' && observation.observedLanguage !== 'ru-RU')
+      if (profile.id === 'neo' && observation.observedLanguage !== 'ru-RU')
         return textOnly('Neo requires ru-RU.');
-      if (request.profile.id === 'neo' && observation.observedGenderPresentation !== 'masculine')
+      if (profile.id === 'neo' && observation.observedGenderPresentation !== 'masculine')
         return textOnly('Neo requires masculine presentation.');
-      if (
-        request.selector.language !== request.profile.primaryVoiceSelector.language ||
-        request.selector.genderPresentation !==
-          request.profile.primaryVoiceSelector.genderPresentation ||
-        !sameTags(request.selector.styleTags, request.profile.primaryVoiceSelector.styleTags)
-      )
-        return textOnly('Selector mismatch.');
       if (observation.claimsClonedVoice) return textOnly('Cloned voice forbidden.');
       if (observation.claimsIdentityImitation) return textOnly('Identity imitation forbidden.');
       if (observation.claimsActorOrCelebrityIdentity)
@@ -293,14 +315,14 @@ export function createVoiceResolutionGateway(
       if (!providerScan.ok || providerScan.value.decision !== 'allow')
         return textOnly('Provider metadata sensitive-data scan denied.');
 
-      const validatedAt = now.toISOString() as ISO8601;
-      const expiresAt = new Date(
-        now.getTime() + (policyPlain.evidenceTtlMs as number),
-      ).toISOString() as ISO8601;
+      const validatedAt = iso8601FromDate(now);
+      const expiresAt = iso8601FromDate(
+        new Date(now.getTime() + (policyPlain.evidenceTtlMs as number)),
+      );
       const evidence = sealVerifiedVoiceProviderMatch({
-        profileId: request.profile.id,
-        profileSchemaVersion: request.profile.schemaVersion,
-        selector: request.selector,
+        profileId: profile.id,
+        profileSchemaVersion: profile.schemaVersion,
+        selector,
         providerVoiceReference: observation.providerVoiceReference,
         language: observation.observedLanguage,
         genderPresentation: observation.observedGenderPresentation,

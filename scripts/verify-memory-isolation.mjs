@@ -10,6 +10,22 @@ import ts from 'typescript';
  * `executeMemoryWrite` contains the required stages in order, or conservatively rejects ambiguous
  * control flow. It is target-specific and fail-closed. It is not a full interprocedural TypeScript
  * proof and not formal verification. Ambiguity is failure, not a warning.
+ *
+ * Build 2.1J-R2 additions:
+ * - Unreachable statements after unconditional return/throw (and both-branch terminating if)
+ *   cannot credit security stages (UNREACHABLE_SECURITY_STAGE).
+ * - Approval lookup/validate/consume are accepted only inside the canonical gated AST sequence.
+ * - Security stages hidden in object/array/ternary/logical/comma/template containers fail closed.
+ *
+ * Build 2.1J-R3 additions:
+ * - Strict canonical AST allowlist: labels, loops, switch, try/catch/finally, break/continue and
+ *   other unsupported control-flow fail closed as UNSUPPORTED_CONTROL_FLOW even without stages.
+ * - Approval-required gate condition is proven via AST property chains / string literals only
+ *   (no getText-based security decisions).
+ *
+ * Build 2.1J-R4 additions:
+ * - Recognized executeMemoryWrite generator targets (function-star / async function-star, with or
+ *   without yield) fail closed as UNSUPPORTED_CONTROL_FLOW before body/stage accounting (REV9-001).
  */
 
 const failures = [];
@@ -81,8 +97,100 @@ const STAGE_ALIASES = Object.freeze({
   readTrustedTimestamp: 'trusted-clock',
 });
 
+const DIRECT_FUNCTION_STAGES = new Set(
+  Object.keys(STAGE_ALIASES).filter((name) => !name.includes('.')),
+);
+const DIRECT_PROPERTY_STAGES = new Set(
+  Object.keys(STAGE_ALIASES).filter((name) => name.includes('.')),
+);
+const SECURITY_PORT_ROOTS = new Set([
+  'deps.scanner',
+  'deps.policy',
+  'deps.approvals',
+  'deps.memory',
+  'deps.audit',
+]);
+
+/**
+ * Conservative canonical-call policy. Security stage functions may appear only as the direct
+ * callee of their approved call expression. Saving, destructuring, binding, passing, returning,
+ * wrapping, optional access and computed access all fail closed.
+ */
+const rejectIndirectSecurityReferences = (source, target, failuresOut) => {
+  const directCall = (node) =>
+    ts.isCallExpression(node.parent) &&
+    node.parent.expression === node &&
+    !node.parent.questionDotToken &&
+    !(ts.isPropertyAccessExpression(node) && node.questionDotToken);
+
+  const allowedRootUse = (node) => {
+    const parent = node.parent;
+    if (!ts.isPropertyAccessExpression(parent) || parent.expression !== node) return false;
+    if (!DIRECT_PROPERTY_STAGES.has(parent.getText(source))) return false;
+    return directCall(parent);
+  };
+
+  const allowedDependencyUse = (node) => {
+    const member = node.parent;
+    if (!ts.isPropertyAccessExpression(member) || member.expression !== node) return false;
+    const text = member.getText(source);
+    if (SECURITY_PORT_ROOTS.has(text)) return allowedRootUse(member);
+    if (text !== 'deps.clock') return false;
+    const call = member.parent;
+    return (
+      ts.isCallExpression(call) &&
+      call.arguments.includes(member) &&
+      callName(source, call) === 'readTrustedTimestamp'
+    );
+  };
+
+  const visit = (node) => {
+    if (ts.isElementAccessExpression(node)) {
+      const base = node.expression.getText(source);
+      if (
+        SECURITY_PORT_ROOTS.has(base) ||
+        [...SECURITY_PORT_ROOTS].some((root) => base.startsWith(`${root}.`))
+      )
+        failuresOut.push(
+          'AMBIGUOUS_SECURITY_REFERENCE: computed security-stage access is forbidden.',
+        );
+    } else if (ts.isPropertyAccessExpression(node)) {
+      const text = node.getText(source);
+      if (DIRECT_PROPERTY_STAGES.has(text) && !directCall(node))
+        failuresOut.push(`AMBIGUOUS_SECURITY_REFERENCE: ${text} must be a canonical direct call.`);
+      if (SECURITY_PORT_ROOTS.has(text) && !allowedRootUse(node))
+        failuresOut.push(
+          `AMBIGUOUS_SECURITY_REFERENCE: ${text} cannot be saved, destructured or passed.`,
+        );
+      if (
+        node.questionDotToken &&
+        (DIRECT_PROPERTY_STAGES.has(text) || SECURITY_PORT_ROOTS.has(text))
+      )
+        failuresOut.push(
+          'AMBIGUOUS_SECURITY_REFERENCE: optional security-stage access is forbidden.',
+        );
+    } else if (ts.isIdentifier(node) && node.text === 'deps' && !allowedDependencyUse(node)) {
+      failuresOut.push(
+        'AMBIGUOUS_SECURITY_REFERENCE: deps cannot be aliased, destructured, passed or accessed optionally.',
+      );
+    } else if (
+      ts.isIdentifier(node) &&
+      DIRECT_FUNCTION_STAGES.has(node.text) &&
+      !directCall(node)
+    ) {
+      failuresOut.push(
+        `AMBIGUOUS_SECURITY_REFERENCE: ${node.text} must be a canonical direct call.`,
+      );
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  if (target.body !== undefined) visit(target.body);
+};
+
 const REQUIRED_ORDER = Object.freeze([
   'context-validation',
+  'trusted-clock',
   'input-normalization',
   'untrusted-marking',
   'text-scan',
@@ -113,9 +221,21 @@ const unwrapExpression = (node) => {
   return current;
 };
 
+const isNestedExecutableBoundary = (node) =>
+  ts.isFunctionDeclaration(node) ||
+  ts.isFunctionExpression(node) ||
+  ts.isArrowFunction(node) ||
+  ts.isMethodDeclaration(node) ||
+  ts.isConstructorDeclaration(node) ||
+  ts.isGetAccessorDeclaration(node) ||
+  ts.isSetAccessorDeclaration(node) ||
+  ts.isClassDeclaration(node) ||
+  ts.isClassExpression(node) ||
+  ts.isClassStaticBlockDeclaration(node);
+
 /**
  * Collects direct call expressions inside a function body only. Nested function declarations and
- * nested function/arrow expressions are skipped so dead helpers cannot satisfy the order.
+ * every other nested executable boundary are skipped so dead helpers cannot satisfy the order.
  */
 export function collectDirectCalls(source, functionNode) {
   const body = functionNode.body;
@@ -124,9 +244,7 @@ export function collectDirectCalls(source, functionNode) {
   const visit = (node, insideNestedFunction) => {
     if (
       insideNestedFunction === false &&
-      (ts.isFunctionDeclaration(node) ||
-        ts.isFunctionExpression(node) ||
-        ts.isArrowFunction(node)) &&
+      isNestedExecutableBoundary(node) &&
       node !== functionNode
     ) {
       ts.forEachChild(node, (child) => visit(child, true));
@@ -150,15 +268,27 @@ export function collectDirectCalls(source, functionNode) {
 
 const findStageCallsDeep = (source, root, into, includeNested = false) => {
   const visit = (node) => {
-    if (
-      !includeNested &&
-      (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node))
-    )
-      return;
+    if (!includeNested && node !== root && isNestedExecutableBoundary(node)) return;
     if (ts.isCallExpression(node) && isStageCall(source, node)) into.push(node);
     ts.forEachChild(node, visit);
   };
   visit(root);
+};
+
+const rejectNestedStageBoundaries = (source, target, failuresOut) => {
+  const visit = (node) => {
+    if (node !== target && isNestedExecutableBoundary(node)) {
+      const nested = [];
+      findStageCallsDeep(source, node, nested, true);
+      if (nested.length > 0)
+        failuresOut.push(
+          'AMBIGUOUS_CONTROL_FLOW: security stages inside nested executable boundaries are forbidden.',
+        );
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  if (target.body !== undefined) visit(target.body);
 };
 
 const APPROVAL_ONLY_STAGES = new Set([
@@ -167,35 +297,177 @@ const APPROVAL_ONLY_STAGES = new Set([
   'approval-consumption',
 ]);
 
+/**
+ * Control-flow forms that the target-specific checker does not prove. Presence anywhere in the
+ * security function body fails closed, even without security stages (REV8-001).
+ */
+const isUnsupportedControlFlowNode = (node) =>
+  ts.isLabeledStatement(node) ||
+  ts.isWhileStatement(node) ||
+  ts.isDoStatement(node) ||
+  ts.isForStatement(node) ||
+  ts.isForInStatement(node) ||
+  ts.isForOfStatement(node) ||
+  ts.isSwitchStatement(node) ||
+  ts.isTryStatement(node) ||
+  ts.isBreakStatement(node) ||
+  ts.isContinueStatement(node) ||
+  ts.isWithStatement(node) ||
+  ts.isYieldExpression(node);
+
+/**
+ * True when the resolved executeMemoryWrite target itself is a generator
+ * (function* / async function*), regardless of yield presence (REV9-001).
+ */
+const isGeneratorTarget = (target) =>
+  (ts.isFunctionDeclaration(target) ||
+    ts.isFunctionExpression(target) ||
+    ts.isMethodDeclaration(target)) &&
+  target.asteriskToken !== undefined;
+
+const rejectUnsupportedControlFlow = (target, failuresOut) => {
+  const visit = (node) => {
+    if (isUnsupportedControlFlowNode(node)) {
+      failuresOut.push(
+        'UNSUPPORTED_CONTROL_FLOW: labels, loops, switch, try/catch/finally, break/continue and yield are forbidden.',
+      );
+      return;
+    }
+    if (
+      (ts.isFunctionDeclaration(node) ||
+        ts.isFunctionExpression(node) ||
+        ts.isArrowFunction(node) ||
+        ts.isMethodDeclaration(node)) &&
+      node !== target &&
+      node.asteriskToken !== undefined
+    ) {
+      failuresOut.push(
+        'UNSUPPORTED_CONTROL_FLOW: generator functions are forbidden in the security flow.',
+      );
+      return;
+    }
+    if (
+      (ts.isFunctionDeclaration(node) ||
+        ts.isFunctionExpression(node) ||
+        ts.isArrowFunction(node) ||
+        ts.isMethodDeclaration(node) ||
+        ts.isGetAccessorDeclaration(node) ||
+        ts.isSetAccessorDeclaration(node) ||
+        ts.isConstructorDeclaration(node) ||
+        ts.isClassStaticBlockDeclaration(node)) &&
+      node !== target
+    ) {
+      // Nested executable bodies are scanned separately for stages; do not walk into them here.
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  if (target.body !== undefined) visit(target.body);
+};
+
+/**
+ * True when every path through `statement` ends in return/throw (no fall-through).
+ * Unreachable statements after an inner terminator do not restore fall-through.
+ */
 const statementTerminates = (statement) => {
   if (ts.isReturnStatement(statement) || ts.isThrowStatement(statement)) return true;
   if (ts.isBlock(statement)) {
-    if (statement.statements.length === 0) return false;
-    return statementTerminates(statement.statements[statement.statements.length - 1]);
+    let fallThrough = true;
+    for (const nested of statement.statements) {
+      if (!fallThrough) continue;
+      if (statementTerminates(nested)) fallThrough = false;
+    }
+    return !fallThrough;
   }
   if (ts.isIfStatement(statement)) {
-    if (!statementTerminates(statement.thenStatement)) return false;
     if (statement.elseStatement === undefined) return false;
-    return statementTerminates(statement.elseStatement);
+    return (
+      statementTerminates(statement.thenStatement) && statementTerminates(statement.elseStatement)
+    );
   }
   return false;
 };
 
-const isCanonicalApprovalCondition = (source, expression) => {
+const isLogicalOrCommaOperator = (operator) =>
+  operator === ts.SyntaxKind.AmpersandAmpersandToken ||
+  operator === ts.SyntaxKind.BarBarToken ||
+  operator === ts.SyntaxKind.QuestionQuestionToken ||
+  operator === ts.SyntaxKind.CommaToken;
+
+const isExpressionContainer = (node) =>
+  ts.isObjectLiteralExpression(node) ||
+  ts.isArrayLiteralExpression(node) ||
+  ts.isConditionalExpression(node) ||
+  ts.isTemplateExpression(node) ||
+  ts.isTaggedTemplateExpression(node) ||
+  (ts.isBinaryExpression(node) && isLogicalOrCommaOperator(node.operatorToken.kind));
+
+/**
+ * Security stages must be direct call expressions on the straight line (or the
+ * canonical approval gate). Hiding them in object/array/ternary/logical/comma/
+ * template containers fails closed (REV7-003).
+ */
+const rejectSecurityStagesInExpressionContainers = (source, root, failuresOut) => {
+  const visit = (node, insideContainer) => {
+    if (node !== root && isNestedExecutableBoundary(node)) return;
+    if (isExpressionContainer(node)) {
+      ts.forEachChild(node, (child) => visit(child, true));
+      return;
+    }
+    if (insideContainer && ts.isCallExpression(node) && isStageCall(source, node)) {
+      failuresOut.push(
+        'AMBIGUOUS_CONTROL_FLOW: security stages inside expression containers are forbidden.',
+      );
+      return;
+    }
+    ts.forEachChild(node, (child) => visit(child, insideContainer));
+  };
+  visit(root, false);
+};
+
+const rejectUnreachableSecurityStages = (source, root, failuresOut) => {
+  const stages = [];
+  findStageCallsDeep(source, root, stages, true);
+  if (stages.length > 0)
+    failuresOut.push(
+      'UNREACHABLE_SECURITY_STAGE: security stages after unconditional termination are forbidden.',
+    );
+};
+
+const creditDirectStageCall = (source, expression, failuresOut, straightLineStages) => {
+  rejectSecurityStagesInExpressionContainers(source, expression, failuresOut);
+  const unwrapped = unwrapExpression(expression);
+  if (!ts.isCallExpression(unwrapped)) return;
+  const stage = stageOf(source, unwrapped);
+  if (stage === null) return;
+  if (APPROVAL_ONLY_STAGES.has(stage)) {
+    failuresOut.push(
+      'AMBIGUOUS_CONTROL_FLOW: naked approval lookup/validate/consume outside the canonical gated sequence is forbidden.',
+    );
+    return;
+  }
+  straightLineStages.push({
+    stage,
+    position: unwrapped.getStart(source),
+    name: callName(source, unwrapped),
+  });
+};
+
+const isCanonicalApprovalCondition = (_source, expression) => {
   const expr = unwrapExpression(expression);
-  if (expr.kind === ts.SyntaxKind.TrueKeyword || expr.kind === ts.SyntaxKind.FalseKeyword)
-    return false;
   if (!ts.isBinaryExpression(expr)) return false;
-  if (
-    expr.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken &&
-    expr.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsToken
-  )
-    return false;
-  const left = unwrapExpression(expr.left).getText(source);
-  const right = unwrapExpression(expr.right).getText(source);
-  const required = new Set(["'approval-required'", '"approval-required"']);
-  if (required.has(right)) return left.endsWith('.decision') || left === 'decision';
-  if (required.has(left)) return right.endsWith('.decision') || right === 'decision';
+  // Production contract uses strict equality only.
+  if (expr.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken) return false;
+  const left = unwrapExpression(expr.left);
+  const right = unwrapExpression(expr.right);
+  const isApprovalRequiredLiteral = (node) =>
+    ts.isStringLiteral(node) && node.text === 'approval-required';
+  // Exact production / canonical fixture chain: policyResult.value.decision
+  const isDecisionReference = (node) =>
+    hasExactPropertyChain(node, ['policyResult', 'value', 'decision']);
+  if (isApprovalRequiredLiteral(right) && isDecisionReference(left)) return true;
+  // Mirror operand order is intentionally allowed.
+  if (isApprovalRequiredLiteral(left) && isDecisionReference(right)) return true;
   return false;
 };
 
@@ -210,10 +482,149 @@ const approvalThenHasRequiredStages = (source, thenStatement) => {
   );
 };
 
+const propertyChain = (expression) => {
+  const parts = [];
+  let current = unwrapExpression(expression);
+  while (ts.isPropertyAccessExpression(current) && !current.questionDotToken) {
+    parts.unshift(current.name.text);
+    current = unwrapExpression(current.expression);
+  }
+  if (!ts.isIdentifier(current)) return null;
+  parts.unshift(current.text);
+  return parts;
+};
+
+const hasExactPropertyChain = (expression, expected) => {
+  const actual = propertyChain(expression);
+  return (
+    actual !== null &&
+    actual.length === expected.length &&
+    actual.every((part, index) => part === expected[index])
+  );
+};
+
+const stageAssignment = (source, statement, expectedStage) => {
+  if (!ts.isVariableStatement(statement) || statement.declarationList.declarations.length !== 1)
+    return null;
+  const [declaration] = statement.declarationList.declarations;
+  if (!ts.isIdentifier(declaration.name) || declaration.initializer === undefined) return null;
+  const initializer = unwrapExpression(declaration.initializer);
+  if (!ts.isCallExpression(initializer) || stageOf(source, initializer) !== expectedStage)
+    return null;
+  return { name: declaration.name.text, call: initializer };
+};
+
+const canonicalResultGuard = (statement, identifier) => {
+  if (!ts.isIfStatement(statement) || statement.elseStatement !== undefined) return false;
+  const condition = unwrapExpression(statement.expression);
+  if (
+    !ts.isPrefixUnaryExpression(condition) ||
+    condition.operator !== ts.SyntaxKind.ExclamationToken ||
+    !hasExactPropertyChain(condition.operand, [identifier, 'ok'])
+  )
+    return false;
+  return statementTerminates(statement.thenStatement);
+};
+
+const countBindings = (root, identifier) => {
+  let count = 0;
+  const countName = (name) => {
+    if (ts.isIdentifier(name)) {
+      if (name.text === identifier) count += 1;
+      return;
+    }
+    for (const element of name.elements)
+      if (!ts.isOmittedExpression(element)) countName(element.name);
+  };
+  const visit = (node) => {
+    if (ts.isVariableDeclaration(node) || ts.isParameter(node)) countName(node.name);
+    if (
+      (ts.isFunctionDeclaration(node) ||
+        ts.isFunctionExpression(node) ||
+        ts.isClassDeclaration(node) ||
+        ts.isClassExpression(node)) &&
+      node.name?.text === identifier
+    )
+      count += 1;
+    ts.forEachChild(node, visit);
+  };
+  visit(root);
+  return count;
+};
+
 const approvalThenUsesResults = (source, thenStatement) => {
-  const text = thenStatement.getText(source);
-  // Fail closed: lookup/validate/consume results must drive control flow, not be discarded.
-  if (!/\.ok\b/.test(text) && !/validated\.value/.test(text)) return false;
+  if (!ts.isBlock(thenStatement)) return false;
+  const statements = [...thenStatement.statements];
+  const assignments = [];
+  for (const [index, statement] of statements.entries())
+    for (const stage of ['approval-lookup', 'approval-validation', 'approval-consumption']) {
+      const assignment = stageAssignment(source, statement, stage);
+      if (assignment !== null) assignments.push({ ...assignment, stage, index });
+    }
+  if (assignments.length !== 3) return false;
+  const lookup = assignments.find((entry) => entry.stage === 'approval-lookup');
+  const validation = assignments.find((entry) => entry.stage === 'approval-validation');
+  const consumption = assignments.find((entry) => entry.stage === 'approval-consumption');
+  if (lookup === undefined || validation === undefined || consumption === undefined) return false;
+  if (!(lookup.index < validation.index && validation.index < consumption.index)) return false;
+  if (
+    countBindings(thenStatement, lookup.name) !== 1 ||
+    countBindings(thenStatement, validation.name) !== 1 ||
+    countBindings(thenStatement, consumption.name) !== 1
+  )
+    return false;
+
+  const lookupGuard = statements.findIndex(
+    (statement, index) => index > lookup.index && canonicalResultGuard(statement, lookup.name),
+  );
+  const validationGuard = statements.findIndex(
+    (statement, index) =>
+      index > validation.index && canonicalResultGuard(statement, validation.name),
+  );
+  const consumptionGuard = statements.findIndex(
+    (statement, index) =>
+      index > consumption.index && canonicalResultGuard(statement, consumption.name),
+  );
+  if (
+    lookupGuard < 0 ||
+    validationGuard < 0 ||
+    consumptionGuard < 0 ||
+    lookupGuard >= validation.index ||
+    validationGuard >= consumption.index
+  )
+    return false;
+
+  if (
+    validation.call.arguments.length < 1 ||
+    !hasExactPropertyChain(validation.call.arguments[0], [lookup.name, 'value'])
+  )
+    return false;
+  if (
+    consumption.call.arguments.length < 2 ||
+    !hasExactPropertyChain(consumption.call.arguments[0], [
+      validation.name,
+      'value',
+      'approvalId',
+    ]) ||
+    !hasExactPropertyChain(consumption.call.arguments[1], [validation.name, 'value', 'nonce'])
+  )
+    return false;
+
+  const protectedNames = new Set([lookup.name, validation.name, consumption.name]);
+  let reassigned = false;
+  const visitAssignments = (node) => {
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(unwrapExpression(node.left)) &&
+      protectedNames.has(unwrapExpression(node.left).text)
+    )
+      reassigned = true;
+    ts.forEachChild(node, visitAssignments);
+  };
+  visitAssignments(thenStatement);
+  if (reassigned) return false;
+
   return true;
 };
 
@@ -322,11 +733,7 @@ const expressionHasAmbiguousStage = (source, expression, failuresOut) => {
         return;
       }
     }
-    if (
-      ts.isFunctionExpression(node) ||
-      ts.isArrowFunction(node) ||
-      ts.isFunctionDeclaration(node)
-    ) {
+    if (isNestedExecutableBoundary(node)) {
       const nested = [];
       findStageCallsDeep(source, node, nested, true);
       if (nested.length > 0) {
@@ -350,7 +757,8 @@ const analyzeStraightLineBody = (source, functionNode, localFailures) => {
   }
 
   const straightLineStages = [];
-  const pushStagesFrom = (root) => {
+
+  const pushApprovalStagesFromGate = (root) => {
     const stages = [];
     findStageCallsDeep(source, root, stages, false);
     for (const call of stages) {
@@ -364,104 +772,113 @@ const analyzeStraightLineBody = (source, functionNode, localFailures) => {
     }
   };
 
-  for (const statement of body.statements) {
-    if (ts.isReturnStatement(statement)) {
-      if (statement.expression)
-        expressionHasAmbiguousStage(source, statement.expression, localFailures);
-      continue;
-    }
+  /**
+   * @returns {boolean} whether control can fall through past this statement list
+   */
+  const analyzeStatementList = (statements) => {
+    let fallThrough = true;
+    for (const statement of statements) {
+      if (!fallThrough) {
+        rejectUnreachableSecurityStages(source, statement, localFailures);
+        continue;
+      }
 
-    if (ts.isIfStatement(statement)) {
-      const gateKind = classifyApprovalGateIf(source, statement, localFailures);
-      if (gateKind === 'valid-gate') {
-        if (statementContainsWrite(source, statement)) {
+      if (ts.isReturnStatement(statement) || ts.isThrowStatement(statement)) {
+        if (statement.expression)
+          expressionHasAmbiguousStage(source, statement.expression, localFailures);
+        if (statement.expression)
+          rejectSecurityStagesInExpressionContainers(source, statement.expression, localFailures);
+        fallThrough = false;
+        continue;
+      }
+
+      if (ts.isBlock(statement)) {
+        fallThrough = analyzeStatementList(statement.statements);
+        continue;
+      }
+
+      if (ts.isIfStatement(statement)) {
+        const gateKind = classifyApprovalGateIf(source, statement, localFailures);
+        if (gateKind === 'valid-gate') {
+          if (statementContainsWrite(source, statement)) {
+            localFailures.push(
+              'AMBIGUOUS_CONTROL_FLOW: memory-write inside the approval gate is forbidden.',
+            );
+          } else {
+            expressionHasAmbiguousStage(source, statement.expression, localFailures);
+            rejectSecurityStagesInExpressionContainers(source, statement.expression, localFailures);
+            rejectSecurityStagesInExpressionContainers(
+              source,
+              statement.thenStatement,
+              localFailures,
+            );
+            pushApprovalStagesFromGate(statement.thenStatement);
+          }
+          // Approval gate deny paths terminate; the non-approval fall-through remains reachable.
+          fallThrough = true;
+        } else if (gateKind === 'invalid-gate') {
+          // Failures already recorded; do not credit approval stages from an invalid gate.
+          fallThrough = !statementTerminates(statement);
+        } else if (!isPureEarlyDenyReturn(source, statement, localFailures)) {
           localFailures.push(
-            'AMBIGUOUS_CONTROL_FLOW: memory-write inside the approval gate is forbidden.',
+            'AMBIGUOUS_CONTROL_FLOW: stage/write calls inside if/else branches are forbidden; only early deny returns without stages or the approval gate are allowed.',
           );
+          fallThrough = !statementTerminates(statement);
         } else {
           expressionHasAmbiguousStage(source, statement.expression, localFailures);
-          pushStagesFrom(statement.thenStatement);
+          rejectSecurityStagesInExpressionContainers(source, statement.expression, localFailures);
+          fallThrough = !statementTerminates(statement);
         }
-      } else if (gateKind === 'invalid-gate') {
-        // Failures already recorded; do not credit approval stages from an invalid gate.
-      } else if (!isPureEarlyDenyReturn(source, statement, localFailures)) {
+        continue;
+      }
+
+      if (
+        ts.isLabeledStatement(statement) ||
+        ts.isForStatement(statement) ||
+        ts.isForInStatement(statement) ||
+        ts.isForOfStatement(statement) ||
+        ts.isWhileStatement(statement) ||
+        ts.isDoStatement(statement) ||
+        ts.isSwitchStatement(statement) ||
+        ts.isTryStatement(statement) ||
+        ts.isBreakStatement(statement) ||
+        ts.isContinueStatement(statement) ||
+        ts.isWithStatement(statement)
+      ) {
         localFailures.push(
-          'AMBIGUOUS_CONTROL_FLOW: stage/write calls inside if/else branches are forbidden; only early deny returns without stages or the approval gate are allowed.',
+          'UNSUPPORTED_CONTROL_FLOW: labels, loops, switch, try/catch/finally, break/continue are forbidden.',
         );
-      } else {
+        // Unsupported forms are not modelled; do not credit later stages as reachable through them.
+        fallThrough = false;
+        continue;
+      }
+
+      if (ts.isExpressionStatement(statement)) {
         expressionHasAmbiguousStage(source, statement.expression, localFailures);
+        creditDirectStageCall(source, statement.expression, localFailures, straightLineStages);
+        continue;
       }
-      continue;
-    }
 
-    if (
-      ts.isForStatement(statement) ||
-      ts.isForInStatement(statement) ||
-      ts.isForOfStatement(statement) ||
-      ts.isWhileStatement(statement) ||
-      ts.isDoStatement(statement)
-    ) {
-      const nested = [];
-      findStageCallsDeep(source, statement, nested, true);
-      if (nested.length > 0)
-        localFailures.push('AMBIGUOUS_CONTROL_FLOW: stage/write calls inside loops are forbidden.');
-      continue;
-    }
-
-    if (ts.isSwitchStatement(statement)) {
-      const nested = [];
-      findStageCallsDeep(source, statement, nested, true);
-      if (nested.length > 0)
-        localFailures.push(
-          'AMBIGUOUS_CONTROL_FLOW: stage/write calls inside switch are forbidden.',
-        );
-      continue;
-    }
-
-    if (ts.isTryStatement(statement)) {
-      const nested = [];
-      findStageCallsDeep(source, statement, nested, true);
-      if (nested.length > 0)
-        localFailures.push(
-          'AMBIGUOUS_CONTROL_FLOW: stage/write calls inside try/catch/finally are forbidden.',
-        );
-      continue;
-    }
-
-    if (ts.isExpressionStatement(statement)) {
-      expressionHasAmbiguousStage(source, statement.expression, localFailures);
-      const expression = unwrapExpression(statement.expression);
-      if (ts.isCallExpression(expression)) {
-        const stage = stageOf(source, expression);
-        if (stage !== null)
-          straightLineStages.push({
-            stage,
-            position: expression.getStart(source),
-            name: callName(source, expression),
-          });
-      }
-      continue;
-    }
-
-    if (ts.isVariableStatement(statement)) {
-      for (const declaration of statement.declarationList.declarations) {
-        if (declaration.initializer)
+      if (ts.isVariableStatement(statement)) {
+        for (const declaration of statement.declarationList.declarations) {
+          if (declaration.initializer === undefined) continue;
           expressionHasAmbiguousStage(source, declaration.initializer, localFailures);
-        if (declaration.initializer) pushStagesFrom(declaration.initializer);
+          creditDirectStageCall(source, declaration.initializer, localFailures, straightLineStages);
+        }
+        continue;
       }
-      continue;
-    }
 
-    if (ts.isTryStatement(statement) === false) {
-      const nested = [];
-      findStageCallsDeep(source, statement, nested, true);
-      if (nested.length > 0)
-        localFailures.push(
-          'AMBIGUOUS_CONTROL_FLOW: unsupported statement shape containing stage/write calls.',
-        );
-    }
-  }
+      if (ts.isEmptyStatement(statement)) continue;
 
+      localFailures.push(
+        'UNSUPPORTED_CONTROL_FLOW: unknown or unsupported statement shape in the security flow.',
+      );
+      fallThrough = false;
+    }
+    return fallThrough;
+  };
+
+  analyzeStatementList(body.statements);
   return straightLineStages;
 };
 
@@ -478,6 +895,26 @@ export function analyzeExecuteMemoryWrite(sourceText, fileName = 'memory-write.s
     return { ok: false, failures: localFailures };
   }
   const [target] = functions;
+  // REV9-001: reject generator targets before any body walk or stage accounting.
+  if (isGeneratorTarget(target)) {
+    localFailures.push(
+      'UNSUPPORTED_CONTROL_FLOW: generator executeMemoryWrite target is forbidden.',
+    );
+    return { ok: false, failures: localFailures };
+  }
+  rejectUnsupportedControlFlow(target, localFailures);
+  rejectIndirectSecurityReferences(source, target, localFailures);
+  rejectNestedStageBoundaries(source, target, localFailures);
+  for (const parameter of target.parameters ?? []) {
+    if (parameter.initializer === undefined) continue;
+    rejectSecurityStagesInExpressionContainers(source, parameter.initializer, localFailures);
+    const stages = [];
+    findStageCallsDeep(source, parameter.initializer, stages, true);
+    if (stages.length > 0)
+      localFailures.push(
+        'AMBIGUOUS_CONTROL_FLOW: security stages inside default parameter initializers are forbidden.',
+      );
+  }
   const calls = collectDirectCalls(source, target);
   if (calls === null) {
     localFailures.push('UNANALYZABLE: executeMemoryWrite body could not be analysed.');
@@ -543,18 +980,11 @@ export function analyzeExecuteMemoryWrite(sourceText, fileName = 'memory-write.s
       localFailures.push(`ORDER_VIOLATION: ${previous} must run before ${current}.`);
   }
 
-  if (!stagePositions.has('trusted-clock'))
-    localFailures.push('MISSING_STAGE: trusted-clock (readTrustedTimestamp) is absent.');
-  else if (
-    stagePositions.has('context-validation') &&
-    stagePositions.get('trusted-clock') < stagePositions.get('context-validation')
-  )
-    localFailures.push('ORDER_VIOLATION: trusted-clock must follow context validation.');
-
   const writePosition = stagePositions.get('memory-write');
   if (writePosition !== undefined) {
     for (const stage of [
       'input-normalization',
+      'trusted-clock',
       'untrusted-marking',
       'text-scan',
       'metadata-scan',
@@ -720,7 +1150,7 @@ export async function executeMemoryWrite(deps, access, command) {
     if (!grant.ok) return err({ code: 'APPROVAL_UNAVAILABLE' });
     const validated = validateApproval(grant.value, demand, trustedNow);
     if (!validated.ok) return err({ code: 'APPROVAL_INVALID' });
-    const consumed = await deps.approvals.consume(validated.value.approvalId, grant.value.nonce, access.operation);
+    const consumed = await deps.approvals.consume(validated.value.approvalId, validated.value.nonce, access.operation);
     if (!consumed.ok) return err({ code: 'CONSUMPTION_FAILED' });
   }
   await deps.memory.write({}, access);
@@ -796,7 +1226,7 @@ export async function executeMemoryWrite(deps) {
     if (!grant.ok) return err({ code: 'APPROVAL_UNAVAILABLE' });
     const validated = validateApproval(grant.value, demand, trustedNow);
     if (!validated.ok) return err({ code: 'APPROVAL_INVALID' });
-    const consumed = await deps.approvals.consume(validated.value.approvalId, grant.value.nonce, access.operation);
+    const consumed = await deps.approvals.consume(validated.value.approvalId, validated.value.nonce, access.operation);
     if (!consumed.ok) return err({ code: 'CONSUMPTION_FAILED' });
   }
   await deps.memory.write({}, access);`,
@@ -808,7 +1238,7 @@ export async function executeMemoryWrite(deps) {
     if (!grant.ok) return err({ code: 'APPROVAL_UNAVAILABLE' });
     const validated = validateApproval(grant.value, demand, trustedNow);
     if (!validated.ok) return err({ code: 'APPROVAL_INVALID' });
-    const consumed = await deps.approvals.consume(validated.value.approvalId, grant.value.nonce, access.operation);
+    const consumed = await deps.approvals.consume(validated.value.approvalId, validated.value.nonce, access.operation);
     if (!consumed.ok) return err({ code: 'CONSUMPTION_FAILED' });
   }`,
     ),
@@ -918,7 +1348,69 @@ export async function executeMemoryWrite(deps, access, command) {
   await deps.audit.record({}, access);
 }
 `,
-    'AMBIGUOUS_CONTROL_FLOW',
+    'UNSUPPORTED_CONTROL_FLOW',
+  );
+
+  runMutation(
+    'labeled-return-then-stages',
+    `
+export async function executeMemoryWrite(deps, access, command) {
+  label: { return { ok: true }; }
+  validateOperationContext(access.operation);
+  readTrustedTimestamp(deps.clock);
+  normalizeMemoryWriteContent(command.rawContent);
+  markUntrusted(command.rawContent);
+  await deps.scanner.scanText(command.rawContent, access.operation);
+  await deps.scanner.scanMetadata(command.rawMetadata, access.operation);
+  classifyData('owner');
+  authorizeMemoryAccess(access, 'write', { ownerId: access.ownerId, namespace: command.targetNamespace });
+  const policyResult = await deps.policy.evaluate({}, access);
+  deriveMemoryWriteApprovalDemand({});
+  if (policyResult.value.decision === 'approval-required') {
+    if (command.approvalId === null) return err({ code: 'APPROVAL_REQUIRED' });
+    const grant = await deps.approvals.lookup(command.approvalId, access.operation);
+    if (!grant.ok) return err({ code: 'APPROVAL_UNAVAILABLE' });
+    const validated = validateApproval(grant.value, demand, trustedNow);
+    if (!validated.ok) return err({ code: 'APPROVAL_INVALID' });
+    const consumed = await deps.approvals.consume(validated.value.approvalId, validated.value.nonce, access.operation);
+    if (!consumed.ok) return err({ code: 'CONSUMPTION_FAILED' });
+  }
+  await deps.memory.write({}, access);
+  await deps.audit.record({}, access);
+}
+`,
+    'UNSUPPORTED_CONTROL_FLOW',
+  );
+
+  runMutation(
+    'try-catch-control-flow',
+    `
+export async function executeMemoryWrite(deps, access, command) {
+  try { const x = 1; } catch (error) { const y = 2; }
+  validateOperationContext(access.operation);
+  readTrustedTimestamp(deps.clock);
+  normalizeMemoryWriteContent(command.rawContent);
+  markUntrusted(command.rawContent);
+  await deps.scanner.scanText(command.rawContent, access.operation);
+  await deps.scanner.scanMetadata(command.rawMetadata, access.operation);
+  classifyData('owner');
+  authorizeMemoryAccess(access, 'write', { ownerId: access.ownerId, namespace: command.targetNamespace });
+  const policyResult = await deps.policy.evaluate({}, access);
+  deriveMemoryWriteApprovalDemand({});
+  if (policyResult.value.decision === 'approval-required') {
+    if (command.approvalId === null) return err({ code: 'APPROVAL_REQUIRED' });
+    const grant = await deps.approvals.lookup(command.approvalId, access.operation);
+    if (!grant.ok) return err({ code: 'APPROVAL_UNAVAILABLE' });
+    const validated = validateApproval(grant.value, demand, trustedNow);
+    if (!validated.ok) return err({ code: 'APPROVAL_INVALID' });
+    const consumed = await deps.approvals.consume(validated.value.approvalId, validated.value.nonce, access.operation);
+    if (!consumed.ok) return err({ code: 'CONSUMPTION_FAILED' });
+  }
+  await deps.memory.write({}, access);
+  await deps.audit.record({}, access);
+}
+`,
+    'UNSUPPORTED_CONTROL_FLOW',
   );
 
   runMutation(
@@ -943,6 +1435,23 @@ export async function executeMemoryWrite(deps, access, command) {
 }
 `,
     'AMBIGUOUS_CONTROL_FLOW',
+  );
+
+  runMutation(
+    'async-generator-target',
+    correctBody.replace(
+      'export async function executeMemoryWrite',
+      'export async function* executeMemoryWrite',
+    ),
+    'UNSUPPORTED_CONTROL_FLOW',
+  );
+
+  runMutation(
+    'sync-generator-target',
+    correctBody
+      .replace('export async function executeMemoryWrite', 'export function* executeMemoryWrite')
+      .replaceAll('await ', ''),
+    'UNSUPPORTED_CONTROL_FLOW',
   );
 
   const production = analyzeExecuteMemoryWrite(correctBody, 'correct.ts');

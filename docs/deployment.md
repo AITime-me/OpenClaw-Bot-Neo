@@ -6,6 +6,12 @@ Deployment сейчас не выполняется. Это проект гра�
 
 Production Node support: `>=22.13.0 <23`. Review/tooling override (`OPENCLAW_REVIEW_NODE_OVERRIDE=1`) не означает production support Node 24.
 
+Production entrypoint и wiring strict Node gate пока **not implemented**. DNS resolution,
+redirect/rebinding SSRF checks, path/symlink-root isolation, MIME content sniffing,
+decompression-bomb limits, quarantine, persistent atomic replay/idempotency storage, real
+provider/auth stores и VPS hardening ниже являются **planned requirements**, а не действующими
+deployment controls.
+
 ## Минимальный профиль
 
 - bind loopback-first; inbound ports закрыты, кроме отдельно обоснованного termination point;
@@ -18,4 +24,6 @@ Production Node support: `>=22.13.0 <23`. Review/tooling override (`OPENCLAW_REV
 - controlled update: review release notes, snapshot, staging test, health check, rollback;
 - наблюдение не даёт reverse shell, shared keys или обратного trust.
 
-Точные команды, образы, unit-файлы, порты и OpenClaw-поля не определены. До security review, threat model и owner approval deployment запрещён.
+Точные команды, образы, unit-файлы, порты и OpenClaw-поля не определены. Build №3 не начат, VPS не
+куплен, security approval отсутствует pending Codex Review №6. До review, threat model и отдельного
+owner approval deployment запрещён.

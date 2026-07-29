@@ -4,6 +4,7 @@ import type {
   WebhookIngressDecision,
   WebhookIngressLimits,
 } from '../domain/index.js';
+import { parseISO8601, WEBHOOK_ENVELOPE_VERSION } from '../domain/index.js';
 import { isAuthorizedWebhookIngress } from '../domain/webhook.internal.js';
 
 const deny = (code: WebhookFailureCode, reason: string): WebhookIngressDecision => ({
@@ -49,6 +50,9 @@ export function validateWebhookEnvelope(
 ): WebhookIngressDecision {
   const limitsCheck = validateWebhookIngressLimits(limits);
   if (!limitsCheck.allowed) return limitsCheck;
+  const envelopeVersion: unknown = envelope.envelopeVersion;
+  if (envelopeVersion !== WEBHOOK_ENVELOPE_VERSION)
+    return deny('INVALID_ENVELOPE', 'Webhook envelope version is unsupported.');
   if (
     typeof envelope.sourceId !== 'string' ||
     envelope.sourceId.length === 0 ||
@@ -75,12 +79,24 @@ export function validateWebhookEnvelope(
     envelope.idempotencyKey.length > limits.maxIdLength
   )
     return deny('INVALID_ENVELOPE', 'Webhook idempotencyKey is invalid.');
+  if (
+    typeof envelope.nonce !== 'string' ||
+    envelope.nonce.length === 0 ||
+    envelope.nonce.length > 256 ||
+    !ID_PATTERN.test(envelope.nonce)
+  )
+    return deny('INVALID_ENVELOPE', 'Webhook nonce is invalid.');
   if (typeof envelope.correlationId !== 'string' || envelope.correlationId.length === 0)
     return deny('INVALID_ENVELOPE', 'Webhook correlationId is invalid.');
   if (typeof envelope.payloadDigest !== 'string' || envelope.payloadDigest.length === 0)
     return deny('EMPTY_DIGEST', 'Webhook payload digest is empty.');
   if (!DIGEST_PATTERN.test(envelope.payloadDigest))
     return deny('MALFORMED_DIGEST', 'Webhook payload digest is malformed.');
+  if (
+    !DIGEST_PATTERN.test(envelope.signedEnvelopeDigest) ||
+    !DIGEST_PATTERN.test(envelope.signatureDigest)
+  )
+    return deny('MALFORMED_DIGEST', 'Webhook signed material digest is malformed.');
   if (typeof envelope.contentType !== 'string' || envelope.contentType.length === 0)
     return deny('INVALID_ENVELOPE', 'Webhook contentType is invalid.');
   if (!PRIVACY.some((value) => value === envelope.privacyClassification))
@@ -99,14 +115,18 @@ export function validateWebhookEnvelope(
     envelope.signature.algorithm.length === 0 ||
     typeof envelope.signature.keyReference !== 'string' ||
     envelope.signature.keyReference.length === 0 ||
-    typeof envelope.signature.signaturePresent !== 'boolean'
+    typeof envelope.signature.value !== 'string' ||
+    envelope.signature.value.length === 0 ||
+    envelope.signature.value.length > 4_096
   )
-    return deny('INVALID_ENVELOPE', 'Webhook signature metadata is invalid.');
-  if (!envelope.signature.signaturePresent)
-    return deny('SIGNATURE_REQUIRED', 'Webhook signature is required for this source.');
+    return deny('SIGNATURE_REQUIRED', 'Webhook signature material is invalid.');
 
-  const occurredAt = Date.parse(envelope.occurredAt);
-  const receivedAt = Date.parse(envelope.receivedAt);
+  const occurredIdentity = parseISO8601(envelope.occurredAt);
+  const receivedIdentity = parseISO8601(envelope.receivedAt);
+  if (!occurredIdentity.ok || !receivedIdentity.ok)
+    return deny('INVALID_TIMESTAMP', 'Webhook timestamps are not canonical.');
+  const occurredAt = new Date(occurredIdentity.value).getTime();
+  const receivedAt = new Date(receivedIdentity.value).getTime();
   const trustedNow = now instanceof Date ? now.getTime() : Number.NaN;
   if (
     !Number.isFinite(occurredAt) ||

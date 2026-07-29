@@ -1,4 +1,5 @@
 import type { ISO8601 } from './identity.js';
+import { parseISO8601 } from './identity.js';
 export interface OperationContext {
   readonly signal: AbortSignal;
   readonly timeoutMs: number;
@@ -16,7 +17,7 @@ export function validateOperationContext(
   if (!(context.signal instanceof AbortSignal)) return { code: 'MISSING_OPERATION_CONTEXT' };
   if (!Number.isFinite(context.timeoutMs) || context.timeoutMs <= 0)
     return { code: 'INVALID_TIMEOUT' };
-  if (!Number.isFinite(Date.parse(context.deadline))) return { code: 'INVALID_DEADLINE' };
+  if (!parseISO8601(context.deadline).ok) return { code: 'INVALID_DEADLINE' };
   if (context.signal.aborted) return { code: 'ALREADY_CANCELLED' };
   return null;
 }

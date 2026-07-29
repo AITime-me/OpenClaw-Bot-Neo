@@ -2,7 +2,10 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ok, type VoiceProviderMetadataResult } from '../src/core/domain/index.js';
 import { sealVerifiedVoiceProviderMatch } from '../src/core/domain/voice-profile.internal.js';
-import { createVoiceResolutionGateway } from '../src/core/application/voice-resolution.gateway.js';
+import {
+  createVoiceResolutionGateway,
+  parseVoiceProviderObservation,
+} from '../src/core/application/voice-resolution.gateway.js';
 import {
   resolveVoiceAvailability,
   validateVoiceProfile,
@@ -90,13 +93,15 @@ const trustedVoiceGateway = (
     readonly observation?: Record<string, unknown>;
     readonly configuration?: Record<string, unknown>;
     readonly unavailable?: 'provider' | 'configuration' | 'policy';
+    readonly onPolicyRead?: () => void;
   } = {},
 ) =>
   createVoiceResolutionGateway({
     clock: fixedClock('2026-07-28T12:00:10.000Z'),
     policy: {
-      currentPolicy: () =>
-        overrides.unavailable === 'policy'
+      currentPolicy: () => {
+        overrides.onPolicyRead?.();
+        return overrides.unavailable === 'policy'
           ? Promise.resolve({ ok: false, error: { code: 'UNAVAILABLE', reason: 'policy' } })
           : Promise.resolve(
               ok({
@@ -105,7 +110,8 @@ const trustedVoiceGateway = (
                 issuedAt: '2026-07-28T12:00:00.000Z',
                 expiresAt: '2026-07-28T12:30:00.000Z',
               }),
-            ),
+            );
+      },
     },
     configuration: {
       currentConfiguration: () =>
@@ -154,6 +160,58 @@ const trustedVoiceGateway = (
   });
 
 describe('provider-independent Neo voice profile', () => {
+  it('snapshots provider observations and rejects executable shapes', () => {
+    const raw = {
+      providerIdentity: 'provider-a',
+      providerVoiceReference: 'logical-masculine-ru',
+      observedLanguage: 'ru-RU',
+      observedGenderPresentation: 'masculine',
+      metadataSourceReference: 'provider-config-a',
+      claimsClonedVoice: false,
+      claimsIdentityImitation: false,
+      claimsActorOrCelebrityIdentity: false,
+      providerConfigurationRevision: 'revision-1',
+      correlationId: asCorrelation(),
+      observedAt: '2026-07-28T12:00:00.000Z',
+      expiresAt: '2026-07-28T12:30:00.000Z',
+    };
+    const parsed = parseVoiceProviderObservation(
+      raw,
+      { correlationId: asCorrelation() },
+      new Date('2026-07-28T12:00:10.000Z'),
+    );
+    expect(parsed).not.toBeNull();
+    if (parsed === null) return;
+    raw.providerVoiceReference = 'changed';
+    expect(parsed.providerVoiceReference).toBe('logical-masculine-ru');
+    expect(Object.isFrozen(parsed)).toBe(true);
+
+    let reads = 0;
+    const getter = { ...raw, providerVoiceReference: 'logical-masculine-ru' };
+    Object.defineProperty(getter, 'claimsClonedVoice', {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return false;
+      },
+    });
+    expect(
+      parseVoiceProviderObservation(
+        getter,
+        { correlationId: asCorrelation() },
+        new Date('2026-07-28T12:00:10.000Z'),
+      ),
+    ).toBeNull();
+    expect(reads).toBe(0);
+    expect(
+      parseVoiceProviderObservation(
+        new Proxy({ ...raw, providerVoiceReference: 'logical-masculine-ru' }, {}),
+        { correlationId: asCorrelation() },
+        new Date('2026-07-28T12:00:10.000Z'),
+      ),
+    ).toBeNull();
+  });
+
   it('accepts the masculine Russian Neo profile', () => {
     const result = validateVoiceProfile(neo());
     expect(result.valid).toBe(true);
@@ -161,6 +219,86 @@ describe('provider-independent Neo voice profile', () => {
       expect(result.profile.genderPresentation).toBe('masculine');
       expect(Object.isFrozen(result.profile)).toBe(true);
     }
+  });
+
+  it('snapshots once and rejects getters, proxies, methods and custom prototypes', () => {
+    let reads = 0;
+    const getter = neo();
+    Object.defineProperty(getter, 'genderPresentation', {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return reads === 1 ? 'masculine' : 'feminine';
+      },
+    });
+    expect(validateVoiceProfile(getter).valid).toBe(false);
+    expect(reads).toBe(0);
+
+    expect(validateVoiceProfile(new Proxy(neo(), {})).valid).toBe(false);
+    expect(
+      validateVoiceProfile(
+        neo({
+          primaryVoiceSelector: {
+            language: 'ru-RU',
+            genderPresentation: 'masculine',
+            styleTags: ['calm'],
+            valueOf() {
+              throw new Error('must not execute');
+            },
+          },
+        }),
+      ).valid,
+    ).toBe(false);
+    expect(
+      validateVoiceProfile(Object.assign(Object.create({ inherited: true }), neo())).valid,
+    ).toBe(false);
+  });
+
+  it('retains no caller arrays and seals the same masculine snapshot it validates', () => {
+    const styles = [...neoStyleTags];
+    const primaryStyles = ['calm', 'restrained', 'good-russian-diction'];
+    const candidate = neo({
+      styleTags: styles,
+      primaryVoiceSelector: {
+        language: 'ru-RU',
+        genderPresentation: 'masculine',
+        styleTags: primaryStyles,
+      },
+    });
+    const result = validateVoiceProfile(candidate);
+    expect(result.valid).toBe(true);
+    if (!result.valid) return;
+    styles[0] = 'feminine';
+    primaryStyles[0] = 'actor-imitation';
+    Object.assign(candidate, { genderPresentation: 'feminine' });
+    expect(result.profile.genderPresentation).toBe('masculine');
+    expect(result.profile.styleTags[0]).toBe('calm');
+    expect(result.profile.primaryVoiceSelector.styleTags[0]).toBe('calm');
+    expect(Object.isFrozen(result.profile.styleTags)).toBe(true);
+  });
+
+  it('rejects sparse, cyclic, symbol and custom-iterator profile data', () => {
+    const sparse = neo();
+    const styles = new Array<string>(neoStyleTags.length);
+    styles[1] = 'intelligent';
+    sparse.styleTags = styles;
+    expect(validateVoiceProfile(sparse).valid).toBe(false);
+
+    const cyclic = neo();
+    cyclic.primaryVoiceSelector = cyclic;
+    expect(validateVoiceProfile(cyclic).valid).toBe(false);
+    expect(validateVoiceProfile({ ...neo(), [Symbol('hidden')]: true }).valid).toBe(false);
+    expect(
+      validateVoiceProfile(
+        neo({
+          fallbackVoiceSelectors: Object.assign([], {
+            [Symbol.iterator]: () => {
+              throw new Error('must not execute');
+            },
+          }),
+        }),
+      ).valid,
+    ).toBe(false);
   });
 
   it('validates config/voice/neo.example.json with the same policy', () => {
@@ -281,6 +419,34 @@ describe('provider-independent Neo voice profile', () => {
         ),
       ).toEqual({ mode: 'voice', selector: result.profile.primaryVoiceSelector });
     }
+  });
+
+  it('snapshots the requested selector before the first adapter await', async () => {
+    const result = validateVoiceProfile(neo());
+    expect(result.valid).toBe(true);
+    if (!result.valid) return;
+    const mutableSelector = {
+      language: 'ru-RU',
+      genderPresentation: 'masculine' as const,
+      styleTags: ['calm', 'restrained', 'good-russian-diction'],
+    };
+    const resolved = await trustedVoiceGateway(result, {
+      onPolicyRead: () => {
+        mutableSelector.language = 'en-US';
+        mutableSelector.styleTags.push('mutated');
+      },
+    }).resolve(
+      {
+        profile: result.profile,
+        selector: mutableSelector,
+        correlationId: asCorrelation(),
+        providerReference: 'provider-a',
+      },
+      operationContext(),
+    );
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(resolved.value.mode).toBe('voice');
   });
 
   it('returns text-only when Neo is disabled', () => {

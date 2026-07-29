@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto';
 import {
   err,
+  iso8601FromDate,
   isAllowedActivationTransition,
   ok,
   validateOperationContext,
   type ExtensionActivationState,
   type ExtensionRegistryFailure,
-  type ISO8601,
   type OperationContext,
   type Result,
 } from '../domain/index.js';
@@ -179,7 +179,7 @@ export const parseDeploymentApprovalObservation = (
   const expiresAt = parseIsoInstant(plain.expiresAt);
   if (issuedAt === null || expiresAt === null || !isFreshWindow(issuedAt, expiresAt, now))
     return null;
-  return {
+  return Object.freeze({
     deploymentIdentity: plain.deploymentIdentity,
     ownerId: plain.ownerId,
     actorId: plain.actorId,
@@ -191,7 +191,7 @@ export const parseDeploymentApprovalObservation = (
     correlationId: plain.correlationId,
     issuedAt: plain.issuedAt as string,
     expiresAt: plain.expiresAt as string,
-  };
+  });
 };
 
 /**
@@ -236,8 +236,8 @@ export function issueDeploymentAuthorizationFromObservation(
       extensionVersion: observation.extensionVersion,
       manifestDigest,
       policyVersion: policy.policyVersion,
-      issuedAt: observation.issuedAt as ISO8601,
-      expiresAt: new Date(effectiveExpires).toISOString() as ISO8601,
+      issuedAt: iso8601FromDate(new Date(issued)),
+      expiresAt: iso8601FromDate(new Date(effectiveExpires)),
     }),
   );
 }
@@ -342,8 +342,8 @@ export async function executeExtensionActivation(
       reason: 'Activation transition is not allowed.',
     });
 
-  const decidedAt = now.toISOString() as ISO8601;
-  const expiresAt = new Date(now.getTime() + 60_000).toISOString() as ISO8601;
+  const decidedAt = iso8601FromDate(now);
+  const expiresAt = iso8601FromDate(new Date(now.getTime() + 60_000));
   const decision = sealTrustedActivationDecision({
     extensionId: pending.extensionId,
     version: pending.version,

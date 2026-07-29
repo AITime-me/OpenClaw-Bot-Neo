@@ -74,6 +74,17 @@ describe('public API surface', () => {
       'authenticatedRegistry',
       'createHarness',
       'accessContext',
+      'parseContractDraftExample',
+      'parseExactDraft',
+      'exactJsonDto',
+      'exactPlainObservation',
+      'snapshotPlainJsonDto',
+      'snapshotRuntimeRiskOperationRequest',
+      'canonicalWebhookSignedBytes',
+      'copyExactBytes',
+      'exactCommandDescriptors',
+      'copyStringRecord',
+      'validateNpmCliPath',
     ])
       expect(exportedNames).not.toContain(forbidden);
   });
@@ -91,6 +102,8 @@ describe('public API surface', () => {
   it('keeps trusted issuers/classifier out of the application barrel', () => {
     expect(applicationNames).not.toContain('issueDeploymentAuthorizationFromObservation');
     expect(applicationNames).not.toContain('classifyExtensionRuntimeRisk');
+    expect(applicationNames).not.toContain('snapshotRuntimeRiskOperationRequest');
+    expect(applicationNames).not.toContain('canonicalWebhookSignedBytes');
     expect(applicationNames).toContain('createExtensionPermissionGateway');
     expect(applicationNames).toContain('createExtensionActivationGateway');
     expect(applicationNames).toContain('computeManifestDigest');
@@ -110,7 +123,11 @@ describe('public API surface', () => {
   it('exports safe identity/config/node helpers without internals', () => {
     expect(exportedNames).toContain('parseMessageId');
     expect(exportedNames).toContain('parseCorrelationId');
+    expect(exportedNames).toContain('parseMemoryRecordId');
+    expect(exportedNames).toContain('parseResourceRef');
+    expect(exportedNames).toContain('parseISO8601');
     expect(exportedNames).toContain('parseModelRoutingConfig');
+    expect(exportedNames).toContain('parseAutomationQuotasDraft');
     expect(exportedNames).toContain('evaluateNodeSupport');
     expect(exportedNames).not.toContain('assertProductionNode');
     expect(exportedNames).not.toContain('snapshotPlainJsonDto');

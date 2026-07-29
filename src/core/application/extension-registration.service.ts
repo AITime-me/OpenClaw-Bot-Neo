@@ -1,9 +1,9 @@
 import {
   err,
+  iso8601FromDate,
   ok,
   validateOperationContext,
   type ExtensionManifestFailure,
-  type ISO8601,
   type OperationContext,
   type Result,
   type SealedExtensionRegistryEntry,
@@ -61,7 +61,7 @@ export async function executeExtensionRegistration(
     });
 
   const activation = validation.value.enabled ? 'pending-policy' : 'disabled';
-  const registeredAt = deps.clock.now().toISOString() as ISO8601;
+  const registeredAt = iso8601FromDate(deps.clock.now());
   const entry = sealExtensionRegistryEntry({
     extensionId: validation.value.id,
     version: validation.value.version,

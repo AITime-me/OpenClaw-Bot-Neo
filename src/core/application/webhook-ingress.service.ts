@@ -1,12 +1,25 @@
+import { isProxy } from 'node:util/types';
 import {
   err,
   ok,
+  parseCorrelationId,
+  parseEventId,
+  parseISO8601,
+  parseIdempotencyKey,
+  parseNonce,
+  parseProviderReference,
+  parseSourceId,
   validateOperationContext,
+  WEBHOOK_ENVELOPE_VERSION,
+  type CorrelationId,
+  type IdempotencyKey,
   type ISO8601,
+  type Nonce,
   type OperationContext,
-  type PayloadDigest,
+  type PrivacyClassification,
   type Result,
   type SafeWebhookAuditEvent,
+  type WebhookCanonicalVerificationRequest,
   type WebhookEnvelope,
   type WebhookFailureCode,
   type WebhookIngressCommand,
@@ -30,6 +43,7 @@ import type {
   ClockPort,
   SensitiveDataScannerPort,
   WebhookAuditPort,
+  WebhookIngressAuthorizationPort,
   WebhookRateLimitPort,
   WebhookReplayProtectionPort,
   WebhookSignatureVerificationPort,
@@ -48,6 +62,7 @@ export interface WebhookIngressDeps {
   readonly replay: WebhookReplayProtectionPort;
   readonly rateLimit: WebhookRateLimitPort;
   readonly scanner: SensitiveDataScannerPort;
+  readonly policy: WebhookIngressAuthorizationPort;
   readonly audit: WebhookAuditPort;
 }
 
@@ -64,12 +79,64 @@ export interface WebhookIngressOutcome {
 
 const VERIFIER_RESULT_FIELDS = Object.freeze([
   'verified',
+  'envelopeVersion',
   'sourceId',
+  'eventId',
+  'occurredAt',
+  'idempotencyKey',
+  'nonce',
   'payloadDigest',
+  'signedEnvelopeDigest',
+  'signatureDigest',
   'algorithm',
   'keyReference',
   'verifiedAt',
 ]);
+
+const COMMAND_FIELDS = Object.freeze([
+  'envelopeVersion',
+  'sourceId',
+  'eventId',
+  'eventType',
+  'occurredAt',
+  'contentType',
+  'declaredContentLength',
+  'correlationId',
+  'privacyClassification',
+  'signature',
+  'idempotencyKey',
+  'nonce',
+  'rawPayload',
+] as const);
+
+const SIGNATURE_FIELDS = Object.freeze(['algorithm', 'keyReference', 'value'] as const);
+const PRIVACY = new Set<PrivacyClassification>([
+  'public',
+  'internal',
+  'confidential',
+  'commercial-secret',
+  'security-restricted',
+]);
+
+interface WebhookCommandSnapshot {
+  readonly envelopeVersion: typeof WEBHOOK_ENVELOPE_VERSION;
+  readonly sourceId: string;
+  readonly eventId: string;
+  readonly eventType: string;
+  readonly occurredAt: ISO8601;
+  readonly contentType: string;
+  readonly declaredContentLength: number;
+  readonly correlationId: CorrelationId;
+  readonly privacyClassification: PrivacyClassification;
+  readonly signature: {
+    readonly algorithm: string;
+    readonly keyReference: string;
+    readonly value: string;
+  };
+  readonly idempotencyKey: IdempotencyKey;
+  readonly nonce: Nonce;
+  readonly rawPayload: readonly number[];
+}
 
 const fail = (
   code: WebhookIngressFailure['code'],
@@ -84,6 +151,202 @@ const textFromBytes = (bytes: Uint8Array): string => {
   } catch {
     return '';
   }
+};
+
+const exactCommandDescriptors = (
+  value: unknown,
+  fields: readonly string[],
+): Readonly<Record<string, PropertyDescriptor>> | null => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value) || isProxy(value))
+    return null;
+  const prototype: unknown = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return null;
+  if (Object.getOwnPropertySymbols(value).length > 0) return null;
+  const names = Object.getOwnPropertyNames(value);
+  if (names.length !== fields.length) return null;
+  const allowed = new Set(fields);
+  const descriptors: Record<string, PropertyDescriptor> = Object.create(null) as Record<
+    string,
+    PropertyDescriptor
+  >;
+  for (const name of names) {
+    if (!allowed.has(name)) return null;
+    const descriptor = Object.getOwnPropertyDescriptor(value, name);
+    if (
+      descriptor === undefined ||
+      descriptor.get !== undefined ||
+      descriptor.set !== undefined ||
+      !descriptor.enumerable ||
+      typeof descriptor.value === 'function'
+    )
+      return null;
+    descriptors[name] = descriptor;
+  }
+  for (const field of fields)
+    if (!Object.prototype.hasOwnProperty.call(descriptors, field)) return null;
+  return Object.freeze(descriptors);
+};
+
+const copyExactBytes = (value: unknown, maxLength: number): readonly number[] | null => {
+  if (
+    value === null ||
+    typeof value !== 'object' ||
+    isProxy(value) ||
+    Object.getPrototypeOf(value) !== Uint8Array.prototype ||
+    Object.getOwnPropertySymbols(value).length > 0
+  )
+    return null;
+  const byteView = value as Uint8Array;
+  let byteLength: number;
+  try {
+    const buffer = byteView.buffer;
+    if (Object.getPrototypeOf(buffer) !== ArrayBuffer.prototype) return null;
+    const detached = (buffer as ArrayBuffer & { readonly detached?: unknown }).detached;
+    if (detached === true) return null;
+    byteLength = byteView.byteLength;
+    if (buffer.byteLength < byteView.byteOffset + byteLength) return null;
+  } catch {
+    return null;
+  }
+  if (byteLength > maxLength) return null;
+  const names = Object.getOwnPropertyNames(byteView);
+  if (names.length !== byteLength) return null;
+  const bytes: number[] = [];
+  for (let index = 0; index < byteLength; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(byteView, String(index));
+    if (
+      descriptor === undefined ||
+      descriptor.get !== undefined ||
+      descriptor.set !== undefined ||
+      typeof descriptor.value !== 'number' ||
+      !Number.isInteger(descriptor.value) ||
+      descriptor.value < 0 ||
+      descriptor.value > 255
+    )
+      return null;
+    bytes.push(descriptor.value);
+  }
+  return Object.freeze(bytes);
+};
+
+const visibleToken = (value: unknown, max: number): value is string =>
+  typeof value === 'string' &&
+  value.length > 0 &&
+  value.length <= max &&
+  /^[\x21-\x7e]+$/.test(value);
+
+const snapshotWebhookCommand = (
+  command: unknown,
+  limits: WebhookIngressLimits,
+): Result<WebhookCommandSnapshot, WebhookIngressFailure> => {
+  const descriptors = exactCommandDescriptors(command, COMMAND_FIELDS);
+  if (descriptors === null)
+    return fail('INVALID_ENVELOPE', 'Webhook command must be exact plain data.');
+  const field = (name: (typeof COMMAND_FIELDS)[number]): unknown => descriptors[name]?.value;
+  const signature = exactPlainObservation(field('signature'), SIGNATURE_FIELDS);
+  if (signature === null)
+    return fail('INVALID_ENVELOPE', 'Webhook signature material must be exact plain data.');
+  const sourceId = parseSourceId(field('sourceId'));
+  const eventId = parseEventId(field('eventId'));
+  const occurredAt = parseISO8601(field('occurredAt'));
+  const correlationId = parseCorrelationId(field('correlationId'));
+  const idempotencyKey = parseIdempotencyKey(field('idempotencyKey'));
+  const nonce = parseNonce(field('nonce'));
+  const keyReference = parseProviderReference(signature.keyReference);
+  const rawPayload = copyExactBytes(field('rawPayload'), limits.maxContentLength);
+  const envelopeVersion = field('envelopeVersion');
+  const eventType = field('eventType');
+  const contentType = field('contentType');
+  const declaredContentLength = field('declaredContentLength');
+  const privacyClassification = field('privacyClassification');
+  if (
+    envelopeVersion !== WEBHOOK_ENVELOPE_VERSION ||
+    !sourceId.ok ||
+    !eventId.ok ||
+    !occurredAt.ok ||
+    !correlationId.ok ||
+    !idempotencyKey.ok ||
+    !nonce.ok ||
+    !keyReference.ok ||
+    !filledString(eventType, limits.maxEventTypeLength) ||
+    !filledString(contentType, 256) ||
+    !visibleToken(signature.algorithm, 128) ||
+    !visibleToken(signature.value, 4_096) ||
+    !Number.isSafeInteger(declaredContentLength) ||
+    (declaredContentLength as number) < 0 ||
+    rawPayload === null ||
+    rawPayload.length !== declaredContentLength ||
+    typeof privacyClassification !== 'string' ||
+    !PRIVACY.has(privacyClassification as PrivacyClassification)
+  )
+    return fail('INVALID_ENVELOPE', 'Webhook command contains invalid fields.');
+
+  return ok(
+    Object.freeze({
+      envelopeVersion: WEBHOOK_ENVELOPE_VERSION,
+      sourceId: sourceId.value,
+      eventId: eventId.value,
+      eventType,
+      occurredAt: occurredAt.value,
+      contentType,
+      declaredContentLength,
+      correlationId: correlationId.value,
+      privacyClassification: privacyClassification as PrivacyClassification,
+      signature: Object.freeze({
+        algorithm: signature.algorithm,
+        keyReference: keyReference.value,
+        value: signature.value,
+      }),
+      idempotencyKey: idempotencyKey.value,
+      nonce: nonce.value,
+      rawPayload,
+    }),
+  );
+};
+
+/** Internal canonical framing utility. Package root does not export this trust-boundary helper. */
+export const canonicalWebhookSignedBytes = (input: {
+  readonly envelopeVersion: string;
+  readonly sourceId: string;
+  readonly eventId: string;
+  readonly eventType: string;
+  readonly occurredAt: string;
+  readonly idempotencyKey: string;
+  readonly nonce: string;
+  readonly payloadDigest: string;
+  readonly contentType: string;
+  readonly contentLength: number;
+  readonly correlationId: string;
+  readonly privacyClassification: string;
+  readonly algorithm: string;
+  readonly keyReference: string;
+}): Uint8Array => {
+  const encoder = new TextEncoder();
+  if (!Number.isSafeInteger(input.contentLength) || input.contentLength < 0)
+    throw new TypeError('Canonical webhook fields must be present primitive values.');
+  const fields = [
+    ['envelopeVersion', input.envelopeVersion],
+    ['sourceId', input.sourceId],
+    ['eventId', input.eventId],
+    ['eventType', input.eventType],
+    ['occurredAt', input.occurredAt],
+    ['idempotencyKey', input.idempotencyKey],
+    ['nonce', input.nonce],
+    ['payloadDigest', input.payloadDigest],
+    ['contentType', input.contentType],
+    ['contentLength', String(input.contentLength)],
+    ['correlationId', input.correlationId],
+    ['privacyClassification', input.privacyClassification],
+    ['signatureAlgorithm', input.algorithm],
+    ['keyReference', input.keyReference],
+  ] as const;
+  if (fields.some(([, value]) => typeof value !== 'string'))
+    throw new TypeError('Canonical webhook fields must be present primitive values.');
+  const lengthPrefix = (value: string): string =>
+    `${encoder.encode(value).byteLength.toString(10)}:${value}`;
+  return encoder.encode(
+    fields.map(([key, value]) => `${lengthPrefix(key)}=${lengthPrefix(value)}`).join('\n'),
+  );
 };
 
 const assertCanonicalDigest = (
@@ -104,8 +367,15 @@ const sealFromPrimitive = (
   const plain = exactPlainObservation(result, VERIFIER_RESULT_FIELDS);
   if (plain === null) return fail('VERIFIER_RESULT_INVALID', 'Verifier result is malformed.');
   const verified = plain.verified;
+  const envelopeVersion = plain.envelopeVersion;
   const sourceId = plain.sourceId;
+  const eventId = plain.eventId;
+  const occurredAt = plain.occurredAt;
+  const idempotencyKey = plain.idempotencyKey;
+  const nonce = plain.nonce;
   const payloadDigest = plain.payloadDigest;
+  const signedEnvelopeDigest = plain.signedEnvelopeDigest;
+  const signatureDigest = plain.signatureDigest;
   const algorithm = plain.algorithm;
   const keyReference = plain.keyReference;
   const verifiedAt = plain.verifiedAt;
@@ -113,28 +383,59 @@ const sealFromPrimitive = (
     return fail('VERIFIER_RESULT_INVALID', 'Verifier result is malformed.');
   if (
     !filledString(sourceId) ||
+    !filledString(envelopeVersion) ||
+    !filledString(eventId) ||
+    !filledString(occurredAt) ||
+    !filledString(idempotencyKey) ||
+    !filledString(nonce) ||
     !filledString(payloadDigest) ||
+    !filledString(signedEnvelopeDigest) ||
+    !filledString(signatureDigest) ||
     !filledString(algorithm) ||
     !filledString(keyReference) ||
     !filledString(verifiedAt)
   )
     return fail('VERIFIER_RESULT_INVALID', 'Verifier result is malformed.');
   if (!verified) return fail('SIGNATURE_INVALID', 'Webhook signature verification failed.');
+  const verifiedAtIdentity = parseISO8601(verifiedAt);
+  if (!verifiedAtIdentity.ok || verifiedAtIdentity.value !== trustedIso)
+    return fail('SIGNATURE_INVALID', 'Verifier timestamp does not match the trusted request.');
+  if (envelopeVersion !== envelope.envelopeVersion)
+    return fail('SIGNATURE_INVALID', 'Signature envelope version does not match.');
   if (sourceId !== envelope.sourceId)
     return fail('SIGNATURE_INVALID', 'Signature sourceId does not match the envelope.');
+  if (eventId !== envelope.eventId)
+    return fail('SIGNATURE_INVALID', 'Signature eventId does not match the envelope.');
+  if (occurredAt !== envelope.occurredAt)
+    return fail('SIGNATURE_INVALID', 'Signature occurredAt does not match the envelope.');
+  if (idempotencyKey !== envelope.idempotencyKey)
+    return fail('SIGNATURE_INVALID', 'Signature idempotency key does not match the envelope.');
+  if (nonce !== envelope.nonce)
+    return fail('SIGNATURE_INVALID', 'Signature nonce does not match the envelope.');
   if (payloadDigest !== canonicalDigest)
     return fail('SIGNATURE_INVALID', 'Signature digest does not match canonical payload.');
+  if (signedEnvelopeDigest !== envelope.signedEnvelopeDigest)
+    return fail('SIGNATURE_INVALID', 'Signed envelope digest does not match.');
+  if (signatureDigest !== envelope.signatureDigest)
+    return fail('SIGNATURE_INVALID', 'Signature material digest does not match.');
   if (algorithm !== envelope.signature.algorithm)
     return fail('SIGNATURE_INVALID', 'Signature algorithm does not match the envelope.');
   if (keyReference !== envelope.signature.keyReference)
     return fail('SIGNATURE_INVALID', 'Signature key reference does not match the envelope.');
   return ok(
     sealPayloadBoundSignature({
+      envelopeVersion: envelope.envelopeVersion,
       sourceId,
-      payloadDigest: payloadDigest as PayloadDigest,
+      eventId: envelope.eventId,
+      occurredAt: envelope.occurredAt,
+      idempotencyKey: envelope.idempotencyKey,
+      nonce: envelope.nonce,
+      payloadDigest: envelope.payloadDigest,
+      signedEnvelopeDigest: envelope.signedEnvelopeDigest,
+      signatureDigest: envelope.signatureDigest,
       algorithm,
       keyReference,
-      verifiedAt: trustedIso,
+      verifiedAt: verifiedAtIdentity.value,
     }),
   );
 };
@@ -171,44 +472,68 @@ export async function executeWebhookIngress(
   if (validateOperationContext(context) !== null)
     return fail('INVALID_OPERATION_CONTEXT', 'Valid operation context is required.');
 
-  const trustedNow = deps.clock.now();
-  const trustedIso = trustedNow.toISOString() as ISO8601;
   const limitsCheck = validateWebhookIngressLimits(limits);
   if (!limitsCheck.allowed) return fail(limitsCheck.code, limitsCheck.reason);
+  const commandResult = snapshotWebhookCommand(command, limits);
+  if (!commandResult.ok) return commandResult;
+  const commandSnapshot = commandResult.value;
 
-  if (!(command.rawPayload instanceof Uint8Array))
-    return fail('INVALID_ENVELOPE', 'Raw webhook payload is required.');
-  if (command.rawPayload.byteLength !== command.declaredContentLength)
-    return fail('CONTENT_LENGTH_MISMATCH', 'Declared content length does not match raw bytes.');
-  if (command.rawPayload.byteLength > limits.maxContentLength)
-    return fail('OVERSIZED_PAYLOAD', 'Webhook payload exceeds the configured limit.');
+  const trustedNow = deps.clock.now();
+  const trustedIsoResult = parseISO8601(trustedNow.toISOString());
+  if (!trustedIsoResult.ok)
+    return fail('INVALID_TIMESTAMP', 'Trusted clock returned an invalid timestamp.');
+  const trustedIso = trustedIsoResult.value;
 
   const payload = sealRawWebhookPayloadHandle({
-    bytes: command.rawPayload,
-    contentType: command.contentType,
-    sourceId: command.sourceId,
-    eventId: command.eventId,
+    bytes: Uint8Array.from(commandSnapshot.rawPayload),
+    contentType: commandSnapshot.contentType,
+    sourceId: commandSnapshot.sourceId,
+    eventId: commandSnapshot.eventId,
     receivedAt: trustedIso,
-    correlationId: command.correlationId,
+    correlationId: commandSnapshot.correlationId,
   });
   const canonicalDigest = payload.payloadDigest;
   if (!assertCanonicalDigest(payload, canonicalDigest))
     return fail('DIGEST_MISMATCH', 'Canonical payload digest integrity failed.');
 
-  const envelope: WebhookEnvelope = {
-    sourceId: command.sourceId,
-    eventId: command.eventId,
-    eventType: command.eventType,
-    occurredAt: command.occurredAt,
+  const signedBytes = canonicalWebhookSignedBytes({
+    envelopeVersion: commandSnapshot.envelopeVersion,
+    sourceId: commandSnapshot.sourceId,
+    eventId: commandSnapshot.eventId,
+    eventType: commandSnapshot.eventType,
+    occurredAt: commandSnapshot.occurredAt,
+    idempotencyKey: commandSnapshot.idempotencyKey,
+    nonce: commandSnapshot.nonce,
+    payloadDigest: canonicalDigest,
+    contentType: commandSnapshot.contentType,
+    contentLength: payload.contentLength,
+    correlationId: commandSnapshot.correlationId,
+    privacyClassification: commandSnapshot.privacyClassification,
+    algorithm: commandSnapshot.signature.algorithm,
+    keyReference: commandSnapshot.signature.keyReference,
+  });
+  const signedEnvelopeDigest = computeWebhookPayloadDigest(signedBytes);
+  const signatureDigest = computeWebhookPayloadDigest(
+    new TextEncoder().encode(commandSnapshot.signature.value),
+  );
+  const envelope: WebhookEnvelope = Object.freeze({
+    envelopeVersion: commandSnapshot.envelopeVersion,
+    sourceId: commandSnapshot.sourceId,
+    eventId: commandSnapshot.eventId,
+    eventType: commandSnapshot.eventType,
+    occurredAt: commandSnapshot.occurredAt,
     receivedAt: trustedIso,
     payloadDigest: canonicalDigest,
-    signature: command.signature,
-    idempotencyKey: command.idempotencyKey,
-    contentType: command.contentType,
+    signedEnvelopeDigest,
+    signatureDigest,
+    signature: commandSnapshot.signature,
+    idempotencyKey: commandSnapshot.idempotencyKey,
+    nonce: commandSnapshot.nonce,
+    contentType: commandSnapshot.contentType,
     contentLength: payload.contentLength,
-    correlationId: command.correlationId,
-    privacyClassification: command.privacyClassification,
-  };
+    correlationId: commandSnapshot.correlationId,
+    privacyClassification: commandSnapshot.privacyClassification,
+  });
 
   const envelopeCheck = validateWebhookEnvelope(envelope, limits, trustedNow);
   if (!envelopeCheck.allowed) return fail(envelopeCheck.code, envelopeCheck.reason);
@@ -225,13 +550,13 @@ export async function executeWebhookIngress(
   if (!assertCanonicalDigest(payload, canonicalDigest))
     return fail('DIGEST_MISMATCH', 'Canonical payload digest integrity failed before verify.');
 
-  const disposable = payload.copyBytes();
-  const signatureResult = await deps.signatures.verify(
+  const verificationRequest: WebhookCanonicalVerificationRequest = Object.freeze({
     envelope,
-    disposable,
-    canonicalDigest,
-    context,
-  );
+    verificationRequestedAt: trustedIso,
+    copyPayloadBytes: () => payload.copyBytes(),
+    copyCanonicalSignedBytes: () => Uint8Array.from(signedBytes),
+  });
+  const signatureResult = await deps.signatures.verify(verificationRequest, context);
   if (!signatureResult.ok)
     return fail('VERIFIER_UNAVAILABLE', 'Signature verifier is unavailable.');
   if (signatureResult.value === null)
@@ -239,10 +564,6 @@ export async function executeWebhookIngress(
 
   if (!assertCanonicalDigest(payload, canonicalDigest))
     return fail('DIGEST_MISMATCH', 'Canonical payload digest integrity failed after verify.');
-  if (computeWebhookPayloadDigest(disposable) !== canonicalDigest) {
-    // Adapter may mutate its disposable copy; that must not affect canonical authorization.
-  }
-
   const sealedSignature = sealFromPrimitive(
     signatureResult.value,
     envelope,
@@ -256,15 +577,6 @@ export async function executeWebhookIngress(
     occurredAt: envelope.occurredAt,
     receivedAt: envelope.receivedAt,
     trustedNow: trustedIso,
-  });
-
-  const replay = await deps.replay.checkAndRecord(envelope, context);
-  if (!replay.ok) return fail('VERIFIER_UNAVAILABLE', 'Replay protection is unavailable.');
-  const replayMapped = mapReplayOutcome(replay.value);
-  if (!replayMapped.ok) return replayMapped;
-  const replayEvidence = sealWebhookReplayEvidence({
-    eventId: envelope.eventId,
-    idempotencyKey: envelope.idempotencyKey,
   });
 
   const rate = await deps.rateLimit.decide(envelope.sourceId, envelope.eventType, context);
@@ -289,6 +601,19 @@ export async function executeWebhookIngress(
 
   if (!assertCanonicalDigest(payload, canonicalDigest))
     return fail('DIGEST_MISMATCH', 'Canonical payload digest integrity failed before authorize.');
+
+  const policy = await deps.policy.authorize(envelope, context);
+  if (!policy.ok) return fail('VERIFIER_UNAVAILABLE', 'Webhook policy is unavailable.');
+  if (policy.value === 'deny') return fail('POLICY_DENIED', 'Webhook policy denied the event.');
+
+  const replay = await deps.replay.checkAndRecord(envelope, context);
+  if (!replay.ok) return fail('VERIFIER_UNAVAILABLE', 'Replay protection is unavailable.');
+  const replayMapped = mapReplayOutcome(replay.value);
+  if (!replayMapped.ok) return replayMapped;
+  const replayEvidence = sealWebhookReplayEvidence({
+    eventId: envelope.eventId,
+    idempotencyKey: envelope.idempotencyKey,
+  });
 
   const evidence = sealAuthorizedWebhookIngress({
     envelope,

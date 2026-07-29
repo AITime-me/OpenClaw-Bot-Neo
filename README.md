@@ -30,8 +30,8 @@ Multimodal workflow — общая техническая capability обраб�
 
 ## Статус
 
-**Build №2 + Security Remediation 2.1A–2.1I: implemented contracts and pure core logic;
-not deployed; pending independent verification.**
+**Build №2 + Security Remediation 2.1A–2.1J-R4: implemented contracts and pure core logic;
+not deployed; pending independent Codex Review №6.**
 
 | Слой | Статус |
 |------|--------|
@@ -41,7 +41,7 @@ not deployed; pending independent verification.**
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
-| Security approval | absent until independent Codex review |
+| Security approval | absent pending independent Codex Review №6 |
 
 Build 2.1B добавляет versioned declarative manifests, default-deny permission composition,
 provider-independent registry/webhook contracts, отключённые examples для call-analysis и external
@@ -51,23 +51,46 @@ call service, а также мужской VoiceProfile Нео. Manifest не я
 Build 2.1C–2.1F: contract hardening (approval binding, sealed evidence, metadata budgets,
 path-aware memory checker). Implemented in core; pending independent confirmation where noted.
 
-Build 2.1G — FIN-001/002/003 implemented, pending independent confirmation: immutable sanitized
+Build 2.1G — FIN-001/002/003 foundations implemented: immutable sanitized
 snapshot, opaque `AuthenticatedMemoryAccessContext` через trusted `MemoryAccessGateway`,
 WeakMap/WeakSet identity membership. Package `exports` — только root API.
 
-Build 2.1H — FIN-004/005/006 implemented, pending independent confirmation: trust/risk/policy
+Build 2.1H — FIN-004/005/006 foundations implemented: trust/risk/policy
 и deployment/voice derive через pre-bound gateways.
 
-Build 2.1I — FIN-007—FIN-011, FIN-013, FIN-014 implemented этим Build, pending independent
-confirmation. FIN-012 **PARTIALLY CLOSED / BLOCKED**: production Node contract `>=22.13.0 <23`
+Build 2.1J-R4 — точечное закрытие REV9-001 (generator executeMemoryWrite target)
+**implemented, pending independent Codex Review №6**. Recognized `function*` /
+`async function*` targets fail closed as `UNSUPPORTED_CONTROL_FLOW` before stage accounting.
+
+Build 2.1J-R3 — финальное ужесточение memory isolation checker по REV8-001/REV8-002
+**implemented, pending independent Codex Review №6**. Target-specific AST allowlist:
+labels/loops/switch/try/break/continue → `UNSUPPORTED_CONTROL_FLOW` даже без stages;
+approval-required condition — только AST (без getText в security decision).
+
+Build 2.1J-R2 — корректирующий проход по REV7-001/REV7-002 (и REV7-003 expression-container
+policy) **implemented, pending independent Codex Review №6**. Memory checker fail-closed на
+unreachable stages после return/throw и на naked approval lookup/validate/consume вне canonical
+gated AST sequence; security stages нельзя скрывать в object/array/ternary/logical containers.
+
+Build 2.1J-R1 — корректирующий проход по CR5-001—CR5-008, REV6-001—REV6-010 и связанным
+FIN-002/004/006/008/009/011/013/014 **implemented, pending independent Codex Review №6**. Реализованы full-envelope webhook binding и recursive immutable snapshots,
+authorization-before-replay ordering, AST-only approval/clock/memory-stage checks, semantic exact
+schemas для всех status-C families, runtime identity parsers и quality-check spawning без shell.
+Windows npm fallback допускается только после realpath-привязки к фактической Node/npm installation
+и является исключительно local review tooling, а не production runtime path.
+
+FIN-012 **PARTIALLY CLOSED / BLOCKED**: production Node contract `>=22.13.0 <23`
 и review override (`OPENCLAW_REVIEW_NODE_OVERRIDE=1`) реализованы и тестируются; однако
 `@types/node` в lockfile остаётся `26.1.2` — подходящий `@types/node@22` в локальном npm cache
 не найден, offline upgrade без сети не выполнен. Переход к Build №3 запрещён до установки
 Node 22 typings и повторной проверки на реальном Node 22.13+. FIN-012 не объявляется закрытым;
-общий Build 2.1I не является security-approved.
+Build 2.1J-R4 не является security-approved.
 
 Build №3 ещё не начат. Сервер не куплен. Deployment не разрешён. Реальных
-adapters/providers/runtime/authentication нет. URL policy не является полной SSRF-защитой.
+adapters/providers/runtime/authentication и persistent atomic replay/idempotency store нет. URL
+policy не является полной SSRF-защитой. Path/symlink-root isolation, MIME content sniffing,
+decompression-bomb limits, quarantine, VPS hardening и production entrypoint Node-gate wiring
+остаются contract-only/planned и не реализованы.
 
 Проверка ядра: `npm run check` — non-production review/tooling runner (может выставить
 `OPENCLAW_REVIEW_NODE_OVERRIDE=1` с предупреждением; это не production PASS).

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { CorrelationId, IdempotencyKey, ISO8601, PayloadDigest } from './identity.js';
+import type { CorrelationId, IdempotencyKey, ISO8601, Nonce, PayloadDigest } from './identity.js';
 import type { PrivacyClassification } from './privacy.js';
 import type { WebhookEnvelope } from './webhook.js';
 import { deepFreeze } from './immutable.js';
@@ -26,8 +26,15 @@ export interface AuthenticatedWebhookSourceEvidence {
 }
 
 export interface PayloadBoundSignatureEvidence {
+  readonly envelopeVersion: WebhookEnvelope['envelopeVersion'];
   readonly sourceId: string;
+  readonly eventId: string;
+  readonly occurredAt: ISO8601;
+  readonly idempotencyKey: IdempotencyKey;
+  readonly nonce: Nonce;
   readonly payloadDigest: PayloadDigest;
+  readonly signedEnvelopeDigest: PayloadDigest;
+  readonly signatureDigest: PayloadDigest;
   readonly algorithm: string;
   readonly keyReference: string;
   readonly verifiedAt: ISO8601;
@@ -125,8 +132,15 @@ export const sealAuthenticatedWebhookSource = (input: {
 };
 
 export const sealPayloadBoundSignature = (input: {
+  readonly envelopeVersion: WebhookEnvelope['envelopeVersion'];
   readonly sourceId: string;
+  readonly eventId: string;
+  readonly occurredAt: ISO8601;
+  readonly idempotencyKey: IdempotencyKey;
+  readonly nonce: Nonce;
   readonly payloadDigest: PayloadDigest;
+  readonly signedEnvelopeDigest: PayloadDigest;
+  readonly signatureDigest: PayloadDigest;
   readonly algorithm: string;
   readonly keyReference: string;
   readonly verifiedAt: ISO8601;
@@ -197,6 +211,19 @@ export const sealAuthorizedWebhookIngress = (input: {
     !replayRegistry.has(input.replay) ||
     !rateLimitRegistry.has(input.rateLimit) ||
     !sanitizedPayloadRegistry.has(input.sanitized)
+  )
+    return null;
+  if (
+    input.signature.sourceId !== input.envelope.sourceId ||
+    input.signature.eventId !== input.envelope.eventId ||
+    input.signature.occurredAt !== input.envelope.occurredAt ||
+    input.signature.idempotencyKey !== input.envelope.idempotencyKey ||
+    input.signature.nonce !== input.envelope.nonce ||
+    input.signature.payloadDigest !== input.envelope.payloadDigest ||
+    input.signature.signedEnvelopeDigest !== input.envelope.signedEnvelopeDigest ||
+    input.signature.signatureDigest !== input.envelope.signatureDigest ||
+    input.signature.algorithm !== input.envelope.signature.algorithm ||
+    input.signature.keyReference !== input.envelope.signature.keyReference
   )
     return null;
   const sealed = deepFreeze({ ...input });

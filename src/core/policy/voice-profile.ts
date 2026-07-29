@@ -16,6 +16,7 @@ import {
   sealValidatedVoiceProfile,
   type VerifiedVoiceProviderMatch,
 } from '../domain/voice-profile.internal.js';
+import { snapshotPlainJsonDto } from '../domain/json-dto-snapshot.js';
 import { scanSensitiveData, scanSensitiveMetadata } from './sensitive-data-scanner.js';
 
 export type VoiceProfileValidation =
@@ -247,7 +248,20 @@ const validateNeoInvariants = (
   return null;
 };
 
-export function validateVoiceProfile(candidate: unknown): VoiceProfileValidation {
+export function validateVoiceProfile(rawCandidate: unknown): VoiceProfileValidation {
+  const snapshot = snapshotPlainJsonDto(rawCandidate, {
+    maxNodes: 512,
+    maxDepth: 8,
+    maxObjectKeys: 64,
+    maxArrayLength: 64,
+    maxStringLength: 4_096,
+    maxKeyLength: 128,
+  });
+  if (!snapshot.ok && snapshot.error.code === 'TOO_COMPLEX')
+    return invalid('VOICE_PROFILE_SCAN_LIMIT_EXCEEDED', 'Voice profile exceeds safe limits.');
+  if (!snapshot.ok)
+    return invalid('INVALID_PROFILE', 'Voice profile must be a bounded plain data object.');
+  const candidate: unknown = snapshot.value;
   if (!isRecord(candidate)) return invalid('INVALID_PROFILE', 'Voice profile must be an object.');
   if (!exact(candidate, PROFILE_FIELDS))
     return Object.hasOwn(candidate, 'fallbackMode')

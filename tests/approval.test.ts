@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ApprovalDemand, ProjectScope } from '../src/core/domain/index.js';
+import type { ApprovalDemand, MemoryNamespace, ProjectScope } from '../src/core/domain/index.js';
 import { classifyEffect, validateApproval } from '../src/core/policy/index.js';
 import { computePayloadDigest, executeMemoryWrite } from '../src/core/application/index.js';
 import {
@@ -37,6 +37,11 @@ const demand = (overrides: Partial<ApprovalDemand> = {}): ApprovalDemand => ({
   payloadDigest: asDigest(),
   ...overrides,
 });
+const malformedGrant = (changes: Record<string, unknown>) => {
+  const candidate = grant();
+  Object.assign(candidate, changes);
+  return candidate;
+};
 
 describe('effect classification', () => {
   it('allows read, forbids payment and denies an unknown effect', () => {
@@ -63,7 +68,7 @@ describe('scoped approval validation', () => {
     ['OWNER_MISMATCH', grant({ ownerId: asOwner('owner-2') }), demand()],
     ['ACTOR_MISMATCH', grant({ actorId: asActor('actor-2') }), demand()],
     ['EFFECT_MISMATCH', grant({ effect: 'delete' }), demand()],
-    ['TARGET_MISMATCH', grant({ target: asResource('memory/other/record') }), demand()],
+    ['TARGET_MISMATCH', grant({ target: asResource('memory/tvoe-vremya/record') }), demand()],
     ['NAMESPACE_MISMATCH', grant({ namespace: 'tvoe-vremya' }), demand()],
     [
       'PROJECT_SCOPE_MISMATCH',
@@ -79,12 +84,8 @@ describe('scoped approval validation', () => {
     ['EXPIRED', grant({ expiresAt: iso('2026-07-01T11:59:30.000Z') }), demand()],
     ['ALREADY_CONSUMED', grant({ status: 'consumed' }), demand()],
     ['REVOKED', grant({ status: 'revoked' }), demand()],
-    ['INVALID_TIMESTAMP', grant({ expiresAt: iso('not-a-timestamp') }), demand()],
-    [
-      'MALFORMED_GRANT',
-      grant({ payloadDigest: '' as import('../src/core/domain/index.js').PayloadDigest }),
-      demand(),
-    ],
+    ['INVALID_TIMESTAMP', malformedGrant({ expiresAt: 'not-a-timestamp' }), demand()],
+    ['MALFORMED_GRANT', malformedGrant({ payloadDigest: '' }), demand()],
   ] as const)('refuses with %s', (code, candidate, attempted) => {
     const result = validateApproval(candidate, attempted, now);
     expect(result.ok).toBe(false);
@@ -114,6 +115,32 @@ describe('scoped approval validation', () => {
     expect(validateApproval(bound, demand({ payloadDigest: changed }), now).ok).toBe(false);
   });
 
+  it('rejects executable grant shapes and seals the validated nonce snapshot', () => {
+    let reads = 0;
+    const getter = grant();
+    Object.defineProperty(getter, 'ownerId', {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return asOwner();
+      },
+    });
+    expect(validateApproval(getter, demand(), now).ok).toBe(false);
+    expect(reads).toBe(0);
+    expect(validateApproval(new Proxy(grant(), {}), demand(), now).ok).toBe(false);
+
+    const permitted: MemoryNamespace[] = ['personal'];
+    const mutable = grant({ projectScope: projectScope({ permitted }) });
+    const validated = validateApproval(mutable, demand(), now);
+    expect(validated.ok).toBe(true);
+    if (!validated.ok) return;
+    const originalNonce = validated.value.nonce;
+    Object.assign(mutable, { nonce: 'changed-nonce' });
+    permitted[0] = 'security-restricted';
+    expect(validated.value.nonce).toBe(originalNonce);
+    expect(Object.isFrozen(validated.value)).toBe(true);
+  });
+
   it('refuses a cyclic or excessively nested payload without echoing it', () => {
     const cyclic: Record<string, unknown> = { name: 'loop' };
     cyclic.self = cyclic;
@@ -134,10 +161,11 @@ describe('approval binding to the actual memory operation', () => {
   it('builds demand from the authenticated context and sanitized payload', () => {
     const access = authenticatedAccess();
     const command = writeCommand({ rawContent: 'payload-a', rawMetadata: { tag: 'one' } });
+    const recordId = asRecordId(command.recordId);
     const derived = deriveMemoryWriteApprovalDemand({
       access,
       targetNamespace: command.targetNamespace,
-      recordId: command.recordId,
+      recordId,
       content: sealSanitizedText(command.rawContent, 'allow'),
       metadata: sealSanitizedMetadata({ tag: 'one' }, 'allow'),
       projectScope: access.projectScope,
@@ -145,7 +173,7 @@ describe('approval binding to the actual memory operation', () => {
     expect(derived.ownerId).toBe(access.ownerId);
     expect(derived.actorId).toBe(access.actorId);
     expect(derived.namespace).toBe('personal');
-    expect(derived.target).toBe(memoryWriteTarget('personal', command.recordId));
+    expect(derived.target).toBe(memoryWriteTarget('personal', recordId));
     expect(Object.keys(derived)).not.toContain('nonce');
   });
 

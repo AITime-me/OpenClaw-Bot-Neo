@@ -1,13 +1,15 @@
 import {
   err,
+  EXTENSION_PERMISSIONS,
+  iso8601FromDate,
   isExtensionRiskClass,
   isSourceTrustClassification,
   ok,
+  parseCorrelationId,
   resolveEffectiveExtensionRisk,
   validateOperationContext,
   type CorrelationId,
   type ExtensionRiskClass,
-  type ISO8601,
   type OperationContext,
   type Result,
 } from '../domain/index.js';
@@ -22,6 +24,8 @@ import {
 import { isActiveExtensionRegistration } from '../domain/extension-registry-entry.internal.js';
 import {
   exactPlainObservation,
+  exactPlainRecord,
+  exactStringArray,
   filledString,
   isFreshWindow,
   parseIsoInstant,
@@ -61,6 +65,53 @@ export interface RuntimeRiskOperationRequest {
     readonly untrustedContentPresent?: boolean;
   };
 }
+
+const OPERATION_REQUEST_FIELDS = Object.freeze([
+  'correlationId',
+  'operationCategory',
+  'sourceReference',
+] as const);
+const OPERATION_HINT_FIELDS = Object.freeze(['externalEffect', 'untrustedContentPresent'] as const);
+
+/**
+ * Authoritative immutable request snapshot. Hints are exact booleans; aliases and unknown
+ * properties fail closed instead of silently lowering the derived risk floor.
+ */
+export const snapshotRuntimeRiskOperationRequest = (
+  value: unknown,
+): RuntimeRiskOperationRequest | null => {
+  const plain = exactPlainRecord(value, OPERATION_REQUEST_FIELDS, ['operationHints']);
+  if (plain === null) return null;
+  const correlationId = parseCorrelationId(plain.correlationId);
+  if (
+    !correlationId.ok ||
+    !filledString(plain.operationCategory, 128) ||
+    !filledString(plain.sourceReference, 256)
+  )
+    return null;
+  let operationHints: RuntimeRiskOperationRequest['operationHints'];
+  if (Object.prototype.hasOwnProperty.call(plain, 'operationHints')) {
+    const hints = exactPlainRecord(plain.operationHints, [], OPERATION_HINT_FIELDS);
+    if (hints === null) return null;
+    if (
+      (Object.prototype.hasOwnProperty.call(hints, 'externalEffect') &&
+        typeof hints.externalEffect !== 'boolean') ||
+      (Object.prototype.hasOwnProperty.call(hints, 'untrustedContentPresent') &&
+        typeof hints.untrustedContentPresent !== 'boolean')
+    )
+      return null;
+    operationHints = Object.freeze({
+      externalEffect: hints.externalEffect === true,
+      untrustedContentPresent: hints.untrustedContentPresent === true,
+    });
+  }
+  return Object.freeze({
+    correlationId: correlationId.value,
+    operationCategory: plain.operationCategory,
+    sourceReference: plain.sourceReference,
+    ...(operationHints === undefined ? {} : { operationHints }),
+  });
+};
 
 const ROUTING_FIELDS = Object.freeze([
   'extensionId',
@@ -131,7 +182,7 @@ export const parseRoutingObservation = (
   const expiresAt = parseIsoInstant(plain.expiresAt);
   if (observedAt === null || expiresAt === null || !isFreshWindow(observedAt, expiresAt, now))
     return null;
-  return {
+  return Object.freeze({
     extensionId: plain.extensionId,
     extensionVersion: plain.extensionVersion,
     correlationId: plain.correlationId,
@@ -142,7 +193,7 @@ export const parseRoutingObservation = (
     sessionId: plain.sessionId,
     observedAt: plain.observedAt as string,
     expiresAt: plain.expiresAt as string,
-  };
+  });
 };
 
 export const parseSecurityGuardObservation = (
@@ -156,13 +207,14 @@ export const parseSecurityGuardObservation = (
 ): SecurityGuardObservation | null => {
   const plain = exactPlainObservation(observation, GUARD_FIELDS);
   if (plain === null) return null;
+  const allowedPermissions = exactStringArray(plain.allowedPermissions, EXTENSION_PERMISSIONS);
   if (
     !filledString(plain.extensionId) ||
     !filledString(plain.extensionVersion) ||
     !filledString(plain.correlationId) ||
     !isExtensionRiskClass(plain.securityGuardFloor) ||
     typeof plain.denied !== 'boolean' ||
-    !Array.isArray(plain.allowedPermissions)
+    allowedPermissions === null
   )
     return null;
   if (
@@ -175,16 +227,16 @@ export const parseSecurityGuardObservation = (
   const expiresAt = parseIsoInstant(plain.expiresAt);
   if (observedAt === null || expiresAt === null || !isFreshWindow(observedAt, expiresAt, now))
     return null;
-  return {
+  return Object.freeze({
     extensionId: plain.extensionId,
     extensionVersion: plain.extensionVersion,
     correlationId: plain.correlationId,
     securityGuardFloor: plain.securityGuardFloor,
     denied: plain.denied,
-    allowedPermissions: plain.allowedPermissions as SecurityGuardObservation['allowedPermissions'],
+    allowedPermissions: allowedPermissions as SecurityGuardObservation['allowedPermissions'],
     observedAt: plain.observedAt as string,
     expiresAt: plain.expiresAt as string,
-  };
+  });
 };
 
 /**
@@ -200,6 +252,9 @@ export function classifyExtensionRuntimeRisk(
   request: RuntimeRiskOperationRequest,
   context: OperationContext,
 ): Result<RuntimeRiskEvidence, RuntimeRiskClassificationFailure> {
+  const operation = snapshotRuntimeRiskOperationRequest(request);
+  if (operation === null)
+    return err({ code: 'INVALID_OBSERVATION', reason: 'Operation request is malformed.' });
   if (validateOperationContext(context) !== null)
     return err({
       code: 'INVALID_OPERATION_CONTEXT',
@@ -210,24 +265,15 @@ export function classifyExtensionRuntimeRisk(
   if (!isCurrentExtensionPolicySnapshot(policy))
     return err({ code: 'POLICY_MISMATCH', reason: 'Sealed current policy snapshot is required.' });
   if (
-    typeof request.correlationId !== 'string' ||
-    request.correlationId.length === 0 ||
-    typeof request.operationCategory !== 'string' ||
-    request.operationCategory.length === 0 ||
-    typeof request.sourceReference !== 'string' ||
-    request.sourceReference.length === 0
-  )
-    return err({ code: 'INVALID_OBSERVATION', reason: 'Operation request is malformed.' });
-  if (
     policy.extensionId !== registration.extensionId ||
     policy.extensionVersion !== registration.version
   )
     return err({ code: 'POLICY_MISMATCH', reason: 'Policy snapshot does not match registration.' });
   if (policy.policyVersion !== registration.policyVersion)
     return err({ code: 'POLICY_MISMATCH', reason: 'Registry policy version mismatch.' });
-  if (routing.correlationId !== request.correlationId)
+  if (routing.correlationId !== operation.correlationId)
     return err({ code: 'OPERATION_MISMATCH', reason: 'Routing observation correlation mismatch.' });
-  if (securityGuard.correlationId !== request.correlationId)
+  if (securityGuard.correlationId !== operation.correlationId)
     return err({
       code: 'OPERATION_MISMATCH',
       reason: 'Security Guard observation correlation mismatch.',
@@ -235,10 +281,10 @@ export function classifyExtensionRuntimeRisk(
   if (securityGuard.denied)
     return err({ code: 'SECURITY_DENIED', reason: 'Security Guard denied the operation.' });
 
-  const hints = request.operationHints ?? {};
+  const hints = operation.operationHints ?? {};
   const externalEffect = hints.externalEffect === true;
   const untrustedContentPresent = hints.untrustedContentPresent === true;
-  const category = categoryFloor(request.operationCategory);
+  const category = categoryFloor(operation.operationCategory);
   const fromSource = sourceFloor(routing.sourceTrust);
   const floors = resolveEffectiveExtensionRisk(
     fromSource,
@@ -270,14 +316,14 @@ export function classifyExtensionRuntimeRisk(
     sealRuntimeRiskEvidence({
       extensionId: registration.extensionId,
       extensionVersion: registration.version,
-      correlationId: request.correlationId,
+      correlationId: operation.correlationId,
       classifiedRisk: merged.risk,
       sourceTrustClassification: routing.sourceTrust,
       policyVersion: policy.riskPolicyVersion,
       registrationPolicyVersion: registration.policyVersion,
       registrationEffectiveRisk: registration.effectiveRiskClass,
-      classifiedAt: classifiedAt.toISOString() as ISO8601,
-      expiresAt: expiresAt.toISOString() as ISO8601,
+      classifiedAt: iso8601FromDate(classifiedAt),
+      expiresAt: iso8601FromDate(expiresAt),
       provenance: 'trusted-runtime-classifier',
     }),
   );

@@ -1,4 +1,12 @@
-import { err, ok, validateOperationContext, type Result } from '../domain/index.js';
+import {
+  err,
+  iso8601FromDate,
+  ok,
+  parseMemoryRecordId,
+  parseResourceRef,
+  validateOperationContext,
+  type Result,
+} from '../domain/index.js';
 import type {
   ApprovalDemand,
   ApprovalFailureCode,
@@ -68,7 +76,8 @@ export interface MemoryWriteDeps {
  * payload digest or validation timestamp.
  */
 export interface MemoryWriteCommand {
-  readonly recordId: MemoryRecordId;
+  /** Raw wire value; executeMemoryWrite validates it before any service logic or sink call. */
+  readonly recordId: string;
   readonly targetNamespace: MemoryNamespace;
   readonly rawContent: string;
   readonly rawMetadata: Readonly<Record<string, unknown>>;
@@ -85,6 +94,7 @@ export interface MemoryWriteOutcome {
 
 export type MemoryWriteFailure =
   | { readonly code: 'INVALID_OPERATION_CONTEXT'; readonly detail: string }
+  | { readonly code: 'INVALID_IDENTITY'; readonly detail: string }
   | { readonly code: 'INVALID_CONTENT'; readonly detail: string }
   | { readonly code: 'SCANNER_UNAVAILABLE' }
   | { readonly code: 'SCAN_DENIED'; readonly categories: readonly SensitiveCategory[] }
@@ -135,7 +145,9 @@ export function memoryWriteTarget(
   namespace: MemoryNamespace,
   recordId: MemoryRecordId,
 ): ResourceRef {
-  return `memory/${namespace}/${recordId}` as ResourceRef;
+  const parsed = parseResourceRef(`memory/${namespace}/${recordId}`);
+  if (!parsed.ok) throw new TypeError('Validated memory identity produced an invalid resource.');
+  return parsed.value;
 }
 
 /**
@@ -183,7 +195,9 @@ export function deriveMemoryWriteApprovalDemand(input: {
   };
 }
 
-const toIso = (instant: Date): ISO8601 => instant.toISOString() as ISO8601;
+const toIso = (instant: Date): ISO8601 => {
+  return iso8601FromDate(instant);
+};
 
 /**
  * Executable memory-write boundary. The order below is the security contract and is verified
@@ -204,6 +218,10 @@ export async function executeMemoryWrite(
   // Trusted clock is read once for this operation; callers cannot supply command.now.
   const trustedNow = readTrustedTimestamp(deps.clock);
   const trustedIso = toIso(trustedNow);
+  const parsedRecordId = parseMemoryRecordId(command.recordId);
+  if (!parsedRecordId.ok)
+    return err({ code: 'INVALID_IDENTITY', detail: 'MemoryRecordId is invalid.' });
+  const recordId = parsedRecordId.value;
 
   // 2. Normalize input and 3. mark untrusted content from non-owner sources.
   if (typeof command.rawContent !== 'string')
@@ -284,7 +302,7 @@ export async function executeMemoryWrite(
   const demand = deriveMemoryWriteApprovalDemand({
     access,
     targetNamespace: command.targetNamespace,
-    recordId: command.recordId,
+    recordId,
     content,
     metadata,
     projectScope: access.projectScope,
@@ -297,7 +315,7 @@ export async function executeMemoryWrite(
     if (!validated.ok) return err({ code: 'APPROVAL_INVALID', reason: validated.error.code });
     const consumed = await deps.approvals.consume(
       validated.value.approvalId,
-      grant.value.nonce,
+      validated.value.nonce,
       access.operation,
     );
     if (!consumed.ok) return err({ code: 'CONSUMPTION_FAILED' });
@@ -306,7 +324,7 @@ export async function executeMemoryWrite(
 
   // 14. Write through the memory port using the sealed contract only.
   const verifiedWrite = sealVerifiedMemoryWrite({
-    recordId: command.recordId,
+    recordId,
     ownerId: access.ownerId,
     namespace: command.targetNamespace,
     content,

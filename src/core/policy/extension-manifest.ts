@@ -18,6 +18,7 @@ import {
 } from '../domain/index.js';
 import { sealVerifiedExtensionManifest } from '../domain/extension-manifest.internal.js';
 import { scanSensitiveData } from './sensitive-data-scanner.js';
+import { snapshotPlainJsonDto } from '../domain/json-dto-snapshot.js';
 
 const ROOT_FIELDS = Object.freeze([
   'schemaVersion',
@@ -74,8 +75,19 @@ const isKnownArray = <T extends string>(catalog: readonly T[], value: unknown): 
   );
 
 export function validateExtensionManifest(
-  candidate: unknown,
+  rawCandidate: unknown,
 ): Result<VerifiedExtensionManifest, ExtensionManifestFailure> {
+  const snapshot = snapshotPlainJsonDto(rawCandidate, {
+    maxNodes: 512,
+    maxDepth: 8,
+    maxObjectKeys: 64,
+    maxArrayLength: 64,
+    maxStringLength: 4_096,
+    maxKeyLength: 128,
+  });
+  if (!snapshot.ok)
+    return fail('INVALID_MANIFEST', 'Manifest must be a bounded plain data object.');
+  const candidate: unknown = snapshot.value;
   if (!isRecord(candidate)) return fail('INVALID_MANIFEST', 'Manifest must be an object.');
   const unknownRoot = Object.keys(candidate).find((key) => !isKnownValue(ROOT_FIELDS, key));
   if (unknownRoot !== undefined)

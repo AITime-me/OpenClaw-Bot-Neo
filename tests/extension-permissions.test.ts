@@ -10,8 +10,14 @@ import {
   sealExtensionRegistryEntry,
 } from '../src/core/domain/extension-registry-entry.internal.js';
 import { resolveEffectiveExtensionRisk } from '../src/core/domain/extension-risk.js';
-import { sealRuntimeRiskEvidence } from '../src/core/domain/extension-runtime-risk.internal.js';
-import { classifyExtensionRuntimeRisk } from '../src/core/application/runtime-risk-classification.service.js';
+import {
+  isRuntimeRiskEvidence,
+  sealRuntimeRiskEvidence,
+} from '../src/core/domain/extension-runtime-risk.internal.js';
+import {
+  classifyExtensionRuntimeRisk,
+  snapshotRuntimeRiskOperationRequest,
+} from '../src/core/application/runtime-risk-classification.service.js';
 import {
   parseRoutingObservation,
   parseSecurityGuardObservation,
@@ -363,6 +369,60 @@ describe('extension permission resolution', () => {
     if (!classified.ok) return;
     expect(classified.value.classifiedRisk).toBe('high');
     expect(Object.isFrozen(classified.value)).toBe(true);
+  });
+
+  it('creates an exact immutable operation-hints snapshot without retaining caller data', () => {
+    const hints = { externalEffect: true, untrustedContentPresent: false };
+    const snapshot = snapshotRuntimeRiskOperationRequest({
+      correlationId: asCorrelation(),
+      operationCategory: 'local-read',
+      sourceReference: 'channel-ref',
+      operationHints: hints,
+    });
+    expect(snapshot).not.toBeNull();
+    if (snapshot === null) return;
+    hints.externalEffect = false;
+    expect(snapshot.operationHints).toEqual({
+      externalEffect: true,
+      untrustedContentPresent: false,
+    });
+    expect(Object.isFrozen(snapshot)).toBe(true);
+    expect(Object.isFrozen(snapshot.operationHints)).toBe(true);
+    expect(isRuntimeRiskEvidence(snapshot)).toBe(false);
+  });
+
+  it('rejects executable, unknown, duplicate-alias and malformed operation hints', () => {
+    let getterRuns = 0;
+    const getterHints = {};
+    Object.defineProperty(getterHints, 'externalEffect', {
+      enumerable: true,
+      get() {
+        getterRuns += 1;
+        return true;
+      },
+    });
+    const requestWith = (operationHints: unknown) => ({
+      correlationId: asCorrelation(),
+      operationCategory: 'local-read',
+      sourceReference: 'channel-ref',
+      operationHints,
+    });
+    expect(snapshotRuntimeRiskOperationRequest(requestWith(getterHints))).toBeNull();
+    expect(getterRuns).toBe(0);
+    expect(snapshotRuntimeRiskOperationRequest(requestWith(new Proxy({}, {})))).toBeNull();
+    expect(
+      snapshotRuntimeRiskOperationRequest(
+        requestWith({ externalEffect: true, unknownHint: false }),
+      ),
+    ).toBeNull();
+    expect(
+      snapshotRuntimeRiskOperationRequest(
+        requestWith({ externalEffect: true, 'external-effect': true }),
+      ),
+    ).toBeNull();
+    expect(
+      snapshotRuntimeRiskOperationRequest(requestWith({ externalEffect: 'x'.repeat(512) })),
+    ).toBeNull();
   });
 
   it('rejects model-authored permission and risk changes', () => {

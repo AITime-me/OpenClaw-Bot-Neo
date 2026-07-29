@@ -7,4 +7,5 @@ export {
   type JsonDto,
   type JsonDtoFailure,
   type JsonDtoFailureCode,
+  type JsonDtoSnapshotLimits,
 } from '../domain/json-dto-snapshot.js';

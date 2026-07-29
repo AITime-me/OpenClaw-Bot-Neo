@@ -4,8 +4,11 @@ import {
   parseApprovalId,
   parseApprovalNonce,
   parseCorrelationId,
+  parseISO8601,
+  parseMemoryRecordId,
   parseOwnerId,
   parsePayloadDigest,
+  parseResourceRef,
   type ActorId,
   type ApprovalGrant,
   type ApprovalId,
@@ -49,7 +52,11 @@ import {
   sealSanitizedText,
 } from '../../src/core/domain/sanitized.internal.js';
 
-export const iso = (value: string): ISO8601 => value as ISO8601;
+export const iso = (value: string): ISO8601 => {
+  const parsed = parseISO8601(value);
+  if (!parsed.ok) throw new Error(parsed.error.reason);
+  return parsed.value;
+};
 export const asOwner = (value = 'owner-1'): OwnerId => {
   const parsed = parseOwnerId(value);
   if (!parsed.ok) throw new Error(parsed.error.reason);
@@ -65,7 +72,11 @@ export const asCorrelation = (value = 'req-1'): CorrelationId => {
   if (!parsed.ok) throw new Error(parsed.error.reason);
   return parsed.value;
 };
-export const asRecordId = (value = 'record-1'): MemoryRecordId => value as MemoryRecordId;
+export const asRecordId = (value = 'record-1'): MemoryRecordId => {
+  const parsed = parseMemoryRecordId(value);
+  if (!parsed.ok) throw new Error(parsed.error.reason);
+  return parsed.value;
+};
 export const asApprovalId = (value = 'approval-1'): ApprovalId => {
   const parsed = parseApprovalId(value);
   if (!parsed.ok) throw new Error(parsed.error.reason);
@@ -81,7 +92,11 @@ export const asDigest = (value = 'a'.repeat(64)): PayloadDigest => {
   if (!parsed.ok) throw new Error(parsed.error.reason);
   return parsed.value;
 };
-export const asResource = (value = 'memory/personal/record-1'): ResourceRef => value as ResourceRef;
+export const asResource = (value = 'memory/personal/record-1'): ResourceRef => {
+  const parsed = parseResourceRef(value);
+  if (!parsed.ok) throw new Error(parsed.error.reason);
+  return parsed.value;
+};
 
 export const NOW = '2026-07-01T12:00:00.000Z';
 
@@ -220,7 +235,7 @@ export const grantForCommand = (
   const demand = deriveMemoryWriteApprovalDemand({
     access,
     targetNamespace: command.targetNamespace,
-    recordId: command.recordId,
+    recordId: asRecordId(command.recordId),
     content,
     metadata,
     projectScope: access.projectScope,

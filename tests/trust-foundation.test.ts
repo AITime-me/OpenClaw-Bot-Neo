@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { ok, type ExtensionManifest } from '../src/core/domain/index.js';
+import {
+  ok,
+  parseIdempotencyKey,
+  parseNonce,
+  WEBHOOK_ENVELOPE_VERSION,
+  type ExtensionManifest,
+} from '../src/core/domain/index.js';
 import {
   getSanitizedMetadataCanonical,
   getSanitizedTextCanonical,
@@ -11,6 +17,7 @@ import {
   sealSanitizedText,
   sealVerifiedMemoryWrite,
 } from '../src/core/domain/sanitized.internal.js';
+import { freezeStringRecord } from '../src/core/domain/immutable.js';
 import {
   isAuthenticatedMemoryAccessContext,
   sealAuthenticatedMemoryAccess,
@@ -112,6 +119,37 @@ describe('FIN-001 sanitized snapshot immutability', () => {
     expect(
       isSanitizedMetadata(Object.freeze({ entries: sealed.entries, scanDecision: 'allow' })),
     ).toBe(false);
+  });
+
+  it('copies string metadata through descriptors without executing caller code', () => {
+    let getterRuns = 0;
+    const getter = {};
+    Object.defineProperty(getter, 'secret', {
+      enumerable: true,
+      get() {
+        getterRuns += 1;
+        throw new Error('must not execute');
+      },
+    });
+    expect(freezeStringRecord(getter)).toBeNull();
+    expect(getterRuns).toBe(0);
+    expect(freezeStringRecord(new Proxy({ safe: 'value' }, {}))).toBeNull();
+
+    const withSymbol = { safe: 'value' };
+    Object.defineProperty(withSymbol, Symbol('hidden'), { value: 'secret' });
+    expect(freezeStringRecord(withSymbol)).toBeNull();
+    expect(
+      freezeStringRecord(Object.assign(Object.create({ inherited: 'x' }), { safe: 'y' })),
+    ).toBeNull();
+    expect(freezeStringRecord({ ['k'.repeat(4_097)]: 'value' })).toBeNull();
+    expect(freezeStringRecord({ safe: 'v'.repeat(65_537) })).toBeNull();
+
+    const source = { safe: 'value' };
+    const frozen = freezeStringRecord(source);
+    expect(frozen).toEqual({ safe: 'value' });
+    expect(Object.isFrozen(frozen)).toBe(true);
+    source.safe = 'mutated';
+    expect(frozen?.safe).toBe('value');
   });
 
   it('keeps text snapshot stable and rejects clones', () => {
@@ -382,21 +420,28 @@ describe('FIN-003 transferable Symbol/clone rejection across evidence families',
       correlationId: asCorrelation(),
     });
     rejectAllCopies(isRawWebhookPayloadHandle, raw);
+    const idempotency = parseIdempotencyKey('idem-1');
+    const replayNonce = parseNonce('nonce-1');
+    if (!idempotency.ok || !replayNonce.ok) throw new Error('Invalid webhook test identity.');
 
     const authorized = sealAuthorizedWebhookIngress({
       envelope: {
+        envelopeVersion: WEBHOOK_ENVELOPE_VERSION,
         sourceId: 'src',
         eventId: 'evt',
         eventType: 'call.completed',
         occurredAt: iso(NOW),
         receivedAt: iso(NOW),
         payloadDigest: raw.payloadDigest,
+        signedEnvelopeDigest: raw.payloadDigest,
+        signatureDigest: raw.payloadDigest,
         signature: {
           algorithm: 'hmac-sha256',
           keyReference: 'key',
-          signaturePresent: true,
+          value: 'dGVzdA==',
         },
-        idempotencyKey: 'idem-1' as never,
+        idempotencyKey: idempotency.value,
+        nonce: replayNonce.value,
         contentType: 'application/json',
         contentLength: 3,
         correlationId: asCorrelation(),
@@ -407,8 +452,15 @@ describe('FIN-003 transferable Symbol/clone rejection across evidence families',
         authenticatedAt: iso(NOW),
       }),
       signature: sealPayloadBoundSignature({
+        envelopeVersion: WEBHOOK_ENVELOPE_VERSION,
         sourceId: 'src',
+        eventId: 'evt',
+        occurredAt: iso(NOW),
+        idempotencyKey: idempotency.value,
+        nonce: replayNonce.value,
         payloadDigest: raw.payloadDigest,
+        signedEnvelopeDigest: raw.payloadDigest,
+        signatureDigest: raw.payloadDigest,
         algorithm: 'hmac-sha256',
         keyReference: 'key',
         verifiedAt: iso(NOW),
@@ -420,7 +472,7 @@ describe('FIN-003 transferable Symbol/clone rejection across evidence families',
       }),
       replay: sealWebhookReplayEvidence({
         eventId: 'evt',
-        idempotencyKey: 'idem-1' as never,
+        idempotencyKey: idempotency.value,
       }),
       rateLimit: sealWebhookRateLimitEvidence({
         sourceId: 'src',

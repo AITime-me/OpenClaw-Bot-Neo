@@ -179,6 +179,84 @@ describe('extension manifest validation', () => {
     }).toThrow();
     expect(result.value.riskClass).toBe('medium');
   });
+
+  it('snapshots before validation and rejects executable object behavior without invoking it', () => {
+    let getterReads = 0;
+    const getter = manifest();
+    Object.defineProperty(getter, 'displayName', {
+      enumerable: true,
+      get() {
+        getterReads += 1;
+        return 'Changing name';
+      },
+    });
+    expect(validateExtensionManifest(getter).ok).toBe(false);
+    expect(getterReads).toBe(0);
+
+    const proxy = new Proxy(manifest(), {
+      get() {
+        throw new Error('must not execute');
+      },
+    });
+    expect(validateExtensionManifest(proxy).ok).toBe(false);
+
+    const withMethod = manifest({
+      provenance: {
+        status: 'verified',
+        source: 'trusted-deployment',
+        note: 'Reviewed.',
+        toJSON() {
+          throw new Error('must not execute');
+        },
+      },
+    });
+    expect(validateExtensionManifest(withMethod).ok).toBe(false);
+
+    const customPrototype: Record<string, unknown> = {};
+    Object.setPrototypeOf(customPrototype, { inherited: true });
+    Object.assign(customPrototype, manifest());
+    expect(validateExtensionManifest(customPrototype).ok).toBe(false);
+  });
+
+  it('retains no caller arrays and seals exactly the validated snapshot', () => {
+    const permissions = ['external-read'];
+    const candidate = manifest({
+      requestedPermissions: permissions,
+      approvalPolicy: { mode: 'none', effects: [] },
+    });
+    const result = validateExtensionManifest(candidate);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    permissions[0] = 'external-send';
+    (candidate.declaredCapabilities as string[])[0] = 'analysis.changed@1';
+    expect(result.value.requestedPermissions).toEqual(['external-read']);
+    expect(result.value.declaredCapabilities).toEqual(['analysis.sample@1']);
+    expect(Object.isFrozen(result.value.requestedPermissions)).toBe(true);
+  });
+
+  it('rejects sparse, cyclic, symbol and custom-iterator inputs', () => {
+    const sparse = manifest();
+    const capabilities = new Array<string>(2);
+    capabilities[1] = 'analysis.sample@1';
+    sparse.declaredCapabilities = capabilities;
+    expect(validateExtensionManifest(sparse).ok).toBe(false);
+
+    const cyclic = manifest();
+    cyclic.provenance = cyclic;
+    expect(validateExtensionManifest(cyclic).ok).toBe(false);
+
+    expect(validateExtensionManifest({ ...manifest(), [Symbol('hidden')]: true }).ok).toBe(false);
+    expect(
+      validateExtensionManifest({
+        ...manifest(),
+        declaredCapabilities: Object.assign(['analysis.sample@1'], {
+          [Symbol.iterator]: () => {
+            throw new Error('must not execute');
+          },
+        }),
+      }).ok,
+    ).toBe(false);
+  });
 });
 
 const entries: SealedExtensionRegistryEntry[] = [];
@@ -258,6 +336,69 @@ describe('trusted registration flow', () => {
 });
 
 describe('trusted activation transition', () => {
+  it('snapshots deployment observations and rejects accessors/proxies', () => {
+    const raw = {
+      deploymentIdentity: 'deployment-owner',
+      ownerId: 'owner-1',
+      actorId: 'actor-1',
+      sessionId: 'session-1',
+      channelId: 'channel-1',
+      extensionId: 'sample-extension',
+      extensionVersion: '1.0.0',
+      authorizationScope: 'activate',
+      correlationId: asCorrelation(),
+      issuedAt: '2026-07-28T12:00:00.000Z',
+      expiresAt: '2026-07-28T12:30:00.000Z',
+    };
+    const parsed = parseDeploymentApprovalObservation(
+      raw,
+      {
+        extensionId: 'sample-extension',
+        extensionVersion: '1.0.0',
+        correlationId: asCorrelation(),
+      },
+      new Date(NOW),
+    );
+    expect(parsed).not.toBeNull();
+    if (parsed === null) return;
+    raw.deploymentIdentity = 'changed';
+    expect(parsed.deploymentIdentity).toBe('deployment-owner');
+    expect(Object.isFrozen(parsed)).toBe(true);
+
+    let reads = 0;
+    const getter = { ...raw, deploymentIdentity: 'deployment-owner' };
+    Object.defineProperty(getter, 'ownerId', {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return 'owner-1';
+      },
+    });
+    expect(
+      parseDeploymentApprovalObservation(
+        getter,
+        {
+          extensionId: 'sample-extension',
+          extensionVersion: '1.0.0',
+          correlationId: asCorrelation(),
+        },
+        new Date(NOW),
+      ),
+    ).toBeNull();
+    expect(reads).toBe(0);
+    expect(
+      parseDeploymentApprovalObservation(
+        new Proxy({ ...raw, deploymentIdentity: 'deployment-owner' }, {}),
+        {
+          extensionId: 'sample-extension',
+          extensionVersion: '1.0.0',
+          correlationId: asCorrelation(),
+        },
+        new Date(NOW),
+      ),
+    ).toBeNull();
+  });
+
   it('returns sealed active evidence only after a successful registry transition', async () => {
     entries.length = 0;
     const registered = await executeExtensionRegistration(
