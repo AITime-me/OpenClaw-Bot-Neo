@@ -75,12 +75,16 @@ describe('scoped approval validation', () => {
       }),
       demand(),
     ],
-    ['PAYLOAD_DIGEST_MISMATCH', grant(), demand({ payloadDigest: asDigest('digest-2') })],
+    ['PAYLOAD_DIGEST_MISMATCH', grant(), demand({ payloadDigest: asDigest('b'.repeat(64)) })],
     ['EXPIRED', grant({ expiresAt: iso('2026-07-01T11:59:30.000Z') }), demand()],
     ['ALREADY_CONSUMED', grant({ status: 'consumed' }), demand()],
     ['REVOKED', grant({ status: 'revoked' }), demand()],
     ['INVALID_TIMESTAMP', grant({ expiresAt: iso('not-a-timestamp') }), demand()],
-    ['MALFORMED_GRANT', grant({ payloadDigest: asDigest('') }), demand()],
+    [
+      'MALFORMED_GRANT',
+      grant({ payloadDigest: '' as import('../src/core/domain/index.js').PayloadDigest }),
+      demand(),
+    ],
   ] as const)('refuses with %s', (code, candidate, attempted) => {
     const result = validateApproval(candidate, attempted, now);
     expect(result.ok).toBe(false);

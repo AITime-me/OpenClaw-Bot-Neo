@@ -22,7 +22,7 @@ Multimodal workflow — общая техническая capability обраб�
 ## Принципы
 
 - read-only-first; любое изменение внешней системы требует явного одобрения владельца;
-- зарубежный VPS TimeWeb Cloud размещает помощника отдельно от российского production-сервера и не является его хостом;
+- зарубежный VPS TimeWeb Cloud — **planned** хост помощника (не куплен, not deployed), отдельно от российского production-сервера;
 - доверие одностороннее: помощник наблюдает разрешённые системы, обратного доверия к нему нет;
 - основной доступ к LLM — ChatGPT Plus/Codex OAuth; автоматического перехода на API-биллинг нет;
 - платные fallback-провайдеры выключены;
@@ -30,53 +30,52 @@ Multimodal workflow — общая техническая capability обраб�
 
 ## Статус
 
-**Build №2 + Security Remediation 2.1A–2.1H + Extensibility 2.1B/2.1D + Trusted Evidence 2.1E:
-verifiable core.**
+**Build №2 + Security Remediation 2.1A–2.1I: implemented contracts and pure core logic;
+not deployed; pending independent verification.**
+
+| Слой | Статус |
+|------|--------|
+| Target architecture | planned |
+| Pure core policies / contracts | implemented |
+| Trusted composition gateways | implemented |
+| Telegram / OpenClaw adapters | not implemented |
+| OpenClaw runtime | not implemented |
+| VPS / deployment | not purchased / not deployed |
+| Security approval | absent until independent Codex review |
+
 Build 2.1B добавляет versioned declarative manifests, default-deny permission composition,
 provider-independent registry/webhook contracts, отключённые examples для call-analysis и external
 call service, а также мужской VoiceProfile Нео. Manifest не является кодом и не выдаёт полномочия;
 подходящий мужской голос недоступен — используется text-only, без женского fallback.
 
-Build 2.1C закрывает OCN-001/002/003/006: approval binding к фактической memory operation и trusted
-clock, scanner newline/metadata-key policy, target-specific memory AST order и запрет computed
-`import`/`require`.
+Build 2.1C–2.1F: contract hardening (approval binding, sealed evidence, metadata budgets,
+path-aware memory checker). Implemented in core; pending independent confirmation where noted.
 
-Build 2.1D закрывает B21-001—B21-004: effective risk + approval-effect mapping, sealed registry
-activation state, webhook orchestration с payload-bound signature evidence, Neo-specific
-VoiceProfile invariants и `enabled` → text-only.
+Build 2.1G — FIN-001/002/003 implemented, pending independent confirmation: immutable sanitized
+snapshot, opaque `AuthenticatedMemoryAccessContext` через trusted `MemoryAccessGateway`,
+WeakMap/WeakSet identity membership. Package `exports` — только root API.
 
-Build 2.1E закрывает HIGH findings R2.1-003—R2.1-006: runtime risk и VoiceProvider — только sealed
-evidence trusted boundary; active registration — только после registry transition; deployment
-boolean не является authorization; webhook canonical bytes принадлежат core, verifier возвращает
-untrusted primitive result, sealing выполняет core. Ordinary object literals не являются proof.
+Build 2.1H — FIN-004/005/006 implemented, pending independent confirmation: trust/risk/policy
+и deployment/voice derive через pre-bound gateways.
 
-Build 2.1F закрывает MEDIUM R2.1-001/002/007: единый fail-closed metadata traversal budget
-(containers/empty nodes/key length/depth); path-aware conservative memory isolation checker
-(normalization + untrusted marking в обязательном порядке; split-branch → fail); VoiceProfile
-проходит production SensitiveDataScanner до sealing.
+Build 2.1I — FIN-007—FIN-011, FIN-013, FIN-014 implemented этим Build, pending independent
+confirmation. FIN-012 **PARTIALLY CLOSED / BLOCKED**: production Node contract `>=22.13.0 <23`
+и review override (`OPENCLAW_REVIEW_NODE_OVERRIDE=1`) реализованы и тестируются; однако
+`@types/node` в lockfile остаётся `26.1.2` — подходящий `@types/node@22` в локальном npm cache
+не найден, offline upgrade без сети не выполнен. Переход к Build №3 запрещён до установки
+Node 22 typings и повторной проверки на реальном Node 22.13+. FIN-012 не объявляется закрытым;
+общий Build 2.1I не является security-approved.
 
-Build 2.1G закрывает FIN-001/002/003: immutable sanitized snapshot,
-opaque `AuthenticatedMemoryAccessContext` через trusted `MemoryAccessGateway`, и non-forgeable
-WeakMap/WeakSet identity membership вместо transferable Symbol-brand. Package `exports` разрешает
-только documented root API; internal subpaths закрыты.
+Build №3 ещё не начат. Сервер не куплен. Deployment не разрешён. Реальных
+adapters/providers/runtime/authentication нет. URL policy не является полной SSRF-защитой.
 
-Build 2.1H закрывает FIN-004/005/006: trust/risk/policy grants и deployment/voice safety facts
-derive только через pre-bound trusted ports (`ExtensionPermissionGateway`,
-`ExtensionActivationGateway`, `VoiceResolutionGateway`). Request-level caller не назначает
-sourceTrust, Security Guard floor, grant arrays, policy version, clock или TTL. Favorable provider
-booleans не создают evidence; неопределённость → text-only. FIN-007—FIN-014 намеренно не закрыты.
-Окончательный security approval отсутствует до нового Codex review. Реальных
-adapters/providers/runtime/authentication по-прежнему нет.
-
-Runtime, plugin loader, адаптеры, providers, реальные integrations/webhooks, TTS, бот, deployment и
-рабочая конфигурация по-прежнему отсутствуют. Текущая URL policy не является полной SSRF-защитой:
-DNS resolution, проверка resolved IP, повторная проверка redirect и защита от DNS rebinding остаются
-runtime gates.
+Проверка ядра: `npm run check` — non-production review/tooling runner (может выставить
+`OPENCLAW_REVIEW_NODE_OVERRIDE=1` с предупреждением; это не production PASS).
+Production start: `OPENCLAW_PRODUCTION_NODE_GATE=1` (override запрещён).
+Публичные контракты экспортируются из `src/index.ts`.
 
 Навигация: [архитектура](docs/architecture.md), [расширяемость](docs/extensibility.md),
 [интеграции](docs/integrations.md), [VoiceProfile](docs/voice-profile.md),
 [роли](docs/roles.md), [безопасность](docs/security-policy.md),
 [критерии приёмки](docs/acceptance-criteria.md),
 [совместимость OpenClaw](docs/openclaw-compatibility.md).
-
-Проверка ядра: `npm run check`. Публичные контракты экспортируются из `src/index.ts`; security boundary сканирования определён в `SensitiveDataScannerPort`.

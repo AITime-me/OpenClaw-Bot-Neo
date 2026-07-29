@@ -17,6 +17,8 @@ export const CORE_LAYER_RULES = {
   'core/ports': ['core/domain', 'core/ports'],
   'core/policy': ['core/domain', 'core/ports', 'core/policy'],
   'core/routing': ['core/domain', 'core/ports', 'core/routing'],
+  'core/config': ['core/domain', 'core/routing', 'core/config'],
+  'core/runtime': ['core/runtime'],
   'core/application': [
     'core/domain',
     'core/ports',
@@ -24,7 +26,16 @@ export const CORE_LAYER_RULES = {
     'core/routing',
     'core/application',
   ],
-  root: ['core/domain', 'core/ports', 'core/policy', 'core/routing', 'core/application', 'root'],
+  root: [
+    'core/domain',
+    'core/ports',
+    'core/policy',
+    'core/routing',
+    'core/config',
+    'core/runtime',
+    'core/application',
+    'root',
+  ],
 };
 
 export const REQUIRED_CORE_LAYERS = [

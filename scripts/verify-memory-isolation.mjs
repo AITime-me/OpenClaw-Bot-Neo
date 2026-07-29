@@ -73,6 +73,7 @@ const STAGE_ALIASES = Object.freeze({
   authorizeMemoryAccess: 'namespace-authorization',
   'deps.policy.evaluate': 'memory-policy',
   deriveMemoryWriteApprovalDemand: 'approval-demand-derivation',
+  'deps.approvals.lookup': 'approval-lookup',
   validateApproval: 'approval-validation',
   'deps.approvals.consume': 'approval-consumption',
   'deps.memory.write': 'memory-write',
@@ -90,6 +91,7 @@ const REQUIRED_ORDER = Object.freeze([
   'namespace-authorization',
   'memory-policy',
   'approval-demand-derivation',
+  'approval-lookup',
   'approval-validation',
   'approval-consumption',
   'memory-write',
@@ -160,22 +162,114 @@ const findStageCallsDeep = (source, root, into, includeNested = false) => {
 };
 
 const APPROVAL_ONLY_STAGES = new Set([
-  'approval-demand-derivation',
+  'approval-lookup',
   'approval-validation',
   'approval-consumption',
 ]);
 
-const isApprovalGateIf = (source, statement) => {
-  if (!ts.isIfStatement(statement)) return false;
+const statementTerminates = (statement) => {
+  if (ts.isReturnStatement(statement) || ts.isThrowStatement(statement)) return true;
+  if (ts.isBlock(statement)) {
+    if (statement.statements.length === 0) return false;
+    return statementTerminates(statement.statements[statement.statements.length - 1]);
+  }
+  if (ts.isIfStatement(statement)) {
+    if (!statementTerminates(statement.thenStatement)) return false;
+    if (statement.elseStatement === undefined) return false;
+    return statementTerminates(statement.elseStatement);
+  }
+  return false;
+};
+
+const isCanonicalApprovalCondition = (source, expression) => {
+  const expr = unwrapExpression(expression);
+  if (expr.kind === ts.SyntaxKind.TrueKeyword || expr.kind === ts.SyntaxKind.FalseKeyword)
+    return false;
+  if (!ts.isBinaryExpression(expr)) return false;
+  if (
+    expr.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken &&
+    expr.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsToken
+  )
+    return false;
+  const left = unwrapExpression(expr.left).getText(source);
+  const right = unwrapExpression(expr.right).getText(source);
+  const required = new Set(["'approval-required'", '"approval-required"']);
+  if (required.has(right)) return left.endsWith('.decision') || left === 'decision';
+  if (required.has(left)) return right.endsWith('.decision') || right === 'decision';
+  return false;
+};
+
+const approvalThenHasRequiredStages = (source, thenStatement) => {
   const stages = [];
-  findStageCallsDeep(source, statement.thenStatement, stages, true);
+  findStageCallsDeep(source, thenStatement, stages, false);
+  const names = new Set(stages.map((node) => stageOf(source, node)).filter(Boolean));
+  return (
+    names.has('approval-lookup') &&
+    names.has('approval-validation') &&
+    names.has('approval-consumption')
+  );
+};
+
+const approvalThenUsesResults = (source, thenStatement) => {
+  const text = thenStatement.getText(source);
+  // Fail closed: lookup/validate/consume results must drive control flow, not be discarded.
+  if (!/\.ok\b/.test(text) && !/validated\.value/.test(text)) return false;
+  return true;
+};
+
+/**
+ * @returns {'not-gate' | 'invalid-gate' | 'valid-gate'}
+ */
+const classifyApprovalGateIf = (source, statement, failuresOut) => {
+  if (!ts.isIfStatement(statement)) return 'not-gate';
+  const thenStages = [];
+  findStageCallsDeep(source, statement.thenStatement, thenStages, true);
+  const elseStages = [];
   if (statement.elseStatement !== undefined)
-    findStageCallsDeep(source, statement.elseStatement, stages, true);
-  if (stages.length === 0) return false;
-  return stages.every((node) => {
+    findStageCallsDeep(source, statement.elseStatement, elseStages, true);
+  const allStages = [...thenStages, ...elseStages];
+  if (allStages.length === 0) return 'not-gate';
+  const onlyApproval = allStages.every((node) => {
     const stage = stageOf(source, node);
     return stage !== null && APPROVAL_ONLY_STAGES.has(stage);
   });
+  if (!onlyApproval) return 'not-gate';
+  if (elseStages.length > 0) {
+    failuresOut.push('AMBIGUOUS_CONTROL_FLOW: approval stages in else branches are forbidden.');
+    return 'invalid-gate';
+  }
+  if (!isCanonicalApprovalCondition(source, statement.expression)) {
+    failuresOut.push(
+      'AMBIGUOUS_CONTROL_FLOW: approval gate condition must compare policy decision to approval-required.',
+    );
+    return 'invalid-gate';
+  }
+  if (!approvalThenHasRequiredStages(source, statement.thenStatement)) {
+    failuresOut.push(
+      'AMBIGUOUS_CONTROL_FLOW: approval gate must lookup, validate and consume on the then path.',
+    );
+    return 'invalid-gate';
+  }
+  if (!approvalThenUsesResults(source, statement.thenStatement)) {
+    failuresOut.push(
+      'AMBIGUOUS_CONTROL_FLOW: approval lookup/validation/consume results must be checked.',
+    );
+    return 'invalid-gate';
+  }
+  const before = failuresOut.length;
+  const visit = (node) => {
+    if (ts.isIfStatement(node) && node !== statement) {
+      const nestedStages = [];
+      findStageCallsDeep(source, node.thenStatement, nestedStages, true);
+      if (nestedStages.length === 0 && !statementTerminates(node.thenStatement))
+        failuresOut.push(
+          'AMBIGUOUS_CONTROL_FLOW: approval deny branch must terminate with return/throw.',
+        );
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(statement.thenStatement);
+  return failuresOut.length === before ? 'valid-gate' : 'invalid-gate';
 };
 
 const statementContainsWrite = (source, statement) => {
@@ -184,7 +278,7 @@ const statementContainsWrite = (source, statement) => {
   return stages.some((node) => stageOf(source, node) === 'memory-write');
 };
 
-const isPureEarlyDenyReturn = (source, statement) => {
+const isPureEarlyDenyReturn = (source, statement, failuresOut) => {
   if (!ts.isIfStatement(statement)) return false;
   const thenHasWrite = statementContainsWrite(source, statement.thenStatement);
   const elseHasWrite =
@@ -196,7 +290,18 @@ const isPureEarlyDenyReturn = (source, statement) => {
   const elseStages = [];
   if (statement.elseStatement !== undefined)
     findStageCallsDeep(source, statement.elseStatement, elseStages, true);
-  return thenStages.length === 0 && elseStages.length === 0;
+  if (thenStages.length !== 0 || elseStages.length !== 0) return false;
+  if (!statementTerminates(statement.thenStatement)) {
+    failuresOut.push('AMBIGUOUS_CONTROL_FLOW: early deny branch must terminate with return/throw.');
+    return false;
+  }
+  if (statement.elseStatement !== undefined && !statementTerminates(statement.elseStatement)) {
+    failuresOut.push(
+      'AMBIGUOUS_CONTROL_FLOW: early deny else branch must terminate with return/throw.',
+    );
+    return false;
+  }
+  return true;
 };
 
 const expressionHasAmbiguousStage = (source, expression, failuresOut) => {
@@ -267,7 +372,8 @@ const analyzeStraightLineBody = (source, functionNode, localFailures) => {
     }
 
     if (ts.isIfStatement(statement)) {
-      if (isApprovalGateIf(source, statement)) {
+      const gateKind = classifyApprovalGateIf(source, statement, localFailures);
+      if (gateKind === 'valid-gate') {
         if (statementContainsWrite(source, statement)) {
           localFailures.push(
             'AMBIGUOUS_CONTROL_FLOW: memory-write inside the approval gate is forbidden.',
@@ -275,9 +381,10 @@ const analyzeStraightLineBody = (source, functionNode, localFailures) => {
         } else {
           expressionHasAmbiguousStage(source, statement.expression, localFailures);
           pushStagesFrom(statement.thenStatement);
-          if (statement.elseStatement !== undefined) pushStagesFrom(statement.elseStatement);
         }
-      } else if (!isPureEarlyDenyReturn(source, statement)) {
+      } else if (gateKind === 'invalid-gate') {
+        // Failures already recorded; do not credit approval stages from an invalid gate.
+      } else if (!isPureEarlyDenyReturn(source, statement, localFailures)) {
         localFailures.push(
           'AMBIGUOUS_CONTROL_FLOW: stage/write calls inside if/else branches are forbidden; only early deny returns without stages or the approval gate are allowed.',
         );
@@ -605,10 +712,17 @@ export async function executeMemoryWrite(deps, access, command) {
   await deps.scanner.scanMetadata(command.rawMetadata, access.operation);
   classifyData('owner');
   authorizeMemoryAccess(access, 'write', { ownerId: access.ownerId, namespace: command.targetNamespace });
-  await deps.policy.evaluate({}, access);
+  const policyResult = await deps.policy.evaluate({}, access);
   deriveMemoryWriteApprovalDemand({});
-  validateApproval(null, {}, new Date());
-  await deps.approvals.consume('id', 'nonce', access.operation);
+  if (policyResult.value.decision === 'approval-required') {
+    if (command.approvalId === null) return err({ code: 'APPROVAL_REQUIRED' });
+    const grant = await deps.approvals.lookup(command.approvalId, access.operation);
+    if (!grant.ok) return err({ code: 'APPROVAL_UNAVAILABLE' });
+    const validated = validateApproval(grant.value, demand, trustedNow);
+    if (!validated.ok) return err({ code: 'APPROVAL_INVALID' });
+    const consumed = await deps.approvals.consume(validated.value.approvalId, grant.value.nonce, access.operation);
+    if (!consumed.ok) return err({ code: 'CONSUMPTION_FAILED' });
+  }
   await deps.memory.write({}, access);
   await deps.audit.record({}, access);
 }
@@ -675,10 +789,45 @@ export async function executeMemoryWrite(deps) {
   runMutation(
     'approval-after-write',
     correctBody.replace(
-      "deriveMemoryWriteApprovalDemand({});\n  validateApproval(null, {}, new Date());\n  await deps.approvals.consume('id', 'nonce', access.operation);\n  await deps.memory.write({}, access);",
-      "await deps.memory.write({}, access);\n  deriveMemoryWriteApprovalDemand({});\n  validateApproval(null, {}, new Date());\n  await deps.approvals.consume('id', 'nonce', access.operation);",
+      `deriveMemoryWriteApprovalDemand({});
+  if (policyResult.value.decision === 'approval-required') {
+    if (command.approvalId === null) return err({ code: 'APPROVAL_REQUIRED' });
+    const grant = await deps.approvals.lookup(command.approvalId, access.operation);
+    if (!grant.ok) return err({ code: 'APPROVAL_UNAVAILABLE' });
+    const validated = validateApproval(grant.value, demand, trustedNow);
+    if (!validated.ok) return err({ code: 'APPROVAL_INVALID' });
+    const consumed = await deps.approvals.consume(validated.value.approvalId, grant.value.nonce, access.operation);
+    if (!consumed.ok) return err({ code: 'CONSUMPTION_FAILED' });
+  }
+  await deps.memory.write({}, access);`,
+      `await deps.memory.write({}, access);
+  deriveMemoryWriteApprovalDemand({});
+  if (policyResult.value.decision === 'approval-required') {
+    if (command.approvalId === null) return err({ code: 'APPROVAL_REQUIRED' });
+    const grant = await deps.approvals.lookup(command.approvalId, access.operation);
+    if (!grant.ok) return err({ code: 'APPROVAL_UNAVAILABLE' });
+    const validated = validateApproval(grant.value, demand, trustedNow);
+    if (!validated.ok) return err({ code: 'APPROVAL_INVALID' });
+    const consumed = await deps.approvals.consume(validated.value.approvalId, grant.value.nonce, access.operation);
+    if (!consumed.ok) return err({ code: 'CONSUMPTION_FAILED' });
+  }`,
     ),
     'ORDER_VIOLATION',
+  );
+
+  runMutation(
+    'false-approval-gate',
+    correctBody.replace("if (policyResult.value.decision === 'approval-required')", 'if (false)'),
+    'AMBIGUOUS_CONTROL_FLOW',
+  );
+
+  runMutation(
+    'unrelated-approval-condition',
+    correctBody.replace(
+      "if (policyResult.value.decision === 'approval-required')",
+      'if (command.skipApproval)',
+    ),
+    'AMBIGUOUS_CONTROL_FLOW',
   );
 
   runMutation(

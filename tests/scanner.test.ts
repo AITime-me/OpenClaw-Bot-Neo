@@ -324,25 +324,146 @@ describe('metadata scanning', () => {
     expect(scanSensitiveMetadata({ sample: new Sample() }).ok).toBe(false);
   });
 
-  it('denies cyclic metadata and throwing property access without leaking values', () => {
+  it('denies cyclic metadata and accessor properties without executing getters', () => {
     const cyclic: Record<string, unknown> = { a: 'ok' };
     cyclic.self = cyclic;
     const cyclicResult = scanSensitiveMetadata(cyclic);
     expect(cyclicResult.ok).toBe(false);
     if (!cyclicResult.ok) expect(JSON.stringify(cyclicResult.error)).not.toContain('self');
 
+    let getterCalls = 0;
     const throwing = {};
     Object.defineProperty(throwing, 'secret', {
       enumerable: true,
       get() {
+        getterCalls += 1;
         throw new Error('leak-me-now');
       },
     });
     const thrown = scanSensitiveMetadata(throwing);
     expect(thrown.ok).toBe(false);
+    expect(getterCalls).toBe(0);
     if (!thrown.ok) {
       expect(thrown.error.reason).not.toContain('leak-me-now');
       expect(JSON.stringify(thrown.error)).not.toContain('secret');
     }
+
+    let softCalls = 0;
+    const soft = {};
+    Object.defineProperty(soft, 'note', {
+      enumerable: true,
+      get() {
+        softCalls += 1;
+        return 'safe';
+      },
+    });
+    expect(scanSensitiveMetadata(soft).ok).toBe(false);
+    expect(softCalls).toBe(0);
+
+    const withMethod = {
+      note: 'safe',
+      toJSON() {
+        return { note: 'hijacked' };
+      },
+    };
+    expect(scanSensitiveMetadata(withMethod).ok).toBe(false);
+
+    const withValueOf = {
+      note: 'safe',
+      valueOf() {
+        return 'hijacked';
+      },
+    };
+    expect(scanSensitiveMetadata(withValueOf).ok).toBe(false);
+
+    const customProto: Record<string, unknown> = Object.create({ inherited: 'x' }) as Record<
+      string,
+      unknown
+    >;
+    customProto.note = 'safe';
+    expect(scanSensitiveMetadata(customProto).ok).toBe(false);
+
+    const sparse = { items: [] as string[] };
+    sparse.items[2] = 'x';
+    expect(scanSensitiveMetadata(sparse).ok).toBe(false);
+
+    const withSymbol = { note: 'safe', [Symbol('x')]: 'y' };
+    expect(scanSensitiveMetadata(withSymbol).ok).toBe(false);
+
+    expect(scanSensitiveMetadata({ when: /abc/ }).ok).toBe(false);
+    expect(scanSensitiveMetadata({ origin: 'owner-note', nested: { comment: 'safe' } }).ok).toBe(
+      true,
+    );
+  });
+});
+
+describe('token family detectors', () => {
+  const join = (...parts: readonly string[]): string => parts.join('');
+  const githubClassic = join('ghp_', 'AAAAAAAAAAAAAAAAAAAA');
+  const githubFine = join('github_pat_', 'AAAAAAAAAAAAAAAAAAAA');
+  const awsKey = join('AKIA', 'IOSFODNN7EXAMPLE');
+  const googleKey = join('AIza', 'SyA'.padEnd(35, 'A'));
+  const jwtLike = [
+    join('eyJ', 'hbGciOiJIUzI1NiJ9'),
+    join('eyJ', 'zdWIiOiIxMjM0In0'),
+    join('dGV', 'zdHNpZ25hdHVyZQ'),
+  ].join('.');
+
+  it.each([
+    ['github-token', githubClassic, githubClassic],
+    ['github-token', githubFine, githubFine],
+    ['aws-access-key', awsKey, awsKey],
+    ['google-api-key', googleKey, googleKey],
+    ['jwt', jwtLike, jwtLike],
+  ] as const)('detects %s without echoing the secret', (category, input, secret) => {
+    const result = scanSensitiveData(`value ${input}`);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.findings.some((finding) => finding.category === category)).toBe(true);
+    expect(result.value.redacted).not.toContain(secret);
+    expect(result.value.decision).toBe('deny');
+  });
+
+  it('detects assignment-context secrets and ignores near misses', () => {
+    const awsSecret = join('wJalrXUtnFEMI/', 'K7MDENG/bPxRfiCYEXAMPLEKEY');
+    const assigned = scanSensitiveData(`aws_secret_access_key=${awsSecret}`);
+    expect(assigned.ok && assigned.value.decision).toBe('deny');
+    expect(JSON.stringify(assigned)).not.toContain('wJalrXUtnFEMI');
+
+    const webhook = scanSensitiveData(`webhook_signing_secret=${'s'.repeat(32)}`);
+    expect(webhook.ok && webhook.value.decision).toBe('deny');
+
+    const oauth = scanSensitiveData(`client_secret=${'c'.repeat(24)}`);
+    expect(oauth.ok && oauth.value.decision).toBe('deny');
+
+    expect(scanSensitiveData('eyJhbGciOiJIUzI1NiJ9.onlytwo').ok).toBe(true);
+    const twoSeg = scanSensitiveData('eyJhbGciOiJIUzI1NiJ9.onlytwo');
+    expect(twoSeg.ok && twoSeg.value.decision).toBe('allow');
+
+    const uuid = '123e4567-e89b-12d3-a456-426614174000';
+    const uuidScan = scanSensitiveData(`id=${uuid}`);
+    expect(uuidScan.ok && uuidScan.value.decision).toBe('allow');
+
+    const highEntropy = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789+/==';
+    const bare = scanSensitiveData(highEntropy);
+    expect(bare.ok && bare.value.decision).toBe('allow');
+    const assignedKey = scanSensitiveData(`api_key=${highEntropy}`);
+    expect(assignedKey.ok && assignedKey.value.decision).toBe('deny');
+  });
+
+  it('detects families inside nested metadata and VoiceProfile-like fields', () => {
+    const nested = scanSensitiveMetadata({
+      profile: { styleNote: `token ${githubClassic}` },
+    });
+    expect(nested.ok && nested.value.decision).toBe('deny');
+    expect(JSON.stringify(nested)).not.toContain('ghp_');
+  });
+
+  it('stays bounded on a long input', () => {
+    const long = `${'word '.repeat(8_000)}api_key=${'z'.repeat(40)}`;
+    const started = Date.now();
+    const result = scanSensitiveData(long);
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(result.ok && result.value.decision).toBe('deny');
   });
 });

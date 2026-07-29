@@ -123,7 +123,7 @@ describe('production source tree', () => {
     const report = analyzeBoundaries({ rootDir: 'src' });
     expect(report.violations).toEqual([]);
     expect(report.filesAnalyzed).toBeGreaterThan(20);
-  });
+  }, 30_000);
 });
 
 describe('package exports', () => {

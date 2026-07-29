@@ -1,4 +1,4 @@
-import type { MessageId, OwnerId, ISO8601 } from './identity.js';
+import type { CorrelationId, MessageId, OwnerId, ISO8601 } from './identity.js';
 export interface ChannelReference {
   readonly kind: string;
   readonly opaqueId: string;
@@ -12,7 +12,7 @@ export interface IncomingMessage {
   readonly metadata: Readonly<Record<string, unknown>>;
 }
 export interface OutgoingMessage {
-  readonly correlationId: MessageId;
+  readonly correlationId: CorrelationId;
   readonly target: ChannelReference;
   readonly content: string;
 }

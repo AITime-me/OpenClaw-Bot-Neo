@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13.0 <23"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -14,10 +14,11 @@
     "format:check": "prettier --check .",
     "test": "vitest",
     "test:run": "vitest run",
+    "check:node": "node scripts/check-node.mjs",
     "check:boundaries": "depcruise src --config .dependency-cruiser.cjs && node scripts/verify-boundaries.mjs && node scripts/verify-memory-isolation.mjs",
     "check:secrets": "node scripts/check-secret-patterns.mjs",
     "check:hygiene": "node scripts/verify-repo-hygiene.mjs",
-    "check": "npm run typecheck && npm run lint && npm run format:check && npm run test:run && npm run check:boundaries && npm run check:secrets && npm run check:hygiene",
+    "check": "node scripts/run-check.mjs",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "devDependencies": {

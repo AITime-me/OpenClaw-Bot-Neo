@@ -84,3 +84,72 @@ export {
   requiredApprovalEffectFor,
   PERMISSION_APPROVAL_EFFECT_MAP,
 } from './core/domain/extension-risk.js';
+export {
+  parseMessageId,
+  parseCorrelationId,
+  parseOwnerId,
+  parseActorId,
+  parseExtensionId,
+  parseExtensionVersion,
+  parsePolicyVersion,
+  parseManifestDigest,
+  parsePayloadDigest,
+  parseEventId,
+  parseIdempotencyKey,
+  parseProviderReference,
+  parseSessionId,
+  parseChannelId,
+  parseSourceId,
+  parseDeploymentIdentity,
+  parseApprovalId,
+  parseNonce,
+  parseApprovalNonce,
+} from './core/domain/identity.js';
+export type {
+  IdentityFailure,
+  IdentityFailureCode,
+  ExtensionId,
+  ExtensionVersion,
+  PolicyVersion,
+  ManifestDigest,
+  EventId,
+  ProviderReference,
+  SessionId,
+  ChannelId,
+  SourceId,
+  DeploymentIdentity,
+  Nonce,
+} from './core/domain/identity.js';
+export {
+  parseModelRoutingConfig,
+  parseMemoryNamespacesConfig,
+  parseMemoryClassificationConfig,
+  parseSecurityPolicyConfig,
+  parseOpenClawDraftConfig,
+  parseOpenClawPolicyDraftConfig,
+  parseContractDraftExample,
+  CONFIG_JSON_INVENTORY,
+  SECURITY_SENSITIVE_CONFIG_ALLOWLIST,
+} from './core/config/index.js';
+export type {
+  ConfigFailure,
+  ModelRoutingConfig,
+  MemoryNamespacesConfig,
+  MemoryClassificationConfig,
+  SecurityPolicyConfig,
+  OpenClawDraftConfig,
+  OpenClawPolicyDraftConfig,
+  ContractDraftConfig,
+  ConfigInventoryEntry,
+  ConfigValidatorKind,
+} from './core/config/index.js';
+export {
+  evaluateNodeSupport,
+  parseNodeVersion,
+  resolveReviewOverrideAllowed,
+  PRODUCTION_NODE_RANGE,
+  REVIEW_NODE_OVERRIDE_ENV,
+  PRODUCTION_NODE_GATE_ENV,
+} from './core/runtime/node-support.js';
+export type { NodeSupportDecision } from './core/runtime/node-support.js';
+export type { WebhookReplayCheckOutcome } from './core/domain/webhook.js';

@@ -2,7 +2,9 @@
 
 Deployment сейчас не выполняется. Это проект границ будущего размещения.
 
-Помощник предполагается на отдельном зарубежном VPS TimeWeb Cloud. Российский production-сервер остаётся отдельным: он не host помощника и не принимает от него административное доверие. Доступ к наблюдаемым системам — outbound, allowlisted и read-only.
+Помощник **planned** на отдельном зарубежном VPS TimeWeb Cloud (сервер не куплен, not deployed). Российский production-сервер остаётся отдельным: он не host помощника и не принимает от него административное доверие. Доступ к наблюдаемым системам — outbound, allowlisted и read-only.
+
+Production Node support: `>=22.13.0 <23`. Review/tooling override (`OPENCLAW_REVIEW_NODE_OVERRIDE=1`) не означает production support Node 24.
 
 ## Минимальный профиль
 

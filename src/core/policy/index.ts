@@ -1,4 +1,5 @@
 export * from './sensitive-data-scanner.js';
+export * from './json-dto-snapshot.js';
 export * from './mask-secrets.js';
 export * from './recipient-whitelist.js';
 export * from './confirmation-gate.js';

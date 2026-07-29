@@ -39,6 +39,7 @@ import {
   validateWebhookEnvelope,
   validateWebhookIngressLimits,
 } from '../policy/webhook-ingress.js';
+import { exactPlainObservation, filledString } from '../domain/observation-validation.js';
 
 export interface WebhookIngressDeps {
   readonly clock: ClockPort;
@@ -61,6 +62,15 @@ export interface WebhookIngressOutcome {
   readonly audit: SafeWebhookAuditEvent;
 }
 
+const VERIFIER_RESULT_FIELDS = Object.freeze([
+  'verified',
+  'sourceId',
+  'payloadDigest',
+  'algorithm',
+  'keyReference',
+  'verifiedAt',
+]);
+
 const fail = (
   code: WebhookIngressFailure['code'],
   reason: string,
@@ -81,47 +91,71 @@ const assertCanonicalDigest = (
   expected: string,
 ): boolean => handle.payloadDigest === expected && digestFromHandle(handle as never) === expected;
 
+/**
+ * Single-read plain snapshot of an untrusted verifier result. Accessors, symbols, methods,
+ * inherited fields and extra keys fail closed. Evidence is sealed only from the snapshot.
+ */
 const sealFromPrimitive = (
   result: unknown,
   envelope: WebhookEnvelope,
   canonicalDigest: string,
   trustedIso: ISO8601,
 ): Result<PayloadBoundSignatureEvidence, WebhookIngressFailure> => {
+  const plain = exactPlainObservation(result, VERIFIER_RESULT_FIELDS);
+  if (plain === null) return fail('VERIFIER_RESULT_INVALID', 'Verifier result is malformed.');
+  const verified = plain.verified;
+  const sourceId = plain.sourceId;
+  const payloadDigest = plain.payloadDigest;
+  const algorithm = plain.algorithm;
+  const keyReference = plain.keyReference;
+  const verifiedAt = plain.verifiedAt;
+  if (typeof verified !== 'boolean')
+    return fail('VERIFIER_RESULT_INVALID', 'Verifier result is malformed.');
   if (
-    typeof result !== 'object' ||
-    result === null ||
-    !('verified' in result) ||
-    !('sourceId' in result) ||
-    !('payloadDigest' in result) ||
-    !('algorithm' in result) ||
-    !('keyReference' in result) ||
-    !('verifiedAt' in result) ||
-    typeof result.verified !== 'boolean' ||
-    typeof result.sourceId !== 'string' ||
-    typeof result.payloadDigest !== 'string' ||
-    typeof result.algorithm !== 'string' ||
-    typeof result.keyReference !== 'string' ||
-    typeof result.verifiedAt !== 'string'
+    !filledString(sourceId) ||
+    !filledString(payloadDigest) ||
+    !filledString(algorithm) ||
+    !filledString(keyReference) ||
+    !filledString(verifiedAt)
   )
-    return fail('SIGNATURE_INVALID', 'Verifier result is malformed.');
-  if (!result.verified) return fail('SIGNATURE_INVALID', 'Webhook signature verification failed.');
-  if (result.sourceId !== envelope.sourceId)
+    return fail('VERIFIER_RESULT_INVALID', 'Verifier result is malformed.');
+  if (!verified) return fail('SIGNATURE_INVALID', 'Webhook signature verification failed.');
+  if (sourceId !== envelope.sourceId)
     return fail('SIGNATURE_INVALID', 'Signature sourceId does not match the envelope.');
-  if (result.payloadDigest !== canonicalDigest)
+  if (payloadDigest !== canonicalDigest)
     return fail('SIGNATURE_INVALID', 'Signature digest does not match canonical payload.');
-  if (result.algorithm !== envelope.signature.algorithm)
+  if (algorithm !== envelope.signature.algorithm)
     return fail('SIGNATURE_INVALID', 'Signature algorithm does not match the envelope.');
-  if (result.keyReference !== envelope.signature.keyReference)
+  if (keyReference !== envelope.signature.keyReference)
     return fail('SIGNATURE_INVALID', 'Signature key reference does not match the envelope.');
   return ok(
     sealPayloadBoundSignature({
-      sourceId: result.sourceId,
-      payloadDigest: result.payloadDigest as PayloadDigest,
-      algorithm: result.algorithm,
-      keyReference: result.keyReference,
+      sourceId,
+      payloadDigest: payloadDigest as PayloadDigest,
+      algorithm,
+      keyReference,
       verifiedAt: trustedIso,
     }),
   );
+};
+
+const mapReplayOutcome = (outcome: string): Result<true, WebhookIngressFailure> => {
+  switch (outcome) {
+    case 'accepted':
+      return ok(true);
+    case 'replay':
+      return fail('REPLAY_DETECTED', 'Webhook replay was detected.');
+    case 'duplicate-event':
+      return fail('DUPLICATE_EVENT', 'Webhook event was already processed.');
+    case 'duplicate-idempotency-key':
+      return fail('DUPLICATE_IDEMPOTENCY_KEY', 'Webhook idempotency key was already used.');
+    case 'stale-timestamp':
+      return fail('STALE_TIMESTAMP', 'Webhook timestamp is outside the accepted window.');
+    case 'nonce-replay':
+      return fail('NONCE_REPLAY', 'Webhook nonce was already used.');
+    default:
+      return fail('VERIFIER_RESULT_INVALID', 'Replay protection returned an unknown outcome.');
+  }
 };
 
 /**
@@ -226,9 +260,8 @@ export async function executeWebhookIngress(
 
   const replay = await deps.replay.checkAndRecord(envelope, context);
   if (!replay.ok) return fail('VERIFIER_UNAVAILABLE', 'Replay protection is unavailable.');
-  if (replay.value === 'replay') return fail('REPLAY', 'Webhook replay was detected.');
-  if (replay.value === 'duplicate-event')
-    return fail('DUPLICATE_EVENT', 'Webhook event was already processed.');
+  const replayMapped = mapReplayOutcome(replay.value);
+  if (!replayMapped.ok) return replayMapped;
   const replayEvidence = sealWebhookReplayEvidence({
     eventId: envelope.eventId,
     idempotencyKey: envelope.idempotencyKey,

@@ -6,6 +6,7 @@ import type {
   SensitiveFinding,
   SensitiveSeverity,
 } from '../domain/index.js';
+import { snapshotPlainJsonDto, type JsonDto } from './json-dto-snapshot.js';
 
 export interface ScannerFailure {
   readonly code: 'SCANNER_FAILURE' | 'INPUT_TOO_LARGE' | 'METADATA_TOO_COMPLEX';
@@ -66,13 +67,34 @@ const ASSIGNMENT_DETECTORS: readonly AssignmentDetector[] = [
     category: 'api-key',
     severity: 'critical',
     keyPattern:
-      /\b(?:api[_-]?key|access[_-]?key|secret[_-]?key|client[_-]?secret|auth[_-]?token|access[_-]?token|refresh[_-]?token|secret)["']?\s*[:=]/gi,
+      /\b(?:api[_-]?key|access[_-]?key|secret[_-]?key|auth[_-]?token|access[_-]?token|refresh[_-]?token)["']?\s*[:=]/gi,
+  },
+  {
+    category: 'oauth-client-secret',
+    severity: 'critical',
+    keyPattern: /\b(?:client[_-]?secret|oauth[_-]?client[_-]?secret)["']?\s*[:=]/gi,
+  },
+  {
+    category: 'webhook-signing-secret',
+    severity: 'critical',
+    keyPattern:
+      /\b(?:webhook[_-]?(?:signing[_-]?)?secret|signing[_-]?secret|hmac[_-]?secret)["']?\s*[:=]/gi,
+  },
+  {
+    category: 'api-key',
+    severity: 'critical',
+    keyPattern: /\b(?:secret|token)["']?\s*[:=]/gi,
   },
   { category: 'cookie', severity: 'high', keyPattern: /\b(?:set-cookie|cookie)["']?\s*[:=]/gi },
   {
     category: 'recovery-code',
     severity: 'critical',
     keyPattern: /\brecovery[_ -]?code["']?\s*[:=]/gi,
+  },
+  {
+    category: 'aws-secret-key',
+    severity: 'critical',
+    keyPattern: /\b(?:aws[_-]?secret[_-]?(?:access[_-]?)?key|secretAccessKey)["']?\s*[:=]/gi,
   },
 ];
 
@@ -82,7 +104,10 @@ interface LiteralDetector {
   readonly pattern: RegExp;
 }
 
-/** Linear patterns only: no nested quantifiers, so there is no obvious backtracking blow-up. */
+/**
+ * Linear patterns only: bounded character classes and no nested quantifiers, so there is no
+ * obvious catastrophic backtracking.
+ */
 const LITERAL_DETECTORS: readonly LiteralDetector[] = [
   {
     category: 'private-key',
@@ -96,13 +121,33 @@ const LITERAL_DETECTORS: readonly LiteralDetector[] = [
     severity: 'critical',
     pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/gi,
   },
+  {
+    category: 'github-token',
+    severity: 'critical',
+    pattern: /\b(?:gh[pousr]_[A-Za-z0-9]{20,255}|github_pat_[A-Za-z0-9_]{20,255})\b/g,
+  },
+  {
+    category: 'aws-access-key',
+    severity: 'critical',
+    pattern: /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g,
+  },
+  {
+    category: 'google-api-key',
+    severity: 'critical',
+    pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g,
+  },
+  {
+    category: 'jwt',
+    severity: 'critical',
+    pattern: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g,
+  },
 ];
 
 /** An unterminated key block is redacted to the end of the input rather than left in place. */
 const UNTERMINATED_PRIVATE_KEY = /-----BEGIN[A-Z0-9 ]{0,40}PRIVATE KEY-----/g;
 const URL_CANDIDATE_PATTERN = /[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s"'`<>]+/g;
 const SENSITIVE_KEY_NAME_PATTERN =
-  /^(?:.*[._-])?(?:password|passwd|pwd|passphrase|secret|token|cookie|api[_-]?key|access[_-]?key|private[_-]?key|recovery[_-]?code|credentials?|authorization)$/i;
+  /^(?:.*[._-])?(?:password|passwd|pwd|passphrase|secret|token|cookie|api[_-]?key|access[_-]?key|private[_-]?key|recovery[_-]?code|credentials?|authorization|client[_-]?secret|webhook[_-]?secret|signing[_-]?secret)$/i;
 
 const lineEnd = (input: string, from: number): number => {
   const relative = input.slice(from).search(/[\r\n]/);
@@ -379,30 +424,17 @@ interface MetadataBudget {
   keyChars: number;
 }
 
-const isPlainObject = (value: object): boolean => {
-  const proto: object | null = Object.getPrototypeOf(value) as object | null;
-  return proto === Object.prototype || proto === null;
-};
-
-const isUnsupportedContainer = (value: object): boolean => {
-  if (Array.isArray(value)) return false;
-  if (!isPlainObject(value)) return true;
-  if (ArrayBuffer.isView(value)) return true;
-  return false;
-};
-
 /**
- * Bounded fail-closed metadata flatten. Charges every visited descendant node (leaf or
- * container) before descending. Exactly MAX_METADATA_NODES nodes pass; the next is denied.
+ * Bounded fail-closed metadata flatten over an already-trusted plain JSON DTO snapshot.
+ * Charges every visited descendant node (leaf or container) before descending.
  */
 const flattenMetadata = (
-  value: unknown,
+  value: JsonDto,
   path: string,
   depth: number,
   sink: Map<string, string>,
   keys: string[],
   budget: MetadataBudget,
-  seen: WeakSet<object>,
   chargeNode: boolean,
 ): boolean => {
   if (depth > MAX_METADATA_DEPTH) return false;
@@ -410,7 +442,7 @@ const flattenMetadata = (
     if (budget.nodes >= MAX_METADATA_NODES) return false;
     budget.nodes += 1;
   }
-  if (value === null || value === undefined) {
+  if (value === null) {
     sink.set(path, '');
     return true;
   }
@@ -418,47 +450,28 @@ const flattenMetadata = (
     sink.set(path, value);
     return true;
   }
-  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+  if (typeof value === 'number' || typeof value === 'boolean') {
     sink.set(path, String(value));
     return true;
   }
-  if (typeof value !== 'object') return false;
-  if (seen.has(value)) return false;
-  seen.add(value);
-
   if (Array.isArray(value)) {
-    for (let index = 0; index < value.length; index += 1) {
-      if (
-        !flattenMetadata(
-          value[index],
-          `${path}[${String(index)}]`,
-          depth + 1,
-          sink,
-          keys,
-          budget,
-          seen,
-          true,
-        )
-      )
+    const items: readonly JsonDto[] = value;
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items.at(index);
+      if (item === undefined) return false;
+      if (!flattenMetadata(item, `${path}[${String(index)}]`, depth + 1, sink, keys, budget, true))
         return false;
     }
     return true;
   }
 
-  if (isUnsupportedContainer(value)) return false;
-
-  let entries: readonly (readonly [string, unknown])[];
-  try {
-    entries = Object.entries(value);
-  } catch {
-    return false;
-  }
-
-  for (const [key, item] of entries) {
-    if (typeof key !== 'string') return false;
+  for (const key of Object.keys(value)) {
     if (budget.keyChars + key.length > MAX_METADATA_TOTAL_KEY_LENGTH) return false;
     budget.keyChars += key.length;
     keys.push(key);
+    const record = value as { readonly [key: string]: JsonDto };
+    const item = record[key];
+    if (item === undefined) return false;
     if (
       !flattenMetadata(
         item,
@@ -467,7 +480,6 @@ const flattenMetadata = (
         sink,
         keys,
         budget,
-        seen,
         true,
       )
     )
@@ -476,17 +488,37 @@ const flattenMetadata = (
   return true;
 };
 
+/**
+ * Scans metadata after a mandatory plain-JSON DTO snapshot. Getters, setters, methods, proxies,
+ * host objects and non-plain prototypes fail closed without executing user code on the snapshot
+ * path. Raw Proxies are rejected via `util.types.isProxy` before property enumeration.
+ */
 export function scanSensitiveMetadata(input: unknown): Result<MetadataScanReport, ScannerFailure> {
   if (input === null || typeof input !== 'object' || Array.isArray(input))
     return err({ code: 'SCANNER_FAILURE', reason: 'Metadata input was not an object.' });
-  if (isUnsupportedContainer(input))
-    return err({ code: 'METADATA_TOO_COMPLEX', reason: 'Metadata exceeds scan limits.' });
+
+  const snapshot = snapshotPlainJsonDto(input, {
+    maxNodes: MAX_METADATA_NODES + 8,
+    maxDepth: MAX_METADATA_DEPTH + 2,
+  });
+  if (!snapshot.ok)
+    return err({
+      code: 'METADATA_TOO_COMPLEX',
+      reason: 'Metadata exceeds scan limits or is not a trusted plain JSON DTO.',
+    });
+  if (
+    snapshot.value === null ||
+    typeof snapshot.value !== 'object' ||
+    Array.isArray(snapshot.value)
+  )
+    return err({ code: 'SCANNER_FAILURE', reason: 'Metadata input was not an object.' });
+
   const flat = new Map<string, string>();
   const keys: string[] = [];
   const budget: MetadataBudget = { nodes: 0, keyChars: 0 };
   let traversed: boolean;
   try {
-    traversed = flattenMetadata(input, '', 0, flat, keys, budget, new WeakSet(), false);
+    traversed = flattenMetadata(snapshot.value, '', 0, flat, keys, budget, false);
   } catch {
     return err({ code: 'METADATA_TOO_COMPLEX', reason: 'Metadata exceeds scan limits.' });
   }

@@ -8,6 +8,13 @@ export type SensitiveCategory =
   | 'recovery-code'
   | 'url-credentials'
   | 'connection-string'
+  | 'github-token'
+  | 'aws-access-key'
+  | 'aws-secret-key'
+  | 'google-api-key'
+  | 'jwt'
+  | 'oauth-client-secret'
+  | 'webhook-signing-secret'
   | 'unknown-sensitive-pattern';
 export type SensitiveSeverity = 'medium' | 'high' | 'critical';
 /**

@@ -106,4 +106,14 @@ describe('public API surface', () => {
       if (Array.isArray(value)) expect(Object.isFrozen(value)).toBe(true);
     }
   });
+
+  it('exports safe identity/config/node helpers without internals', () => {
+    expect(exportedNames).toContain('parseMessageId');
+    expect(exportedNames).toContain('parseCorrelationId');
+    expect(exportedNames).toContain('parseModelRoutingConfig');
+    expect(exportedNames).toContain('evaluateNodeSupport');
+    expect(exportedNames).not.toContain('assertProductionNode');
+    expect(exportedNames).not.toContain('snapshotPlainJsonDto');
+    expect(exportedNames).not.toContain('exactPlainObservation');
+  });
 });

@@ -29,7 +29,7 @@ flowchart LR
 
 ## Границы доверия и серверов
 
-Зарубежный VPS TimeWeb Cloud — отдельный хост помощника. Российский production-сервер не размещает помощника и не доверяет ему входящие команды. Поток A направлен только наружу от помощника к явно разрешённым наблюдаемым системам; reverse trust, общие административные учётные записи и обратные соединения запрещены.
+Зарубежный VPS TimeWeb Cloud — **planned** хост помощника (не куплен, not deployed). Российский production-сервер не размещает помощника и не доверяет ему входящие команды. Поток A направлен только наружу от помощника к явно разрешённым наблюдаемым системам; reverse trust, общие административные учётные записи и обратные соединения запрещены.
 
 По умолчанию компоненты слушают loopback. Межсерверный доступ требует отдельного allowlist, read-only credentials и минимального сетевого маршрута.
 
@@ -90,12 +90,17 @@ provider: если совместимого мужского голоса нет
   `MemoryAccessGateway` (request body не назначает owner/actor/role); security evidence использует
   module-private WeakMap identity membership вместо transferable Symbol property. Package `exports`
   разрешает только root public API.
-- Build 2.1H закрывает FIN-004/005/006: `ExtensionPermissionGateway`, `ExtensionActivationGateway` и
-  `VoiceResolutionGateway` получают pre-bound observation/policy/clock dependencies; request не
-  назначает trust floors, grants, policy version, TTL или favorable voice booleans; canonical
-  manifest digest покрывает policy-sensitive manifest; returned registry entry полностью сверяется;
-  uncertainty provider → text-only. FIN-007—FIN-014 не закрыты. Реальный authentication/provider
-  adapter не реализован. Окончательный security approval отсутствует до нового Codex review.
+- Build 2.1H — FIN-004/005/006 **implemented, pending independent confirmation**:
+  `ExtensionPermissionGateway`, `ExtensionActivationGateway` и `VoiceResolutionGateway`;
+  uncertainty provider → text-only.
+- Build 2.1I — FIN-007—FIN-014 **implemented, pending independent confirmation**: plain-JSON
+  metadata DTO snapshot (descriptor-based; Proxy via `util.types.isProxy` only), path-valid
+  approval CFG checker, webhook verifier single-read snapshot + distinct idempotency/replay
+  outcomes, bounded token-family detectors, production config parsers, Node `>=22.13.0 <23`
+  with documented review override, validated identity constructors, documentation truthfulness.
+- Build №3 не начат. Сервер не куплен. Deployment не разрешён.
+- Реальный authentication/provider adapter не реализован. Окончательный security approval
+  отсутствует до нового независимого Codex review.
 - Следующий этап: локальные адаптеры и runtime policy enforcement после отдельного утверждения.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.

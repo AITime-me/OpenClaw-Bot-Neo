@@ -127,18 +127,18 @@
 - Build 2.1G закрывает FIN-001 (immutable sanitized snapshot), FIN-002 (authenticated memory
   gateway context) и FIN-003 (WeakMap identity membership вместо Symbol-brand; package exports
   закрывают internal subpaths).
-- Build 2.1H закрывает FIN-004 (trusted risk/permission derivation), FIN-005 (trusted deployment
-  activation + full manifest digest + returned entry verification) и FIN-006 (trusted voice
-  provider resolution). FIN-007—FIN-014 не объявлены закрытыми. Окончательный security approval
-  до нового Codex review не объявляется. Реальный authentication/provider adapter отсутствует.
+- Build 2.1H — FIN-004/005/006 implemented, pending independent confirmation.
+- Build 2.1I — FIN-007—FIN-014 implemented, pending independent confirmation.
+  Окончательный security approval до нового Codex review не объявляется. Build №3 не начат.
+  Реальный authentication/provider adapter отсутствует.
 
 ## Deployment
 
-- Bot VPS TimeWeb Cloud отделён от российского production; только outbound read-only к allowlisted production/external systems, reverse trust отсутствует.
+- Bot VPS TimeWeb Cloud — **planned** (не куплен, not deployed); целевая модель: отделение от российского production; только outbound read-only к allowlisted systems, reverse trust отсутствует.
 - Bind loopback-first, inbound restricted, non-root, secrets outside repo, отдельные backup/data/audit boundaries.
 - Version pin и controlled update включают release review, staging fixture tests, snapshot/rollback и compatibility matrix.
-- Deployment остаётся draft и сейчас не выполняется.
-
+- Deployment остаётся draft и сейчас не выполняется. Node production support: `>=22.13.0 <23`
+  (`OPENCLAW_PRODUCTION_NODE_GATE=1`); review override документирован и не является production support.
 ## Checks after runtime installation
 
 - Закрепить фактическую OpenClaw version и выполнить каждую runtime check из [матрицы совместимости](openclaw-compatibility.md).

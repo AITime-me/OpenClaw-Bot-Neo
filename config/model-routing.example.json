@@ -1,5 +1,6 @@
 {
   "status": "draft",
+  "schemaVersion": "1.0",
   "modelIdentifiersConfirmed": false,
   "defaultProviderMode": "subscription-oauth-only",
   "apiFallbackEnabled": false,
@@ -28,7 +29,7 @@
       "onUnavailable": "fail-closed"
     },
     {
-      "risk": "untrusted",
+      "risk": "untrusted-input",
       "capabilityTier": "<validated-untrusted-content-tier>",
       "toolProfile": "untrusted-no-exec-no-network-no-elevated-tools",
       "approval": "owner-required-for-any-tool-expansion",

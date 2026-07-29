@@ -17,6 +17,8 @@ module.exports = {
     layer('ports-depend-on-domain-only', 'ports', ['domain', 'ports']),
     layer('policy-depends-on-domain-and-ports', 'policy', ['domain', 'ports', 'policy']),
     layer('routing-depends-on-domain-and-ports', 'routing', ['domain', 'ports', 'routing']),
+    layer('config-depends-on-domain-and-routing', 'config', ['domain', 'routing', 'config']),
+    layer('runtime-is-isolated', 'runtime', ['runtime']),
     layer('application-depends-on-core-only', 'application', [
       'domain',
       'ports',
@@ -31,7 +33,7 @@ module.exports = {
       from: { path: '^src/core' },
       to: {
         path: '^src/',
-        pathNot: '^src/core/(domain|ports|policy|routing|application)',
+        pathNot: '^src/core/(domain|ports|policy|routing|config|runtime|application)',
       },
     },
     {
@@ -40,7 +42,7 @@ module.exports = {
       from: { path: '^src/index\\.ts$' },
       to: {
         path: '^src/',
-        pathNot: '^src/core/(domain|ports|policy|routing|application)',
+        pathNot: '^src/core/(domain|ports|policy|routing|config|runtime|application)',
       },
     },
     {

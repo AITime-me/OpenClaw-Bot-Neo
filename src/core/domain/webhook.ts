@@ -43,11 +43,16 @@ export interface WebhookVerificationState {
 export type WebhookFailureCode =
   | 'UNKNOWN_SOURCE'
   | 'INVALID_TIMESTAMP'
+  | 'REPLAY_DETECTED'
   | 'REPLAY'
   | 'DUPLICATE_EVENT'
+  | 'DUPLICATE_IDEMPOTENCY_KEY'
+  | 'STALE_TIMESTAMP'
+  | 'NONCE_REPLAY'
   | 'OVERSIZED_PAYLOAD'
   | 'CONTENT_LENGTH_MISMATCH'
   | 'VERIFIER_UNAVAILABLE'
+  | 'VERIFIER_RESULT_INVALID'
   | 'SIGNATURE_INVALID'
   | 'SIGNATURE_REQUIRED'
   | 'RATE_LIMITED'
@@ -58,6 +63,15 @@ export type WebhookFailureCode =
   | 'SCANNER_DENIED'
   | 'SCANNER_UNAVAILABLE'
   | 'UNAUTHORIZED_BOOLEAN_STATE';
+
+/** Controlled replay / idempotency outcomes returned by ReplayProtectionPort. */
+export type WebhookReplayCheckOutcome =
+  | 'accepted'
+  | 'replay'
+  | 'duplicate-event'
+  | 'duplicate-idempotency-key'
+  | 'stale-timestamp'
+  | 'nonce-replay';
 
 export type WebhookIngressDecision =
   | { readonly allowed: true }
@@ -101,6 +115,7 @@ export interface WebhookIngressLimits {
 
 /**
  * Untrusted primitive verifier result returned by adapters. Core seals evidence after validation.
+ * Extra fields (including optional reason codes) are rejected by the exact plain snapshot.
  */
 export interface WebhookSignatureVerificationResult {
   readonly verified: boolean;
@@ -109,5 +124,4 @@ export interface WebhookSignatureVerificationResult {
   readonly algorithm: string;
   readonly keyReference: string;
   readonly verifiedAt: string;
-  readonly reasonCode?: string;
 }

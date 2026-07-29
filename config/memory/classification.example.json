@@ -1,6 +1,7 @@
 {
   "status": "draft",
-  "defaultClassification": "restricted",
+  "schemaVersion": "1.0",
+  "defaultClassification": "security-restricted",
   "classes": {
     "public": {
       "externalProcessingAllowed": "policy-dependent"
@@ -11,7 +12,11 @@
     "confidential": {
       "externalProcessingAllowed": false
     },
-    "secret": {
+    "commercial-secret": {
+      "storeAllowed": false,
+      "externalProcessingAllowed": false
+    },
+    "security-restricted": {
       "storeAllowed": false,
       "externalProcessingAllowed": false
     }

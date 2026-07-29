@@ -3,6 +3,7 @@ import type {
   Result,
   SafeWebhookAuditEvent,
   WebhookEnvelope,
+  WebhookReplayCheckOutcome,
   WebhookSignatureVerificationResult,
 } from '../domain/index.js';
 import type { OperationContext } from './operation-context.js';
@@ -31,7 +32,7 @@ export interface WebhookReplayProtectionPort {
   checkAndRecord(
     envelope: WebhookEnvelope,
     context: OperationContext,
-  ): Promise<Result<'accepted' | 'replay' | 'duplicate-event', DomainError>>;
+  ): Promise<Result<WebhookReplayCheckOutcome, DomainError>>;
 }
 
 export interface WebhookRateLimitPort {

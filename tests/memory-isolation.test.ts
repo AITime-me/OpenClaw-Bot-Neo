@@ -1,6 +1,6 @@
+import { analyzeExecuteMemoryWrite } from '../scripts/verify-memory-isolation.mjs';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { analyzeExecuteMemoryWrite } from '../scripts/verify-memory-isolation.mjs';
 
 const straightLine = `
 export async function executeMemoryWrite(deps, access, command) {
@@ -12,10 +12,17 @@ export async function executeMemoryWrite(deps, access, command) {
   await deps.scanner.scanMetadata(command.rawMetadata, access.operation);
   classifyData('owner');
   authorizeMemoryAccess(access, 'write', { ownerId: access.ownerId, namespace: command.targetNamespace });
-  await deps.policy.evaluate({}, access);
+  const policyResult = await deps.policy.evaluate({}, access);
   deriveMemoryWriteApprovalDemand({});
-  validateApproval(null, {}, new Date());
-  await deps.approvals.consume('id', 'nonce', access.operation);
+  if (policyResult.value.decision === 'approval-required') {
+    if (command.approvalId === null) return err({ code: 'APPROVAL_REQUIRED' });
+    const grant = await deps.approvals.lookup(command.approvalId, access.operation);
+    if (!grant.ok) return err({ code: 'APPROVAL_UNAVAILABLE' });
+    const validated = validateApproval(grant.value, demand, trustedNow);
+    if (!validated.ok) return err({ code: 'APPROVAL_INVALID' });
+    const consumed = await deps.approvals.consume(validated.value.approvalId, grant.value.nonce, access.operation);
+    if (!consumed.ok) return err({ code: 'CONSUMPTION_FAILED' });
+  }
   await deps.memory.write({}, access);
   await deps.audit.record({}, access);
 }
@@ -29,8 +36,146 @@ describe('memory AST enforcement is target-specific and path-aware', () => {
     expect(report.failures).toEqual([]);
   });
 
-  it('accepts a straight-line safe fixture', () => {
+  it('accepts a canonical approval-gate fixture', () => {
     expect(analyzeExecuteMemoryWrite(straightLine, 'straight.ts').ok).toBe(true);
+  });
+
+  it('rejects if(false) approval gates', () => {
+    const report = analyzeExecuteMemoryWrite(
+      straightLine.replace(
+        "if (policyResult.value.decision === 'approval-required')",
+        'if (false)',
+      ),
+      'false-gate.ts',
+    );
+    expect(report.ok).toBe(false);
+    expect(report.failures.some((failure) => failure.includes('AMBIGUOUS_CONTROL_FLOW'))).toBe(
+      true,
+    );
+  });
+
+  it('rejects unrelated approval conditions', () => {
+    const report = analyzeExecuteMemoryWrite(
+      straightLine.replace(
+        "if (policyResult.value.decision === 'approval-required')",
+        'if (unrelatedFlag)',
+      ),
+      'unrelated-gate.ts',
+    );
+    expect(report.ok).toBe(false);
+    expect(report.failures.some((failure) => failure.includes('AMBIGUOUS_CONTROL_FLOW'))).toBe(
+      true,
+    );
+  });
+
+  it('rejects inverted approval conditions', () => {
+    const report = analyzeExecuteMemoryWrite(
+      straightLine.replace(
+        "if (policyResult.value.decision === 'approval-required')",
+        "if (policyResult.value.decision !== 'approval-required')",
+      ),
+      'inverted-gate.ts',
+    );
+    expect(report.ok).toBe(false);
+  });
+
+  it('rejects approval after write', () => {
+    const report = analyzeExecuteMemoryWrite(
+      straightLine.replace(
+        `deriveMemoryWriteApprovalDemand({});
+  if (policyResult.value.decision === 'approval-required') {
+    if (command.approvalId === null) return err({ code: 'APPROVAL_REQUIRED' });
+    const grant = await deps.approvals.lookup(command.approvalId, access.operation);
+    if (!grant.ok) return err({ code: 'APPROVAL_UNAVAILABLE' });
+    const validated = validateApproval(grant.value, demand, trustedNow);
+    if (!validated.ok) return err({ code: 'APPROVAL_INVALID' });
+    const consumed = await deps.approvals.consume(validated.value.approvalId, grant.value.nonce, access.operation);
+    if (!consumed.ok) return err({ code: 'CONSUMPTION_FAILED' });
+  }
+  await deps.memory.write({}, access);`,
+        `await deps.memory.write({}, access);
+  deriveMemoryWriteApprovalDemand({});
+  if (policyResult.value.decision === 'approval-required') {
+    if (command.approvalId === null) return err({ code: 'APPROVAL_REQUIRED' });
+    const grant = await deps.approvals.lookup(command.approvalId, access.operation);
+    if (!grant.ok) return err({ code: 'APPROVAL_UNAVAILABLE' });
+    const validated = validateApproval(grant.value, demand, trustedNow);
+    if (!validated.ok) return err({ code: 'APPROVAL_INVALID' });
+    const consumed = await deps.approvals.consume(validated.value.approvalId, grant.value.nonce, access.operation);
+    if (!consumed.ok) return err({ code: 'CONSUMPTION_FAILED' });
+  }`,
+      ),
+      'approval-after-write.ts',
+    );
+    expect(report.ok).toBe(false);
+    expect(report.failures.some((failure) => failure.includes('ORDER_VIOLATION'))).toBe(true);
+  });
+
+  it('rejects write in else/catch/finally and optional logical approval', () => {
+    expect(
+      analyzeExecuteMemoryWrite(
+        `
+export async function executeMemoryWrite(deps, access, command) {
+  validateOperationContext(access.operation);
+  readTrustedTimestamp(deps.clock);
+  normalizeMemoryWriteContent(command.rawContent);
+  markUntrusted(command.rawContent);
+  await deps.scanner.scanText(command.rawContent, access.operation);
+  await deps.scanner.scanMetadata(command.rawMetadata, access.operation);
+  classifyData('owner');
+  authorizeMemoryAccess(access, 'write', { ownerId: access.ownerId, namespace: command.targetNamespace });
+  const policyResult = await deps.policy.evaluate({}, access);
+  deriveMemoryWriteApprovalDemand({});
+  if (policyResult.value.decision === 'approval-required') {
+    const grant = await deps.approvals.lookup(command.approvalId, access.operation);
+    if (!grant.ok) return err({ code: 'APPROVAL_UNAVAILABLE' });
+    const validated = validateApproval(grant.value, demand, trustedNow);
+    if (!validated.ok) return err({ code: 'APPROVAL_INVALID' });
+    const consumed = await deps.approvals.consume(validated.value.approvalId, grant.value.nonce, access.operation);
+    if (!consumed.ok) return err({ code: 'CONSUMPTION_FAILED' });
+  } else {
+    await deps.memory.write({}, access);
+  }
+  await deps.audit.record({}, access);
+}
+`,
+        'write-in-else.ts',
+      ).failures.some((failure) => failure.includes('AMBIGUOUS_CONTROL_FLOW')),
+    ).toBe(true);
+
+    expect(
+      analyzeExecuteMemoryWrite(
+        straightLine.replace(
+          'await deps.memory.write({}, access);',
+          'try { await deps.memory.write({}, access); } catch (error) { await deps.memory.write({}, access); } finally { await deps.memory.write({}, access); }',
+        ),
+        'write-in-try.ts',
+      ).failures.some((failure) => failure.includes('AMBIGUOUS_CONTROL_FLOW')),
+    ).toBe(true);
+
+    expect(
+      analyzeExecuteMemoryWrite(
+        straightLine.replace(
+          "if (policyResult.value.decision === 'approval-required')",
+          "policyResult.value.decision === 'approval-required' && true &&",
+        ),
+        'logical-and-gate.ts',
+      ).ok,
+    ).toBe(false);
+  });
+
+  it('rejects deny branch without terminating return', () => {
+    const report = analyzeExecuteMemoryWrite(
+      straightLine.replace(
+        "if (command.approvalId === null) return err({ code: 'APPROVAL_REQUIRED' });",
+        'if (command.approvalId === null) { const ignored = true; }',
+      ),
+      'non-terminating-deny.ts',
+    );
+    expect(report.ok).toBe(false);
+    expect(report.failures.some((failure) => failure.includes('AMBIGUOUS_CONTROL_FLOW'))).toBe(
+      true,
+    );
   });
 
   it('ignores a correctly ordered dead helper', () => {
@@ -124,17 +269,6 @@ export async function executeMemoryWrite(deps, access, command) {
         'missing-untrusted.ts',
       ).failures.some((failure) => failure.includes('MISSING_STAGE')),
     ).toBe(true);
-    expect(
-      analyzeExecuteMemoryWrite(
-        straightLine
-          .replace('normalizeMemoryWriteContent(command.rawContent);\n  ', '')
-          .replace(
-            'await deps.scanner.scanText(command.rawContent, access.operation);',
-            'normalizeMemoryWriteContent(command.rawContent);\n  await deps.scanner.scanText(command.rawContent, access.operation);',
-          ),
-        'normalization-after-scanner.ts',
-      ).failures.some((failure) => failure.includes('ORDER_VIOLATION')),
-    ).toBe(true);
   });
 
   it('fails closed for loops, callbacks, try/catch and logical stage calls', () => {
@@ -159,34 +293,22 @@ export async function executeMemoryWrite(deps, access, command) {
   await deps.scanner.scanMetadata(command.rawMetadata, access.operation);
   classifyData('owner');
   authorizeMemoryAccess(access, 'write', { ownerId: access.ownerId, namespace: command.targetNamespace });
-  await deps.policy.evaluate({}, access);
+  const policyResult = await deps.policy.evaluate({}, access);
   deriveMemoryWriteApprovalDemand({});
-  validateApproval(null, {}, new Date());
-  await deps.approvals.consume('id', 'nonce', access.operation);
+  if (policyResult.value.decision === 'approval-required') {
+    const grant = await deps.approvals.lookup(command.approvalId, access.operation);
+    if (!grant.ok) return err({ code: 'APPROVAL_UNAVAILABLE' });
+    const validated = validateApproval(grant.value, demand, trustedNow);
+    if (!validated.ok) return err({ code: 'APPROVAL_INVALID' });
+    const consumed = await deps.approvals.consume(validated.value.approvalId, grant.value.nonce, access.operation);
+    if (!consumed.ok) return err({ code: 'CONSUMPTION_FAILED' });
+  }
   const run = async () => { await deps.memory.write({}, access); };
   await run();
   await deps.audit.record({}, access);
 }
 `,
         'callback-write.ts',
-      ).failures.some((failure) => failure.includes('AMBIGUOUS_CONTROL_FLOW')),
-    ).toBe(true);
-    expect(
-      analyzeExecuteMemoryWrite(
-        straightLine.replace(
-          'await deps.memory.write({}, access);',
-          'try { await deps.memory.write({}, access); } catch (error) { await deps.memory.write({}, access); }',
-        ),
-        'try-catch-write.ts',
-      ).failures.some((failure) => failure.includes('AMBIGUOUS_CONTROL_FLOW')),
-    ).toBe(true);
-    expect(
-      analyzeExecuteMemoryWrite(
-        straightLine.replace(
-          'markUntrusted(command.rawContent);',
-          'true && markUntrusted(command.rawContent);',
-        ),
-        'logical-stage.ts',
       ).failures.some((failure) => failure.includes('AMBIGUOUS_CONTROL_FLOW')),
     ).toBe(true);
   });

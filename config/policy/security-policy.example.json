@@ -1,5 +1,6 @@
 {
   "status": "draft",
+  "schemaVersion": "1.0",
   "defaultEffect": "deny",
   "readOnlyFirst": true,
   "paymentActionsAllowed": false,

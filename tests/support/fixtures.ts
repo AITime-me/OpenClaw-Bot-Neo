@@ -1,29 +1,35 @@
 import { err, ok } from '../../src/core/domain/index.js';
-import type {
-  ActorId,
-  ApprovalGrant,
-  ApprovalId,
-  ApprovalNonce,
-  CorrelationId,
-  DomainError,
-  ISO8601,
-  MemoryAccessContext,
-  MemoryNamespace,
-  MemoryRecordId,
-  MemoryRetentionPolicy,
-  MemoryRole,
-  MemorySource,
-  MemoryWriteDecision,
-  MetadataScanReport,
-  OperationContext,
-  OwnerId,
-  PayloadDigest,
-  ProjectScope,
-  ResourceRef,
-  Result,
-  SafeMemoryAuditEvent,
-  ScanReport,
-  VerifiedMemoryWrite,
+import {
+  parseActorId,
+  parseApprovalId,
+  parseApprovalNonce,
+  parseCorrelationId,
+  parseOwnerId,
+  parsePayloadDigest,
+  type ActorId,
+  type ApprovalGrant,
+  type ApprovalId,
+  type ApprovalNonce,
+  type CorrelationId,
+  type DomainError,
+  type ISO8601,
+  type MemoryAccessContext,
+  type MemoryNamespace,
+  type MemoryRecordId,
+  type MemoryRetentionPolicy,
+  type MemoryRole,
+  type MemorySource,
+  type MemoryWriteDecision,
+  type MetadataScanReport,
+  type OperationContext,
+  type OwnerId,
+  type PayloadDigest,
+  type ProjectScope,
+  type ResourceRef,
+  type Result,
+  type SafeMemoryAuditEvent,
+  type ScanReport,
+  type VerifiedMemoryWrite,
 } from '../../src/core/domain/index.js';
 import {
   scanSensitiveData,
@@ -44,13 +50,37 @@ import {
 } from '../../src/core/domain/sanitized.internal.js';
 
 export const iso = (value: string): ISO8601 => value as ISO8601;
-export const asOwner = (value = 'owner-1'): OwnerId => value as OwnerId;
-export const asActor = (value = 'actor-1'): ActorId => value as ActorId;
-export const asCorrelation = (value = 'req-1'): CorrelationId => value as CorrelationId;
+export const asOwner = (value = 'owner-1'): OwnerId => {
+  const parsed = parseOwnerId(value);
+  if (!parsed.ok) throw new Error(parsed.error.reason);
+  return parsed.value;
+};
+export const asActor = (value = 'actor-1'): ActorId => {
+  const parsed = parseActorId(value);
+  if (!parsed.ok) throw new Error(parsed.error.reason);
+  return parsed.value;
+};
+export const asCorrelation = (value = 'req-1'): CorrelationId => {
+  const parsed = parseCorrelationId(value);
+  if (!parsed.ok) throw new Error(parsed.error.reason);
+  return parsed.value;
+};
 export const asRecordId = (value = 'record-1'): MemoryRecordId => value as MemoryRecordId;
-export const asApprovalId = (value = 'approval-1'): ApprovalId => value as ApprovalId;
-export const asNonce = (value = 'nonce-1'): ApprovalNonce => value as ApprovalNonce;
-export const asDigest = (value = 'digest-1'): PayloadDigest => value as PayloadDigest;
+export const asApprovalId = (value = 'approval-1'): ApprovalId => {
+  const parsed = parseApprovalId(value);
+  if (!parsed.ok) throw new Error(parsed.error.reason);
+  return parsed.value;
+};
+export const asNonce = (value = 'nonce-1'): ApprovalNonce => {
+  const parsed = parseApprovalNonce(value);
+  if (!parsed.ok) throw new Error(parsed.error.reason);
+  return parsed.value;
+};
+export const asDigest = (value = 'a'.repeat(64)): PayloadDigest => {
+  const parsed = parsePayloadDigest(value);
+  if (!parsed.ok) throw new Error(parsed.error.reason);
+  return parsed.value;
+};
 export const asResource = (value = 'memory/personal/record-1'): ResourceRef => value as ResourceRef;
 
 export const NOW = '2026-07-01T12:00:00.000Z';

@@ -211,10 +211,29 @@ describe('webhook orchestration', () => {
   it.each([
     ['UNKNOWN_SOURCE', { sourceAuth: { authenticate: () => Promise.resolve(ok(false)) } }],
     ['SIGNATURE_INVALID', { signatures: { verify: () => Promise.resolve(ok(null)) } }],
-    ['REPLAY', { replay: { checkAndRecord: () => Promise.resolve(ok('replay' as const)) } }],
+    [
+      'REPLAY_DETECTED',
+      { replay: { checkAndRecord: () => Promise.resolve(ok('replay' as const)) } },
+    ],
     [
       'DUPLICATE_EVENT',
       { replay: { checkAndRecord: () => Promise.resolve(ok('duplicate-event' as const)) } },
+    ],
+    [
+      'DUPLICATE_IDEMPOTENCY_KEY',
+      {
+        replay: {
+          checkAndRecord: () => Promise.resolve(ok('duplicate-idempotency-key' as const)),
+        },
+      },
+    ],
+    [
+      'STALE_TIMESTAMP',
+      { replay: { checkAndRecord: () => Promise.resolve(ok('stale-timestamp' as const)) } },
+    ],
+    [
+      'NONCE_REPLAY',
+      { replay: { checkAndRecord: () => Promise.resolve(ok('nonce-replay' as const)) } },
     ],
     ['RATE_LIMITED', { rateLimit: { decide: () => Promise.resolve(ok('deny' as const)) } }],
   ])('denies %s', async (code, override) => {
@@ -226,6 +245,82 @@ describe('webhook orchestration', () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe(code);
+  });
+
+  it('denies accessor verifier results without executing getters into evidence', async () => {
+    let reads = 0;
+    const result = await executeWebhookIngress(
+      deps({
+        signatures: {
+          verify: () => {
+            const target = {
+              verified: true,
+              sourceId: 'trusted-source',
+              payloadDigest: 'x',
+              algorithm: 'detached-signature-v1',
+              keyReference: 'source-key-reference',
+              verifiedAt: '2026-07-28T12:00:10.000Z',
+            };
+            const proxied: typeof target = new Proxy(target, {
+              get(obj, prop, receiver): unknown {
+                reads += 1;
+                return Reflect.get(obj, prop, receiver);
+              },
+            });
+            return Promise.resolve(ok(proxied));
+          },
+        },
+      }),
+      command(),
+      limits,
+      operationContext(),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('VERIFIER_RESULT_INVALID');
+    expect(reads).toBe(0);
+  });
+
+  it('denies getter/extra/inherited verifier results and freezes snapshot evidence', async () => {
+    const withGetter = {};
+    Object.defineProperty(withGetter, 'verified', {
+      enumerable: true,
+      get() {
+        return true;
+      },
+    });
+    for (const key of ['sourceId', 'payloadDigest', 'algorithm', 'keyReference', 'verifiedAt'])
+      Object.defineProperty(withGetter, key, { enumerable: true, value: 'x' });
+    const getterResult = await executeWebhookIngress(
+      deps({
+        signatures: { verify: () => Promise.resolve(ok(withGetter as never)) },
+      }),
+      command(),
+      limits,
+      operationContext(),
+    );
+    expect(getterResult.ok).toBe(false);
+    if (!getterResult.ok) expect(getterResult.error.code).toBe('VERIFIER_RESULT_INVALID');
+
+    const extra = {
+      verified: true,
+      sourceId: 'trusted-source',
+      payloadDigest: '0'.repeat(64),
+      algorithm: 'detached-signature-v1',
+      keyReference: 'source-key-reference',
+      verifiedAt: '2026-07-28T12:00:10.000Z',
+      extra: true,
+    };
+    const extraResult = await executeWebhookIngress(
+      deps({
+        signatures: {
+          verify: (_e, _b, digest) => Promise.resolve(ok({ ...extra, payloadDigest: digest })),
+        },
+      }),
+      command(),
+      limits,
+      operationContext(),
+    );
+    expect(extraResult.ok).toBe(false);
   });
 
   it('denies NaN and non-positive limits', () => {

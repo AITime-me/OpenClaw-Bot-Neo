@@ -35,6 +35,7 @@ export * from './action-plan.js';
 export * from './errors.js';
 export * from './result.js';
 export type { ValidatedApproval } from './approval.internal.js';
+
 export type { VerifiedExtensionManifest } from './extension-manifest.internal.js';
 export type { ValidatedVoiceProfile } from './voice-profile.internal.js';
 export type { VerifiedVoiceProviderMatch } from './voice-profile.internal.js';

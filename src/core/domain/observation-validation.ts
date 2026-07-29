@@ -3,6 +3,8 @@
  * Does not execute accessors, methods, or user-defined iterators.
  */
 
+import { isProxy } from 'node:util/types';
+
 const isPlainPrototype = (value: object): boolean => {
   const proto: unknown = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
@@ -19,13 +21,14 @@ export const readOwnData = (value: object, key: string): unknown => {
 
 /**
  * Accepts only exact plain records with the listed own data fields.
- * Rejects symbols, getters, methods, inherited properties and extra keys.
+ * Rejects symbols, getters, methods, inherited properties, proxies and extra keys.
  */
 export const exactPlainObservation = (
   value: unknown,
   fields: readonly string[],
 ): Readonly<Record<string, unknown>> | null => {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (isProxy(value)) return null;
   if (!isPlainPrototype(value)) return null;
   if (Object.getOwnPropertySymbols(value).length > 0) return null;
 
@@ -42,6 +45,37 @@ export const exactPlainObservation = (
     if (descriptor.get !== undefined || descriptor.set !== undefined) return null;
     if (typeof descriptor.value === 'function') return null;
     snapshot[field] = descriptor.value;
+  }
+  return snapshot;
+};
+
+/**
+ * Exact plain record with required fields and an optional allowlist.
+ * Own keys must be a subset of required∪optional; every required key must be present.
+ */
+export const exactPlainRecord = (
+  value: unknown,
+  required: readonly string[],
+  optional: readonly string[] = [],
+): Readonly<Record<string, unknown>> | null => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (isProxy(value)) return null;
+  if (!isPlainPrototype(value)) return null;
+  if (Object.getOwnPropertySymbols(value).length > 0) return null;
+
+  const allowed = new Set<string>([...required, ...optional]);
+  const ownKeys = Object.getOwnPropertyNames(value);
+  for (const key of ownKeys) if (!allowed.has(key)) return null;
+  for (const field of required)
+    if (!Object.prototype.hasOwnProperty.call(value, field)) return null;
+
+  const snapshot: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+  for (const key of ownKeys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined) return null;
+    if (descriptor.get !== undefined || descriptor.set !== undefined) return null;
+    if (typeof descriptor.value === 'function') return null;
+    snapshot[key] = descriptor.value;
   }
   return snapshot;
 };

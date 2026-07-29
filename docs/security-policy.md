@@ -197,8 +197,10 @@ contracts без loader или integrations. Build 2.1C закрывает OCN-0
 import/require). Build 2.1D закрывает B21-001—B21-004. Build 2.1E закрывает R2.1-003—R2.1-006
 (trusted evidence closure). Build 2.1F закрывает MEDIUM R2.1-001/002/007. Build 2.1G закрывает
 FIN-001/002/003 (immutable sanitized snapshot, authenticated memory gateway, non-forgeable WeakMap
-provenance, restrictive package exports). Build 2.1H закрывает FIN-004/005/006 (trusted derivation
-gateways для risk/permissions, deployment activation и voice provider resolution). FIN-007—FIN-014
-не объявлены закрытыми. Окончательный security approval требует нового независимого Codex review.
-Эти gates действуют только внутри ядра и не означают, что OpenClaw runtime или adapters уже их
-используют.
+provenance, restrictive package exports). Build 2.1H — FIN-004/005/006 implemented, pending
+independent confirmation. Build 2.1I — FIN-007—FIN-014 implemented, pending independent
+confirmation (metadata DTO boundary, approval CFG, webhook snapshot/idempotency, token families,
+config parsers, Node contract, identity constructors, docs truthfulness). Окончательный security
+approval требует нового независимого Codex review. Build №3 не начат; VPS не куплен; deployment
+не разрешён. Эти gates действуют только внутри ядра и не означают, что OpenClaw runtime или
+adapters уже их используют.
