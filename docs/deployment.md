@@ -30,5 +30,13 @@ deployment controls.
 Точные команды, образы, unit-файлы, порты и OpenClaw-поля не определены. Build 3.2 добавляет только
 pure lexical storage binding/schema contract без filesystem I/O, без durable adapters и без
 deployment wiring; lexical path accept не означает filesystem-open-safe и не разрешает ADS/reserved
-device roots. Build №3 не завершён, VPS не куплен, security approval отсутствует pending Codex
-Review №6. До review, threat model и отдельного owner approval deployment запрещён.
+device roots. Build 3.3A pin'ит SQLite npm dependencies без adapter. Build 3.3B1 добавляет
+app-private POSIX/Linux safe-open уже существующего storage root (рекомендуемый смысл
+`/var/lib/openclaw-neo`) с explicit ownership/mode/repository policy; не создаёт directory, не
+открывает SQLite/database, не включает writes/durability, не даёт exclusive lock, не устраняет
+полностью TOCTOU, не защищает от privileged local attacker, не проверен в Ubuntu 24.04 container и
+не является deployment approval. Planned target: зарубежный VPS Timeweb Cloud
+(4 vCPU / 8 ГБ / 80 ГБ NVMe), Ubuntu 24.04 LTS, Linux server-only, non-root service user; Windows —
+только Cursor/Git/static checks/unit tests, не agent runtime. Build №3 не завершён, VPS не куплен,
+security approval отсутствует pending Codex Review №6. До review, threat model и отдельного owner
+approval deployment запрещён.

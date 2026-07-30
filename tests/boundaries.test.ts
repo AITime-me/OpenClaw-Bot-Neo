@@ -83,6 +83,15 @@ describe('allowlist-based layer rules', () => {
     expect(report.filesAnalyzed).toBeGreaterThan(0);
   });
 
+  it('accepts a compliant POSIX storage-root runtime adapter fixture', () => {
+    const report = analyzeBoundaries({
+      rootDir: fixture('host-storage-runtime-allowed'),
+      requiredLayers: [],
+    });
+    expect(report.violations).toEqual([]);
+    expect(report.filesAnalyzed).toBeGreaterThan(0);
+  });
+
   it.each([
     ['forbidden-static', 'FORBIDDEN_DEPENDENCY'],
     ['forbidden-export-from', 'FORBIDDEN_DEPENDENCY'],
@@ -122,6 +131,10 @@ describe('allowlist-based layer rules', () => {
     ['forbidden-host-storage-http', 'FORBIDDEN_DEPENDENCY'],
     ['forbidden-host-storage-sealer', 'INTERNAL_MODULE_LEAK'],
     ['forbidden-host-storage-npm', 'EXTERNAL_DEPENDENCY'],
+    ['forbidden-host-storage-runtime-sqlite', 'EXTERNAL_DEPENDENCY'],
+    ['forbidden-host-storage-runtime-http', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-host-storage-runtime-child-process', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-host-unrelated-fs', 'FORBIDDEN_DEPENDENCY'],
   ])('rejects the %s fixture with %s', (name, code) => {
     const report = analyzeBoundaries({ rootDir: fixture(name), requiredLayers: [] });
     expect(codes(report)).toContain(code);

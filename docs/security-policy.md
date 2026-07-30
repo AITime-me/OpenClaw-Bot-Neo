@@ -244,10 +244,32 @@ config не является authority evidence и не включает runtime
 для ADS colon и classic reserved device names), pure schema compatibility только против immutable
 `CURRENT_STORAGE_SCHEMA_VERSION` (caller currentVersion override отсутствует; migration не
 выполняется и при CURRENT=1 не достижима валидной older version), immutable unbound storage plan.
-Filesystem не читается и не изменяется; storage backend unbound; durability none; writes disabled;
-encryption absent; lexical accept ≠ filesystem-open-safe; durable MemoryPort/ApprovalPort/audit
-отсутствуют; core transaction gap между approval consume, memory write и audit append остаётся;
-SQLite/npm persistence dependency decision отложено. Storage input — constructor/binding input
-будущего adapter, не секция Build 3.1 config envelope и не claim о disk schema. Build №3 целиком не
-завершён; VPS не куплен; deployment не разрешён. Эти gates действуют внутри ядра/host и не означают,
+Filesystem в 3.2 не читается и не изменяется; storage backend unbound; durability none; writes
+disabled; encryption absent; lexical accept ≠ filesystem-open-safe.
+**Build 3.3A** exact-pin'ит `better-sqlite3@12.11.1` / `@types/better-sqlite3@7.6.13` без adapter.
+**Build 3.3B1** добавляет app-private POSIX/Linux safe-open существующего storage root
+(`openPosixStorageRoot` + explicit policy): runtime-verified Linux platform (binding `posix` alone
+недостаточен), symlink-component walk, ownership/mode policy без авто-chmod/chown/mkdir, repository
+containment через explicit trusted `repositoryRoot`, directory handle lifecycle, honest diagnostics
+(`filesystemProbed=true`, `storageBackend=unbound`, `databaseOpened=false`, `writesEnabled=false`,
+`durability=none`, `storageLock=none`, `deploymentReady=false`, `toctouFullyEliminated=false`,
+`privilegedAttackerResistant=false`). Exclusive multi-process lock отложен. Не открывает SQLite, не
+создаёт database, не делает MemoryPort durable, не проверен в Ubuntu container, не является
+deployment/security approval. Durable MemoryPort/ApprovalPort/audit отсутствуют; core transaction
+gap остаётся; secret-provider pending. Storage input — constructor/binding input будущего adapter,
+не секция Build 3.1 config envelope. Build №3 целиком не завершён; planned VPS Timeweb Cloud
+(4 vCPU / 8 ГБ / 80 ГБ NVMe, Ubuntu 24.04, Linux server-only) не куплен; Windows agent runtime
+запрещён; deployment не разрешён. Эти gates действуют внутри ядра/host и не означают,
 что OpenClaw runtime или channel adapters уже их используют.
+
+**Cleanup ownership (3.3B1 remediation):** после успешного `openSync`/`openDirectory` ровно один
+владелец владеет ресурсом. Pre-transfer dual failure (например fstat errno + close errno) до
+создания opaque handle возвращает явный cleanup lifecycle (`CLOSE_FAILED` /
+`STORAGE_ROOT_CLOSE_FAILED` + `pendingCleanup.retryClose`) — не обычный IO failure при открытом fd.
+Programmer error + close failure пробрасывается как `PosixStorageRootOwnershipError` с тем же
+opaque lifecycle и original error (не ordinary StorageFailure). На downstream validation failure
+close вызывается ровно один раз; при успешном cleanup возвращается исходная validation failure; при
+неуспешном cleanup — `STORAGE_ROOT_CLOSE_FAILED` с обязательным `pendingCleanup`. Composition,
+получившая lifecycle, обязана вызвать `retryClose` до success; после успеха повтор idempotent.
+Lifecycle не зависит от GC/`FinalizationRegistry`, не является exclusive storage lock и не
+second-instance protection. Ubuntu container validation по-прежнему pending.

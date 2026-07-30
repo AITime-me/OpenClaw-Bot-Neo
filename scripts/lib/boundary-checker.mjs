@@ -28,7 +28,7 @@ export const CORE_LAYER_RULES = {
   ],
   /**
    * App-private local composition (Build 3.0+), pure config bootstrap (Build 3.1),
-   * and storage boundary/schema contract (Build 3.2).
+   * storage boundary/schema contract (Build 3.2), and POSIX storage-root safe-open (Build 3.3B1).
    * May use public core surfaces only, including core/config parsers.
    * Must not import core internals, tests, scripts, or future channel/adapters trees.
    */
@@ -55,9 +55,22 @@ export const REQUIRED_CORE_LAYERS = [
 
 /**
  * Host may use only pure lexical path helpers and Proxy detection builtins.
- * Filesystem, network, process, and other Node builtins remain denied.
+ * Filesystem, network, process, and other Node builtins remain denied except for the
+ * dedicated POSIX storage-root Node adapter allowlist below.
  */
 export const HOST_BUILTIN_ALLOWLIST = Object.freeze(['node:path', 'node:util/types']);
+
+/**
+ * Path-specific host builtin exceptions. Keys are paths relative to the analysed root
+ * (normally `src`), using POSIX separators.
+ */
+export const HOST_PATH_BUILTIN_ALLOWLIST = Object.freeze({
+  'host/storage/runtime/create-node-posix-storage-system.ts': Object.freeze([
+    'node:fs',
+    'node:os',
+    'node:path',
+  ]),
+});
 
 /** Sealed factories stay reachable only from the modules that are allowed to create sealed values. */
 export const INTERNAL_MODULE_ALLOWLIST = {
@@ -277,7 +290,9 @@ export function analyzeBoundaries(options = {}) {
           const specifier = reference.specifier.startsWith('node:')
             ? reference.specifier
             : `node:${reference.specifier}`;
-          if (!HOST_BUILTIN_ALLOWLIST.includes(specifier))
+          const pathAllow = HOST_PATH_BUILTIN_ALLOWLIST[fileRelative];
+          const allowlist = pathAllow ?? HOST_BUILTIN_ALLOWLIST;
+          if (!allowlist.includes(specifier))
             violations.push({
               code: 'FORBIDDEN_DEPENDENCY',
               message: `${where} may not import builtin ${reference.specifier}.`,

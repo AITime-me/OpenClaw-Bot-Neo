@@ -64,9 +64,23 @@ module.exports = {
     {
       name: 'host-no-filesystem-builtins',
       severity: 'error',
-      comment: 'Host storage/config may not import filesystem Node builtins.',
-      from: { path: '^src/host' },
+      comment:
+        'Host may not import filesystem Node builtins except the dedicated POSIX storage-root Node adapter.',
+      from: {
+        path: '^src/host',
+        pathNot: '^src/host/storage/runtime/create-node-posix-storage-system\\.ts$',
+      },
       to: { path: '^(node:)?fs(/promises)?$' },
+    },
+    {
+      name: 'host-no-os-builtin',
+      severity: 'error',
+      comment: 'Host may not import node:os except the dedicated POSIX storage-root Node adapter.',
+      from: {
+        path: '^src/host',
+        pathNot: '^src/host/storage/runtime/create-node-posix-storage-system\\.ts$',
+      },
+      to: { path: '^(node:)?os$' },
     },
     {
       name: 'host-no-network-builtins',

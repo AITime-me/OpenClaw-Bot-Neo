@@ -140,12 +140,29 @@ provider: если совместимого мужского голоса нет
   CURRENT=1, older valid versions do not yet exist); diagnostics report unbound backend, durability
   none, writes disabled, migrations/encryption absent. Lexical acceptance is not filesystem-open
   safety. LocalHost remains in-memory/ephemeral. Durable MemoryPort/ApprovalPort/audit,
-  SQLite/dependency decision, and core transaction gap are out of scope. Build №3 целиком не
-  завершён.
+  SQLite adapter, and core transaction gap are out of scope for 3.2.
+- **Build 3.3A dependency gate:** `better-sqlite3@12.11.1` and `@types/better-sqlite3@7.6.13` are
+  exact-pinned; no SQLite adapter or MemoryPort wiring yet.
+- **Build 3.3B1 POSIX safe storage root implemented locally, pending adversarial review and
+  Linux/Ubuntu validation.** App-private `openPosixStorageRoot` /
+  `parsePosixStorageRootPolicy`: verifies an already-existing Linux directory against an explicit
+  policy (UID, mode mask, repository-root containment), walks symlink components via injected/
+  production system adapter, opens a directory handle for lifecycle, and returns honest
+  filesystem-probed diagnostics. Does **not** open SQLite, create a database, enable writes, make
+  memory durable, acquire an exclusive multi-process lock (`storageLock: none`), eliminate TOCTOU,
+  or resist a privileged local attacker. Not validated yet in an Ubuntu 24.04 container. Not a
+  deployment approval. Target planned host remains Timeweb Cloud VPS (4 vCPU / 8 ГБ / 80 ГБ NVMe),
+  Ubuntu 24.04, Linux server-only; Windows is development-only. LocalHost stays in-memory.
+  Post-open validation failures close the handle once; if close fails, the result is
+  `STORAGE_ROOT_CLOSE_FAILED` with required `pendingCleanup.retryClose` (caller-owned retry,
+  idempotent after success). Pre-transfer dual failure before opaque-handle creation uses the same
+  explicit cleanup lifecycle — ordinary IO failure is never returned while an fd remains open
+  without ownership. Not a storage lock and not second-instance protection.
 - Сервер не куплен. Deployment не разрешён.
 - Реальный authentication/provider adapter и persistent atomic replay/idempotency store не
   реализованы. Окончательный security approval отсутствует pending Codex Review №6.
-- Следующие slices Build №3 — только после independent review текущего storage slice.
+- Linux container gate, SQLite MemoryPort adapter, secret-provider, transaction gap, и VPS/deployment
+  остаются pending.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.
 

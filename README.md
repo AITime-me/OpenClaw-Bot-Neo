@@ -50,10 +50,17 @@ lexical-only explicit path policy (win32 denies ADS colons and classic reserved 
 schema-version compatibility against immutable `CURRENT_STORAGE_SCHEMA_VERSION` only (no caller
 currentVersion override), and immutable unbound storage plan. Filesystem is not read or modified;
 storage backend remains unbound; durability none; writes disabled; migrations disabled; encryption
-absent. No durable MemoryPort/ApprovalPort/audit, no SQLite/npm persistence dependency, no core
-transaction boundary. Storage input is constructor/binding input for a future adapter — not part of
-the Build 3.1 config envelope and not a claim that a disk schema exists or that a lexical path is
-filesystem-open-safe.
+absent. No durable MemoryPort/ApprovalPort/audit, no SQLite adapter, no core transaction boundary.
+Storage input is constructor/binding input for a future adapter — not part of the Build 3.1 config
+envelope and not a claim that a disk schema exists or that a lexical path is filesystem-open-safe.
+
+**Build 3.3A / 3.3B1 (partial Build 3.3):** SQLite dependencies exact-pinned
+(`better-sqlite3@12.11.1`, `@types/better-sqlite3@7.6.13`) without adapter. POSIX/Linux safe-open
+for an already-existing storage root (`openPosixStorageRoot`) is implemented locally with honest
+diagnostics; it does not open SQLite, create a database, enable writes, make memory durable, provide
+an exclusive lock, eliminate TOCTOU, resist a privileged local attacker, or approve deployment.
+Ubuntu 24.04 container validation pending. LocalHost remains in-memory. Planned VPS: Timeweb Cloud
+4 vCPU / 8 ГБ / 80 ГБ NVMe, Ubuntu 24.04, Linux server-only; no Windows agent runtime.
 
 | Слой | Статус |
 |------|--------|
@@ -63,6 +70,8 @@ filesystem-open-safe.
 | App-private local host composition (Build 3.0) | implemented (ephemeral / non-durable) |
 | Pure local config bootstrap (Build 3.1) | implemented (parsed-object only) |
 | Storage boundary & schema contract (Build 3.2) | implemented (lexical / unbound / no I/O) |
+| SQLite dependency gate (Build 3.3A) | pinned (no adapter) |
+| POSIX safe storage root (Build 3.3B1) | implemented (open existing root only; no SQLite) |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
@@ -129,9 +138,11 @@ memoryClassification, securityPolicy), переиспользует core parsers
 adversarial re-review and Codex Review №6.** Explicit lexical storage binding + schema version
 contract only (`CURRENT_STORAGE_SCHEMA_VERSION` is the sole current-version source of truth);
 filesystem не читается и не изменяется; backend unbound; durability none; writes/migrations/
-encryption disabled; durable ports отсутствуют; SQLite/dependency decision и core transaction gap
-отложены. Сервер/VPS не куплен. Deployment запрещён. Security approval отсутствует. Build №3
-целиком не завершён.
+encryption disabled; durable ports отсутствуют.
+
+**Build 3.3A/B1:** SQLite deps pinned without adapter; POSIX safe-open existing root only — no
+SQLite/database/writes/durability/exclusive lock; Ubuntu container validation pending. Сервер/VPS
+не куплен. Deployment запрещён. Security approval отсутствует. Build №3 целиком не завершён.
 
 Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate
 (override запрещён). Review/tooling runner может использовать `OPENCLAW_REVIEW_NODE_OVERRIDE=1`

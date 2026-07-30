@@ -492,10 +492,13 @@ describe('storage platform and hygiene', () => {
   });
 
   it('production storage sources avoid env/cwd/platform/fs I/O call sites', () => {
-    const sources = listStorageSources().map((path) => ({
-      path,
-      text: readFileSync(path, 'utf8'),
-    }));
+    const sources = listStorageSources()
+      .filter((path) => !path.includes('/storage/runtime/'))
+      .map((path) => ({
+        path,
+        text: readFileSync(path, 'utf8'),
+      }));
+    expect(sources.length).toBeGreaterThan(0);
     for (const source of sources) {
       expect(source.path.startsWith('src/host/storage/')).toBe(true);
       expect(source.text).not.toMatch(/\bfrom ['"]node:fs(?:\/promises)?['"]/);
