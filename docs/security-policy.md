@@ -273,3 +273,10 @@ close вызывается ровно один раз; при успешном c
 получившая lifecycle, обязана вызвать `retryClose` до success; после успеха повтор idempotent.
 Lifecycle не зависит от GC/`FinalizationRegistry`, не является exclusive storage lock и не
 second-instance protection. Ubuntu container validation по-прежнему pending.
+
+**Build 3.3B2A (prerequisite):** `MemoryQueryRequest` требует explicit `limit` (1..100; константы
+`MEMORY_QUERY_LIMIT_MIN` / `MEMORY_QUERY_LIMIT_MAX`); default отсутствует; неверный limit →
+`VALIDATION_FAILED` без coercion/clamping. In-memory и будущий SQLite MemoryPort обязаны соблюдать
+одинаковый ceiling. Поле `query` по-прежнему не является поиском по содержимому; offset/cursor/
+pagination отсутствуют. Durable storage / SQLite adapter B2 ещё не реализованы; LocalHost остаётся
+in-memory; Linux validation и Codex Review №6 pending; production readiness не заявлена.

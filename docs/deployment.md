@@ -37,6 +37,8 @@ app-private POSIX/Linux safe-open уже существующего storage root
 полностью TOCTOU, не защищает от privileged local attacker, не проверен в Ubuntu 24.04 container и
 не является deployment approval. Planned target: зарубежный VPS Timeweb Cloud
 (4 vCPU / 8 ГБ / 80 ГБ NVMe), Ubuntu 24.04 LTS, Linux server-only, non-root service user; Windows —
-только Cursor/Git/static checks/unit tests, не agent runtime. Build №3 не завершён, VPS не куплен,
-security approval отсутствует pending Codex Review №6. До review, threat model и отдельного owner
-approval deployment запрещён.
+только Cursor/Git/static checks/unit tests, не agent runtime. Build 3.3B2A добавляет обязательный
+`MemoryQueryRequest.limit` (1..100, без default) как prerequisite для будущего SQLite MemoryPort;
+durable storage и SQLite adapter ещё отсутствуют; LocalHost остаётся in-memory. Build №3 не
+завершён, VPS не куплен, security approval отсутствует pending Codex Review №6. До review, threat
+model и отдельного owner approval deployment запрещён.

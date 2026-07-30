@@ -54,13 +54,16 @@ absent. No durable MemoryPort/ApprovalPort/audit, no SQLite adapter, no core tra
 Storage input is constructor/binding input for a future adapter — not part of the Build 3.1 config
 envelope and not a claim that a disk schema exists or that a lexical path is filesystem-open-safe.
 
-**Build 3.3A / 3.3B1 (partial Build 3.3):** SQLite dependencies exact-pinned
+**Build 3.3A / 3.3B1 / 3.3B2A (partial Build 3.3):** SQLite dependencies exact-pinned
 (`better-sqlite3@12.11.1`, `@types/better-sqlite3@7.6.13`) without adapter. POSIX/Linux safe-open
 for an already-existing storage root (`openPosixStorageRoot`) is implemented locally with honest
 diagnostics; it does not open SQLite, create a database, enable writes, make memory durable, provide
 an exclusive lock, eliminate TOCTOU, resist a privileged local attacker, or approve deployment.
-Ubuntu 24.04 container validation pending. LocalHost remains in-memory. Planned VPS: Timeweb Cloud
-4 vCPU / 8 ГБ / 80 ГБ NVMe, Ubuntu 24.04, Linux server-only; no Windows agent runtime.
+Build 3.3B2A adds required `MemoryQueryRequest.limit` (1..100, no default) so in-memory and a future
+SQLite MemoryPort share one query ceiling; `query` is still not content search; pagination/cursor
+absent; durable storage and SQLite B2 adapter remain unimplemented. Ubuntu 24.04 container
+validation pending. LocalHost remains in-memory. Planned VPS: Timeweb Cloud 4 vCPU / 8 ГБ /
+80 ГБ NVMe, Ubuntu 24.04, Linux server-only; no Windows agent runtime.
 
 | Слой | Статус |
 |------|--------|
@@ -72,6 +75,8 @@ Ubuntu 24.04 container validation pending. LocalHost remains in-memory. Planned 
 | Storage boundary & schema contract (Build 3.2) | implemented (lexical / unbound / no I/O) |
 | SQLite dependency gate (Build 3.3A) | pinned (no adapter) |
 | POSIX safe storage root (Build 3.3B1) | implemented (open existing root only; no SQLite) |
+| Bounded MemoryQuery limit (Build 3.3B2A) | implemented (required limit 1..100; in-memory only) |
+| SQLite MemoryPort adapter (Build 3.3B2) | not implemented |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |

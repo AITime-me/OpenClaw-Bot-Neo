@@ -456,6 +456,7 @@ describe('adversarial memory authorization (F1/F2/F3)', () => {
         query: 'x',
         targetNamespace: 'personal',
         expectedOwnerId: asOwner(),
+        limit: 10,
       },
       plain,
     );

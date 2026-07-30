@@ -158,6 +158,12 @@ provider: если совместимого мужского голоса нет
   idempotent after success). Pre-transfer dual failure before opaque-handle creation uses the same
   explicit cleanup lifecycle — ordinary IO failure is never returned while an fd remains open
   without ownership. Not a storage lock and not second-instance protection.
+- **Build 3.3B2A bounded MemoryQuery contract (prerequisite for SQLite MemoryPort):**
+  `MemoryQueryRequest.limit` is required (`MEMORY_QUERY_LIMIT_MIN=1` …
+  `MEMORY_QUERY_LIMIT_MAX=100`); no default, no silent clamp/coercion. In-memory MemoryPort applies
+  the ceiling; future SQLite adapter must match. `query` string remains ignored (not content
+  search). No offset/cursor/pagination. Durable storage still absent; LocalHost remains in-memory;
+  SQLite B2 adapter not implemented. Linux container validation and Codex Review №6 remain pending.
 - Сервер не куплен. Deployment не разрешён.
 - Реальный authentication/provider adapter и persistent atomic replay/idempotency store не
   реализованы. Окончательный security approval отсутствует pending Codex Review №6.

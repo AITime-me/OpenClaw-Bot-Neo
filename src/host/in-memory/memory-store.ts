@@ -1,6 +1,7 @@
 import {
   err,
   ok,
+  readMemoryQueryLimit,
   type AuthenticatedMemoryAccessContext,
   type DomainError,
   type MemoryDeleteRequest,
@@ -84,7 +85,9 @@ const storageKey = (namespace: string, recordId: string): string => `${namespace
 /**
  * Ephemeral in-memory MemoryPort. Every operation fail-closes through public
  * `authorizeMemoryAccess` (opaque authenticated evidence + owner/namespace alignment).
- * Duplicate keys overwrite. Not durable; not production-ready.
+ * Duplicate keys overwrite (Map insertion order preserved). Query requires explicit
+ * `limit` (1..100) and returns at most that many matching records in insertion order.
+ * The `query` string is ignored (not content search). Not durable; not production-ready.
  */
 export function createInMemoryMemoryStore(): MemoryPort {
   const records = new Map<string, VerifiedMemoryWrite>();
@@ -102,12 +105,17 @@ export function createInMemoryMemoryStore(): MemoryPort {
       );
       if (denied !== null) return Promise.resolve(err(denied));
 
+      const limitResult = readMemoryQueryLimit(request);
+      if (!limitResult.ok) return Promise.resolve(limitResult);
+      const limit = limitResult.value;
+
       const matches: MemoryRecord[] = [];
       for (const write of records.values()) {
         if (write.namespace !== request.targetNamespace) continue;
         if (write.ownerId !== access.ownerId) continue;
         if (write.ownerId !== request.expectedOwnerId) continue;
         matches.push(toRecord(write));
+        if (matches.length >= limit) break;
       }
       return Promise.resolve(ok(Object.freeze(matches)));
     },
