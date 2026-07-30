@@ -62,6 +62,20 @@ module.exports = {
       to: { path: '^src/host' },
     },
     {
+      name: 'host-no-filesystem-builtins',
+      severity: 'error',
+      comment: 'Host storage/config may not import filesystem Node builtins.',
+      from: { path: '^src/host' },
+      to: { path: '^(node:)?fs(/promises)?$' },
+    },
+    {
+      name: 'host-no-network-builtins',
+      severity: 'error',
+      comment: 'Host may not import network or child_process Node builtins.',
+      from: { path: '^src/host' },
+      to: { path: '^(node:)?(http|https|net|tls|child_process)$' },
+    },
+    {
       name: 'public-api-exposes-core-only',
       severity: 'error',
       from: { path: '^src/index\\.ts$' },

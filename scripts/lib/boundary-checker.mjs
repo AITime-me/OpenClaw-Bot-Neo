@@ -27,7 +27,8 @@ export const CORE_LAYER_RULES = {
     'core/application',
   ],
   /**
-   * App-private local composition (Build 3.0+) and pure config bootstrap (Build 3.1).
+   * App-private local composition (Build 3.0+), pure config bootstrap (Build 3.1),
+   * and storage boundary/schema contract (Build 3.2).
    * May use public core surfaces only, including core/config parsers.
    * Must not import core internals, tests, scripts, or future channel/adapters trees.
    */
@@ -51,6 +52,12 @@ export const REQUIRED_CORE_LAYERS = [
   'core/routing',
   'core/application',
 ];
+
+/**
+ * Host may use only pure lexical path helpers and Proxy detection builtins.
+ * Filesystem, network, process, and other Node builtins remain denied.
+ */
+export const HOST_BUILTIN_ALLOWLIST = Object.freeze(['node:path', 'node:util/types']);
 
 /** Sealed factories stay reachable only from the modules that are allowed to create sealed values. */
 export const INTERNAL_MODULE_ALLOWLIST = {
@@ -265,7 +272,19 @@ export function analyzeBoundaries(options = {}) {
           code: 'DYNAMIC_IMPORT_FORBIDDEN',
           message: `${where} uses dynamic import; core cannot load executable extensions.`,
         });
-      if (isBuiltin(reference.specifier)) continue;
+      if (isBuiltin(reference.specifier)) {
+        if (fromLayer === 'host') {
+          const specifier = reference.specifier.startsWith('node:')
+            ? reference.specifier
+            : `node:${reference.specifier}`;
+          if (!HOST_BUILTIN_ALLOWLIST.includes(specifier))
+            violations.push({
+              code: 'FORBIDDEN_DEPENDENCY',
+              message: `${where} may not import builtin ${reference.specifier}.`,
+            });
+        }
+        continue;
+      }
       if (!reference.specifier.startsWith('.')) {
         violations.push({
           code: 'EXTERNAL_DEPENDENCY',

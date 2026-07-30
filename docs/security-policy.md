@@ -238,6 +238,16 @@ composition не создаёт built-in network clients, но абсолютн�
 **Build 3.1** добавляет pure local config bootstrap: только explicit parsed object, четыре
 status-A секции через существующие core parsers, fail-closed unknown fields / fallbacks, immutable
 snapshot; без file I/O, JSON text, env, credentials, SecretRef, provider activation. Validated
-config не является authority evidence и не включает runtime wiring. Build №3 целиком не завершён;
-VPS не куплен; deployment не разрешён. Эти gates действуют внутри ядра/host и не означают, что
-OpenClaw runtime или channel adapters уже их используют.
+config не является authority evidence и не включает runtime wiring.
+**Build 3.2** добавляет app-private storage boundary & schema contract: explicit `platform` +
+`storageRoot` binding request, lexical-only path policy (без fs/stat/realpath/mkdir; win32 fail-closed
+для ADS colon и classic reserved device names), pure schema compatibility только против immutable
+`CURRENT_STORAGE_SCHEMA_VERSION` (caller currentVersion override отсутствует; migration не
+выполняется и при CURRENT=1 не достижима валидной older version), immutable unbound storage plan.
+Filesystem не читается и не изменяется; storage backend unbound; durability none; writes disabled;
+encryption absent; lexical accept ≠ filesystem-open-safe; durable MemoryPort/ApprovalPort/audit
+отсутствуют; core transaction gap между approval consume, memory write и audit append остаётся;
+SQLite/npm persistence dependency decision отложено. Storage input — constructor/binding input
+будущего adapter, не секция Build 3.1 config envelope и не claim о disk schema. Build №3 целиком не
+завершён; VPS не куплен; deployment не разрешён. Эти gates действуют внутри ядра/host и не означают,
+что OpenClaw runtime или channel adapters уже их используют.

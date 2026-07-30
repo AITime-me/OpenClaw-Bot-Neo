@@ -15,3 +15,18 @@ export type {
   LocalHostConfigFailure,
   LocalHostConfigFailureCode,
 } from './config/index.js';
+export {
+  CURRENT_STORAGE_SCHEMA_VERSION,
+  createLocalStoragePlan,
+  evaluateStorageSchemaCompatibility,
+  parseStorageBindingRequest,
+} from './storage/index.js';
+export type {
+  LocalStorageDiagnostics,
+  LocalStoragePlan,
+  StorageBindingRequest,
+  StorageFailure,
+  StorageFailureCode,
+  StoragePlatform,
+  StorageSchemaCompatibility,
+} from './storage/index.js';

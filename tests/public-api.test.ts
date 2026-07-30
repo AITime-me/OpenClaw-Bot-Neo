@@ -82,6 +82,10 @@ describe('public API surface', () => {
       'seedLocalApprovalGrant',
       'parseLocalHostConfig',
       'createLocalHostFromConfig',
+      'parseStorageBindingRequest',
+      'createLocalStoragePlan',
+      'evaluateStorageSchemaCompatibility',
+      'CURRENT_STORAGE_SCHEMA_VERSION',
       'parseContractDraftExample',
       'parseExactDraft',
       'exactJsonDto',
@@ -137,6 +141,10 @@ describe('public API surface', () => {
     expect(exportedNames).not.toContain('seedLocalApprovalGrant');
     expect(exportedNames).not.toContain('parseLocalHostConfig');
     expect(exportedNames).not.toContain('createLocalHostFromConfig');
+    expect(exportedNames).not.toContain('parseStorageBindingRequest');
+    expect(exportedNames).not.toContain('createLocalStoragePlan');
+    expect(exportedNames).not.toContain('evaluateStorageSchemaCompatibility');
+    expect(exportedNames).not.toContain('CURRENT_STORAGE_SCHEMA_VERSION');
   });
 
   it('exports safe identity/config/node helpers without internals', () => {

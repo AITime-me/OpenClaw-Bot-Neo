@@ -38,11 +38,22 @@ pending Codex Review №6.** App-private `src/host` composition; in-memory ephem
 deny-by-default memory policy; read/write authorization enforced; composition creates no built-in
 network clients; absolute network sandbox isolation is not enforced.
 
-**Build 3.1 implemented locally, pending independent adversarial pre-commit review and Codex
-Review №6.** Pure local config bootstrap (`parseLocalHostConfig` / `createLocalHostFromConfig`):
-explicit parsed-object envelope only; four status-A families via existing core parsers; immutable
-snapshot; no file I/O, JSON text, env, credentials, provider activation, OpenClaw/Telegram/OAuth,
-production entrypoint, or persistent storage.
+**Build 3.1 implemented; pending Codex Review №6.** Pure local config bootstrap
+(`parseLocalHostConfig` / `createLocalHostFromConfig`): explicit parsed-object envelope only;
+four status-A families via existing core parsers; immutable snapshot; no file I/O, JSON text, env,
+credentials, provider activation, OpenClaw/Telegram/OAuth, production entrypoint, or persistent
+storage.
+
+**Build 3.2 storage boundary and schema contract implemented locally, pending independent
+adversarial re-review and Codex Review №6.** App-private pure storage binding request,
+lexical-only explicit path policy (win32 denies ADS colons and classic reserved device names),
+schema-version compatibility against immutable `CURRENT_STORAGE_SCHEMA_VERSION` only (no caller
+currentVersion override), and immutable unbound storage plan. Filesystem is not read or modified;
+storage backend remains unbound; durability none; writes disabled; migrations disabled; encryption
+absent. No durable MemoryPort/ApprovalPort/audit, no SQLite/npm persistence dependency, no core
+transaction boundary. Storage input is constructor/binding input for a future adapter — not part of
+the Build 3.1 config envelope and not a claim that a disk schema exists or that a lexical path is
+filesystem-open-safe.
 
 | Слой | Статус |
 |------|--------|
@@ -51,6 +62,7 @@ production entrypoint, or persistent storage.
 | Trusted composition gateways | implemented |
 | App-private local host composition (Build 3.0) | implemented (ephemeral / non-durable) |
 | Pure local config bootstrap (Build 3.1) | implemented (parsed-object only) |
+| Storage boundary & schema contract (Build 3.2) | implemented (lexical / unbound / no I/O) |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
@@ -108,12 +120,18 @@ boundary. Telegram отсутствует, OpenClaw/Codex route отсутств
 OAuth отсутствует, API fallback disabled, production entrypoint отсутствует, persistent stores
 отсутствуют. Package `exports` по-прежнему только root; host не публикуется.
 
-**Build 3.1 implemented locally, pending independent adversarial pre-commit review and Codex
-Review №6.** Pure local config bootstrap принимает только explicit parsed object с четырьмя
-status-A секциями (modelRouting, memoryNamespaces, memoryClassification, securityPolicy),
-переиспользует core parsers, fail-closed на unknown fields и fallbacks, immutable snapshot; без
-file I/O, JSON text, env, credentials, provider activation. Сервер/VPS не куплен. Deployment
-запрещён. Security approval отсутствует. Build №3 целиком не завершён.
+**Build 3.1 implemented; pending Codex Review №6.** Pure local config bootstrap принимает только
+explicit parsed object с четырьмя status-A секциями (modelRouting, memoryNamespaces,
+memoryClassification, securityPolicy), переиспользует core parsers, fail-closed на unknown fields
+и fallbacks, immutable snapshot; без file I/O, JSON text, env, credentials, provider activation.
+
+**Build 3.2 storage boundary and schema contract implemented locally, pending independent
+adversarial re-review and Codex Review №6.** Explicit lexical storage binding + schema version
+contract only (`CURRENT_STORAGE_SCHEMA_VERSION` is the sole current-version source of truth);
+filesystem не читается и не изменяется; backend unbound; durability none; writes/migrations/
+encryption disabled; durable ports отсутствуют; SQLite/dependency decision и core transaction gap
+отложены. Сервер/VPS не куплен. Deployment запрещён. Security approval отсутствует. Build №3
+целиком не завершён.
 
 Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate
 (override запрещён). Review/tooling runner может использовать `OPENCLAW_REVIEW_NODE_OVERRIDE=1`

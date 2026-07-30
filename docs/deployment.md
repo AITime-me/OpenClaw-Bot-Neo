@@ -27,6 +27,8 @@ deployment controls.
 - controlled update: review release notes, snapshot, staging test, health check, rollback;
 - наблюдение не даёт reverse shell, shared keys или обратного trust.
 
-Точные команды, образы, unit-файлы, порты и OpenClaw-поля не определены. Build №3 не начат, VPS не
-куплен, security approval отсутствует pending Codex Review №6. До review, threat model и отдельного
-owner approval deployment запрещён.
+Точные команды, образы, unit-файлы, порты и OpenClaw-поля не определены. Build 3.2 добавляет только
+pure lexical storage binding/schema contract без filesystem I/O, без durable adapters и без
+deployment wiring; lexical path accept не означает filesystem-open-safe и не разрешает ADS/reserved
+device roots. Build №3 не завершён, VPS не куплен, security approval отсутствует pending Codex
+Review №6. До review, threat model и отдельного owner approval deployment запрещён.

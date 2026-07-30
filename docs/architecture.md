@@ -126,16 +126,26 @@ provider: если совместимого мужского голоса нет
   dependencies remain a separate trust boundary. Trusted clock и authenticated access не inventятся
   host-ом. Telegram, OpenClaw/Codex route, OAuth, API fallback, production entrypoint и persistent
   stores отсутствуют. Package public API остаётся root-only.
-- **Build 3.1 implemented locally, pending independent adversarial pre-commit review and Codex
-  Review №6.** Pure local config bootstrap (`parseLocalHostConfig` /
-  `createLocalHostFromConfig`): explicit parsed-object envelope; four status-A families via existing
-  core parsers; immutable snapshot; no file I/O, JSON text, env, credentials, or provider
-  activation. Validated config is not authority evidence and does not wire runtime policy/routing.
-  Build №3 целиком не завершён.
+- **Build 3.1 implemented; pending Codex Review №6.** Pure local config bootstrap
+  (`parseLocalHostConfig` / `createLocalHostFromConfig`): explicit parsed-object envelope; four
+  status-A families via existing core parsers; immutable snapshot; no file I/O, JSON text, env,
+  credentials, or provider activation. Validated config is not authority evidence and does not wire
+  runtime policy/routing.
+- **Build 3.2 storage boundary and schema contract implemented locally, pending independent
+  adversarial re-review and Codex Review №6.** App-private `parseStorageBindingRequest` /
+  `createLocalStoragePlan` / `evaluateStorageSchemaCompatibility`: explicit platform + storageRoot
+  only; lexical-only path validation via `node:path` (no cwd-dependent resolve, no fs probe; win32
+  denies ADS colons and classic reserved device basenames); schema version compares observed values
+  only to immutable `CURRENT_STORAGE_SCHEMA_VERSION` (no caller currentVersion override; with
+  CURRENT=1, older valid versions do not yet exist); diagnostics report unbound backend, durability
+  none, writes disabled, migrations/encryption absent. Lexical acceptance is not filesystem-open
+  safety. LocalHost remains in-memory/ephemeral. Durable MemoryPort/ApprovalPort/audit,
+  SQLite/dependency decision, and core transaction gap are out of scope. Build №3 целиком не
+  завершён.
 - Сервер не куплен. Deployment не разрешён.
 - Реальный authentication/provider adapter и persistent atomic replay/idempotency store не
   реализованы. Окончательный security approval отсутствует pending Codex Review №6.
-- Следующие slices Build №3 — только после independent review текущего host slice.
+- Следующие slices Build №3 — только после independent review текущего storage slice.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.
 
