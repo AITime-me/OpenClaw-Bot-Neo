@@ -7,3 +7,11 @@ export {
   createExplicitAllowMemoryPolicy,
 } from './in-memory/memory-policy.js';
 export { createInMemoryMemoryStore } from './in-memory/memory-store.js';
+export { createLocalHostFromConfig, parseLocalHostConfig } from './config/index.js';
+export type {
+  LocalHostConfig,
+  LocalHostConfigBootstrap,
+  LocalHostConfigDiagnostics,
+  LocalHostConfigFailure,
+  LocalHostConfigFailureCode,
+} from './config/index.js';

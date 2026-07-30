@@ -47,12 +47,19 @@ module.exports = {
       name: 'host-depends-on-allowed-core-only',
       severity: 'error',
       comment:
-        'Host may import only itself and public core domain/ports/policy/application surfaces.',
+        'Host may import only itself and public core domain/ports/policy/application/config surfaces.',
       from: { path: '^src/host' },
       to: {
         path: '^src/',
-        pathNot: '^src/(host|core/(domain|ports|policy|application))',
+        pathNot: '^src/(host|core/(domain|ports|policy|application|config))',
       },
+    },
+    {
+      name: 'core-config-does-not-depend-on-host',
+      severity: 'error',
+      comment: 'Core config parsers must never import the app-private host layer.',
+      from: { path: '^src/core/config' },
+      to: { path: '^src/host' },
     },
     {
       name: 'public-api-exposes-core-only',

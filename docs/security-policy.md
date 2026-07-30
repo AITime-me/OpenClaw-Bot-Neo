@@ -234,6 +234,10 @@ core: host не inventит authenticated context, trusted clock evidence, approv
 write/query/delete в in-memory adapter fail-closed через публичный `authorizeMemoryAccess`;
 in-memory approval seed хранит только plain `ApprovalGrant` (не sealed evidence и не issuer);
 composition не создаёт built-in network clients, но абсолютная network sandbox isolation не
-заявляется. Core не зависит от host; host не импортирует `*.internal` sealers. Build №3 целиком не
-завершён; VPS не куплен; deployment не разрешён. Эти gates действуют внутри ядра/host и не означают,
-что OpenClaw runtime или channel adapters уже их используют.
+заявляется. Core не зависит от host; host не импортирует `*.internal` sealers.
+**Build 3.1** добавляет pure local config bootstrap: только explicit parsed object, четыре
+status-A секции через существующие core parsers, fail-closed unknown fields / fallbacks, immutable
+snapshot; без file I/O, JSON text, env, credentials, SecretRef, provider activation. Validated
+config не является authority evidence и не включает runtime wiring. Build №3 целиком не завершён;
+VPS не куплен; deployment не разрешён. Эти gates действуют внутри ядра/host и не означают, что
+OpenClaw runtime или channel adapters уже их используют.

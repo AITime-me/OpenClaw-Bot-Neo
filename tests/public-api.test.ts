@@ -80,6 +80,8 @@ describe('public API surface', () => {
       'createDenyByDefaultMemoryPolicy',
       'createInMemoryMemoryStore',
       'seedLocalApprovalGrant',
+      'parseLocalHostConfig',
+      'createLocalHostFromConfig',
       'parseContractDraftExample',
       'parseExactDraft',
       'exactJsonDto',
@@ -133,6 +135,8 @@ describe('public API surface', () => {
     expect(exportedNames).not.toContain('createInMemoryApprovalStore');
     expect(exportedNames).not.toContain('createExplicitAllowMemoryPolicy');
     expect(exportedNames).not.toContain('seedLocalApprovalGrant');
+    expect(exportedNames).not.toContain('parseLocalHostConfig');
+    expect(exportedNames).not.toContain('createLocalHostFromConfig');
   });
 
   it('exports safe identity/config/node helpers without internals', () => {

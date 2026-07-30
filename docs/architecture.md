@@ -125,7 +125,13 @@ provider: если совместимого мужского голоса нет
   built-in network clients; absolute network sandbox isolation is not enforced; injected
   dependencies remain a separate trust boundary. Trusted clock и authenticated access не inventятся
   host-ом. Telegram, OpenClaw/Codex route, OAuth, API fallback, production entrypoint и persistent
-  stores отсутствуют. Package public API остаётся root-only. Build №3 целиком не завершён.
+  stores отсутствуют. Package public API остаётся root-only.
+- **Build 3.1 implemented locally, pending independent adversarial pre-commit review and Codex
+  Review №6.** Pure local config bootstrap (`parseLocalHostConfig` /
+  `createLocalHostFromConfig`): explicit parsed-object envelope; four status-A families via existing
+  core parsers; immutable snapshot; no file I/O, JSON text, env, credentials, or provider
+  activation. Validated config is not authority evidence and does not wire runtime policy/routing.
+  Build №3 целиком не завершён.
 - Сервер не куплен. Deployment не разрешён.
 - Реальный authentication/provider adapter и persistent atomic replay/idempotency store не
   реализованы. Окончательный security approval отсутствует pending Codex Review №6.

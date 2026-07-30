@@ -33,11 +33,16 @@ Multimodal workflow — общая техническая capability обраб�
 **Build №2 + Security Remediation 2.1A–2.1J-R4: implemented contracts and pure core logic;
 not deployed; pending independent Codex Review №6.**
 
-**Build 3.0 (Host Boundary and Local Composition Root): implementation revised after
-adversarial review; pending independent re-review and Codex Review №6.** App-private `src/host`
-composition only; in-memory ephemeral stores; deny-by-default memory policy; read/write
-authorization enforced; composition creates no built-in network clients; absolute network
-sandbox isolation is not enforced; not a production runtime.
+**Build 3.0 (Host Boundary and Local Composition Root): implemented; adversarial review APPROVE;
+pending Codex Review №6.** App-private `src/host` composition; in-memory ephemeral stores;
+deny-by-default memory policy; read/write authorization enforced; composition creates no built-in
+network clients; absolute network sandbox isolation is not enforced.
+
+**Build 3.1 implemented locally, pending independent adversarial pre-commit review and Codex
+Review №6.** Pure local config bootstrap (`parseLocalHostConfig` / `createLocalHostFromConfig`):
+explicit parsed-object envelope only; four status-A families via existing core parsers; immutable
+snapshot; no file I/O, JSON text, env, credentials, provider activation, OpenClaw/Telegram/OAuth,
+production entrypoint, or persistent storage.
 
 | Слой | Статус |
 |------|--------|
@@ -45,6 +50,7 @@ sandbox isolation is not enforced; not a production runtime.
 | Pure core policies / contracts | implemented |
 | Trusted composition gateways | implemented |
 | App-private local host composition (Build 3.0) | implemented (ephemeral / non-durable) |
+| Pure local config bootstrap (Build 3.1) | implemented (parsed-object only) |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
@@ -100,9 +106,14 @@ authorization via public `authorizeMemoryAccess`, composition не создаё�
 абсолютная network sandbox isolation не реализована, injected dependencies — отдельная trust
 boundary. Telegram отсутствует, OpenClaw/Codex route отсутствует и требует external verification,
 OAuth отсутствует, API fallback disabled, production entrypoint отсутствует, persistent stores
-отсутствуют. Package `exports` по-прежнему только root; host не публикуется. Сервер/VPS не куплен.
-Deployment запрещён. Security approval отсутствует. Build №3 целиком не завершён — это первый
-implementation slice.
+отсутствуют. Package `exports` по-прежнему только root; host не публикуется.
+
+**Build 3.1 implemented locally, pending independent adversarial pre-commit review and Codex
+Review №6.** Pure local config bootstrap принимает только explicit parsed object с четырьмя
+status-A секциями (modelRouting, memoryNamespaces, memoryClassification, securityPolicy),
+переиспользует core parsers, fail-closed на unknown fields и fallbacks, immutable snapshot; без
+file I/O, JSON text, env, credentials, provider activation. Сервер/VPS не куплен. Deployment
+запрещён. Security approval отсутствует. Build №3 целиком не завершён.
 
 Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate
 (override запрещён). Review/tooling runner может использовать `OPENCLAW_REVIEW_NODE_OVERRIDE=1`

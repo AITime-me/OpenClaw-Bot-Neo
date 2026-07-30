@@ -27,10 +27,11 @@ export const CORE_LAYER_RULES = {
     'core/application',
   ],
   /**
-   * App-private local composition (Build 3.0). May use public core surfaces only.
+   * App-private local composition (Build 3.0+) and pure config bootstrap (Build 3.1).
+   * May use public core surfaces only, including core/config parsers.
    * Must not import core internals, tests, scripts, or future channel/adapters trees.
    */
-  host: ['core/domain', 'core/ports', 'core/policy', 'core/application', 'host'],
+  host: ['core/domain', 'core/ports', 'core/policy', 'core/application', 'core/config', 'host'],
   root: [
     'core/domain',
     'core/ports',
