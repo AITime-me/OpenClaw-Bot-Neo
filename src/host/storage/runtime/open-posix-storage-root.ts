@@ -24,6 +24,12 @@ import {
   createNodePosixStorageSystem,
   isNodePosixPreTransferOwnershipError,
 } from './create-node-posix-storage-system.js';
+import {
+  abandonOpenedPosixStorageRootCapability,
+  markOpenedPosixStorageRootCapabilityClosed,
+  registerOpenedPosixStorageRootCapability,
+  retireOpenedPosixStorageRootCapability,
+} from './posix-storage-root-capability.internal.js';
 
 export interface PosixStorageRootDiagnostics {
   readonly bindingKind: 'explicit-path';
@@ -531,19 +537,42 @@ export function openPosixStorageRootWithSystem(
   }
 
   let closed = false;
+  let capabilityKey: object | undefined;
+
   const close = (): Result<void, StorageFailure> => {
+    // First close attempt permanently retires the capability before system teardown.
+    // New storage consumers are fail-closed even if the underlying close later fails.
+    if (capabilityKey !== undefined) retireOpenedPosixStorageRootCapability(capabilityKey);
     if (closed) return okStorage(undefined);
     const result = closeHandle(system, opened.value);
-    if (result.ok) closed = true;
+    if (result.ok) {
+      closed = true;
+      if (capabilityKey !== undefined) markOpenedPosixStorageRootCapabilityClosed(capabilityKey);
+    }
     return result;
   };
 
-  return okStorage(
-    Object.freeze({
+  let successObject: OpenedPosixStorageRoot | undefined;
+  try {
+    successObject = Object.freeze({
       plan,
       policy,
       diagnostics: SUCCESS_DIAGNOSTICS,
       close,
-    }),
-  );
+    });
+    capabilityKey = successObject;
+    registerOpenedPosixStorageRootCapability(successObject, storageRoot);
+  } catch (error) {
+    // Never return a registered capability without a returned success object.
+    // Close the directory handle; preserve ownership if close also fails.
+    if (successObject !== undefined) abandonOpenedPosixStorageRootCapability(successObject);
+    capabilityKey = undefined;
+    const cleaned = closeHandle(system, opened.value);
+    if (!cleaned.ok) {
+      throw new PosixStorageRootOwnershipError(createPendingCleanup(system, opened.value), error);
+    }
+    throw error;
+  }
+
+  return okStorage(successObject);
 }

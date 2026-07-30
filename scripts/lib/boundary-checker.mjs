@@ -28,7 +28,8 @@ export const CORE_LAYER_RULES = {
   ],
   /**
    * App-private local composition (Build 3.0+), pure config bootstrap (Build 3.1),
-   * storage boundary/schema contract (Build 3.2), and POSIX storage-root safe-open (Build 3.3B1).
+   * storage boundary/schema contract (Build 3.2), POSIX storage-root safe-open (Build 3.3B1),
+   * and safe-root capability seal (Build 3.3B2B).
    * May use public core surfaces only, including core/config parsers.
    * Must not import core internals, tests, scripts, or future channel/adapters trees.
    */
@@ -126,6 +127,14 @@ export const INTERNAL_MODULE_ALLOWLIST = {
     'core/policy/namespace-isolation.ts',
     'core/application/memory-write.service.ts',
     'core/application/memory-access.gateway.ts',
+  ],
+  /**
+   * POSIX storage-root capability seal (Build 3.3B2B).
+   * Register/retire: only the opener. Resolve stays in this module for tests and a future
+   * dedicated SQLite adapter entry (allowlisted in B2) — not a host-wide authority surface.
+   */
+  'host/storage/runtime/posix-storage-root-capability.internal.ts': [
+    'host/storage/runtime/open-posix-storage-root.ts',
   ],
 };
 

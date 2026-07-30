@@ -164,6 +164,18 @@ provider: если совместимого мужского голоса нет
   the ceiling; future SQLite adapter must match. `query` string remains ignored (not content
   search). No offset/cursor/pagination. Durable storage still absent; LocalHost remains in-memory;
   SQLite B2 adapter not implemented. Linux container validation and Codex Review №6 remain pending.
+- **Build 3.3B2B Safe-Root Capability Seal (prerequisite for SQLite adapter):** a successful
+  `OpenedPosixStorageRoot` is now a runtime-authenticated capability via module-private WeakMap
+  identity (not object shape, freeze, clone, Proxy, JSON, brand strings/symbols, or TypeScript
+  types). Structural forgery cannot obtain the trusted storage root path. Capability remains
+  resolvable only while the root lifecycle is `open`; the first `close` attempt permanently retires
+  it (failed close does not reactivate; successful close → `closed`). Not a secret, credential,
+  filesystem lock, exclusive lock, or multi-consumer mutex — while open, multiple future adapters
+  could theoretically share one genuine root; lease/reference-counting is deferred. Full path is
+  available only through an app-private internal resolver reserved for a future SQLite adapter
+  entry (not exported from host/storage barrels or package root). SQLite adapter still absent;
+  LocalHost remains in-memory; approval/audit ephemeral; encryption absent; Linux container
+  validation and Codex Review №6 pending; production/VPS/deployment forbidden.
 - Сервер не куплен. Deployment не разрешён.
 - Реальный authentication/provider adapter и persistent atomic replay/idempotency store не
   реализованы. Окончательный security approval отсутствует pending Codex Review №6.

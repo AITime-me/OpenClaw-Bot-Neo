@@ -39,6 +39,8 @@ app-private POSIX/Linux safe-open уже существующего storage root
 (4 vCPU / 8 ГБ / 80 ГБ NVMe), Ubuntu 24.04 LTS, Linux server-only, non-root service user; Windows —
 только Cursor/Git/static checks/unit tests, не agent runtime. Build 3.3B2A добавляет обязательный
 `MemoryQueryRequest.limit` (1..100, без default) как prerequisite для будущего SQLite MemoryPort;
-durable storage и SQLite adapter ещё отсутствуют; LocalHost остаётся in-memory. Build №3 не
-завершён, VPS не куплен, security approval отсутствует pending Codex Review №6. До review, threat
-model и отдельного owner approval deployment запрещён.
+Build 3.3B2B seals successful B1 open как identity-based runtime capability (WeakMap; structural
+forgery rejected; close retires capability permanently; not a lock/secret; full path только через
+internal resolver). Durable storage и SQLite adapter ещё отсутствуют; LocalHost остаётся
+in-memory. Build №3 не завершён, VPS не куплен, security approval отсутствует pending Codex Review
+№6. До review, threat model и отдельного owner approval deployment запрещён.

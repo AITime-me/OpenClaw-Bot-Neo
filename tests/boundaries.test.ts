@@ -92,6 +92,15 @@ describe('allowlist-based layer rules', () => {
     expect(report.filesAnalyzed).toBeGreaterThan(0);
   });
 
+  it('accepts opener registration of the POSIX storage-root capability seal', () => {
+    const report = analyzeBoundaries({
+      rootDir: fixture('host-storage-capability-allowed'),
+      requiredLayers: [],
+    });
+    expect(report.violations).toEqual([]);
+    expect(report.filesAnalyzed).toBeGreaterThan(0);
+  });
+
   it.each([
     ['forbidden-static', 'FORBIDDEN_DEPENDENCY'],
     ['forbidden-export-from', 'FORBIDDEN_DEPENDENCY'],
@@ -135,6 +144,12 @@ describe('allowlist-based layer rules', () => {
     ['forbidden-host-storage-runtime-http', 'FORBIDDEN_DEPENDENCY'],
     ['forbidden-host-storage-runtime-child-process', 'FORBIDDEN_DEPENDENCY'],
     ['forbidden-host-unrelated-fs', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-host-storage-capability-sealer', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-capability-unrelated', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-capability-in-memory', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-capability-channel', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-core-capability', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-host-capability-posix-system', 'INTERNAL_MODULE_LEAK'],
   ])('rejects the %s fixture with %s', (name, code) => {
     const report = analyzeBoundaries({ rootDir: fixture(name), requiredLayers: [] });
     expect(codes(report)).toContain(code);

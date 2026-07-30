@@ -280,3 +280,16 @@ second-instance protection. Ubuntu container validation по-прежнему pe
 одинаковый ceiling. Поле `query` по-прежнему не является поиском по содержимому; offset/cursor/
 pagination отсутствуют. Durable storage / SQLite adapter B2 ещё не реализованы; LocalHost остаётся
 in-memory; Linux validation и Codex Review №6 pending; production readiness не заявлена.
+
+**Build 3.3B2B (prerequisite):** successful B1 `OpenedPosixStorageRoot` проверяется по runtime
+object identity (module-private WeakMap), а не по structural typing. Structural clone, freeze,
+spread/`Object.assign`, JSON roundtrip, Proxy wrapper, getter fake, brand string/symbol и
+изготовленный вручную объект не являются capability и не выдают trusted storage root path.
+Capability действует только пока root в состоянии `open`; первый `close` навсегда запрещает новых
+consumers (state `retired`/`closed`); failed close не реактивирует capability. Это не secret, не
+credential, не filesystem/exclusive lock и не защита от нескольких consumers на одном open root;
+lease/reference-counting отложены. Full path доступен только внутреннему trusted resolver
+(будущий dedicated SQLite adapter entry; не package/host barrel export). SQLite adapter отсутствует;
+LocalHost in-memory; approval/audit ephemeral; encryption отсутствует; Ubuntu container validation
+и Codex Review №6 pending; production/VPS/deployment запрещены. Не заявляется absolute security
+boundary против произвольного кода уже внутри trusted host process.
