@@ -215,7 +215,7 @@ describe('createSqliteMemoryPort capability gate', () => {
     expect(opened.value.diagnostics.storageBackend).toBe('sqlite');
     expect(opened.value.diagnostics.localHostWired).toBe(false);
     expect(opened.value.diagnostics.journalMode).toBe('wal');
-    expect(opened.value.diagnostics.storageRootLeaseCoordinated).toBe(false);
+    expect(opened.value.diagnostics.storageRootLeaseCoordinated).toBe(true);
     expect(existsSync(dbPathFor(storageRoot))).toBe(true);
     expect(JSON.stringify(opened.value.diagnostics)).not.toContain(storageRoot);
     await opened.value.memory.write(verifiedWrite({}), authenticatedAccess());
@@ -448,7 +448,9 @@ describe('createSqliteMemoryPort lifecycle and hygiene', () => {
     const hostIndex = readFileSync('src/host/index.ts', 'utf8');
     expect(hostIndex).toMatch(/createSqliteMemoryPort/);
     expect(hostIndex).not.toMatch(/openSqliteDatabaseFile|better-sqlite3-driver|WithPrimitives/);
-    expect(hostIndex).not.toMatch(/posix-storage-root-capability|posix-storage-root-resolve/);
+    expect(hostIndex).not.toMatch(
+      /posix-storage-root-capability|posix-storage-root-resolve|posix-storage-root-lease/,
+    );
 
     const repoDb = listRepoSqliteArtifacts('src');
     expect(repoDb).toEqual([]);

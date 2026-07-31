@@ -168,25 +168,35 @@ provider: если совместимого мужского голоса нет
   `OpenedPosixStorageRoot` is now a runtime-authenticated capability via module-private WeakMap
   identity (not object shape, freeze, clone, Proxy, JSON, brand strings/symbols, or TypeScript
   types). Structural forgery cannot obtain the trusted storage root path. Capability remains
-  resolvable only while the root lifecycle is `open`; the first `close` attempt permanently retires
-  it (failed close does not reactivate; successful close → `closed`). Not a secret, credential,
-  filesystem lock, exclusive lock, or multi-consumer mutex — while open, multiple future adapters
-  could theoretically share one genuine root; lease/reference-counting is deferred. Full path is
-  available only through an app-private resolve-only facade consumed by the SQLite factory
-  (not exported from host/storage barrels or package root).
+  resolvable only while the root lifecycle is `open`; `root.close` with zero child leases
+  permanently retires it (failed close does not reactivate; successful close → `closed`). With
+  active same-process SQLite adapter leases, `root.close` returns busy and leaves the capability
+  fully open (Build 3.3B3A). Not a secret, credential, filesystem lock, exclusive lock, or
+  cross-process mutex — while open, multiple low-level adapters may share one genuine root, each
+  with an independent lease. Full path/lease acquisition is available only through app-private
+  resolve/lease facades consumed by the SQLite factory (not exported from host/storage barrels or
+  package root).
 - **Build 3.3B2 SQLite MemoryPort adapter implemented locally, pending adversarial review.**
   App-private `createSqliteMemoryPort(openedRoot)` opens compile-time `neo-memory.sqlite` as an
-  immediate child of a genuine open B1 capability path (resolver-only; no raw path/filename/env/cwd).
-  Schema v1 bootstrap for empty DB; verify-only reopen; no destructive migration. Pragmas:
-  foreign_keys ON, busy_timeout bounded, journal_mode WAL, synchronous NORMAL, trusted_schema OFF
-  when supported; startup `quick_check`. MemoryPort parity with in-memory for auth/limit/order/
-  isolation; UNIQUE(owner_id, namespace, record_id) — owner is part of storage identity for both
-  in-memory and SQLite adapters; ordinal-preserving overwrite within that identity. Explicit
-  adapter close lifecycle (`open` → `close-pending` → `closed`). Diagnostics claim sqlite-local
-  memory durability only — `localHostWired=false`, approval/audit not durable, no cross-port
-  atomicity, no encryption, no exclusive lock, no second-instance protection, no root↔adapter
-  lease coordination, Linux container unvalidated, deploymentReady=false. LocalHost remains
-  in-memory and unwired. Codex Review №6 and VPS/deployment remain pending.
+  immediate child of a genuine open B1 capability path (lease-aware acquisition; no raw
+  path/filename/env/cwd). Schema v1 bootstrap for empty DB; verify-only reopen; no destructive
+  migration. Pragmas: foreign_keys ON, busy_timeout bounded, journal_mode WAL, synchronous NORMAL,
+  trusted_schema OFF when supported; startup `quick_check`. MemoryPort parity with in-memory for
+  auth/limit/order/isolation; UNIQUE(owner_id, namespace, record_id) — owner is part of storage
+  identity for both in-memory and SQLite adapters; ordinal-preserving overwrite within that
+  identity. Explicit adapter close lifecycle (`open` → `close-pending` → `closed`). Diagnostics
+  claim sqlite-local memory durability only — `localHostWired=false`, approval/audit not durable,
+  no cross-port atomicity, no encryption, no exclusive lock, no second-instance protection,
+  `storageRootLeaseCoordinated=true` (same-process only), Linux container unvalidated,
+  deploymentReady=false. LocalHost remains in-memory and unwired. Codex Review №6 and
+  VPS/deployment remain pending.
+- **Build 3.3B3A Root/Adapter Lease Coordination implemented locally, pending adversarial review.**
+  Module-private active lease tracking on genuine open POSIX roots; SQLite factory acquires a child
+  lease before opening the DB and releases only after successful `database.close()`. `root.close()`
+  is atomically busy (`STORAGE_ROOT_CLOSE_BUSY`) while any lease is held — no capability retire, no
+  directory-handle close, no pendingCleanup. Failed adapter/bootstrap close retains the lease;
+  pendingCleanup retry success releases it. Not a process lock, flock, PID file, or second-instance
+  guard; multiple same-process adapters remain allowed. LocalHost unwired.
 - Сервер не куплен. Deployment не разрешён.
 - Реальный authentication/provider adapter и persistent atomic replay/idempotency store не
   реализованы. Окончательный security approval отсутствует pending Codex Review №6.

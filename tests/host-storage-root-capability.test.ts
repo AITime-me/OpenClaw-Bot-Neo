@@ -421,7 +421,9 @@ describe('POSIX storage-root capability seal (Build 3.3B2B)', () => {
       ];
       for (const source of roots) {
         expect(source).not.toMatch(/posix-storage-root-capability/);
+        expect(source).not.toMatch(/posix-storage-root-lease/);
         expect(source).not.toMatch(/resolveOpenedPosixStorageRootCapability/);
+        expect(source).not.toMatch(/acquireOpenedPosixStorageRootLease/);
         expect(source).not.toMatch(/registerOpenedPosixStorageRootCapability/);
       }
     });

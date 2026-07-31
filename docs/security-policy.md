@@ -285,10 +285,12 @@ production readiness не заявлена. (SQLite adapter реализован
 object identity (module-private WeakMap), а не по structural typing. Structural clone, freeze,
 spread/`Object.assign`, JSON roundtrip, Proxy wrapper, getter fake, brand string/symbol и
 изготовленный вручную объект не являются capability и не выдают trusted storage root path.
-Capability действует только пока root в состоянии `open`; первый `close` навсегда запрещает новых
-consumers (state `retired`/`closed`); failed close не реактивирует capability. Это не secret, не
-credential, не filesystem/exclusive lock и не защита от нескольких consumers на одном open root;
-lease/reference-counting отложены. Full path доступен только через resolve-only facade для exact
+Capability действует только пока root в состоянии `open`; `root.close` при нуле child leases
+навсегда запрещает новых consumers (state `retired`/`closed`); failed close не реактивирует
+capability. При активных same-process SQLite leases `root.close` возвращает busy и оставляет
+capability полностью open (Build 3.3B3A). Это не secret, не credential, не filesystem/exclusive/
+process lock и не second-instance protection; несколько low-level adapters на одном open root
+по-прежнему разрешены. Full path/lease доступны только через resolve/lease facades для exact
 SQLite factory (не package/host barrel export; sealer API SQLite не получает).
 
 **Build 3.3B2:** app-private `createSqliteMemoryPort` открывает compile-time `neo-memory.sqlite`
@@ -299,11 +301,16 @@ foreign_keys ON, bounded busy_timeout, WAL, synchronous NORMAL, trusted_schema O
 owner/namespace predicates, ordinal-preserving overwrite, delete+reinsert new ordinal). Owner
 является частью storage identity `(ownerId, namespace, recordId)` для in-memory и SQLite.
 Isolation через UNIQUE(owner_id, namespace, record_id). Explicit connection close; close-failure
-оставляет state `close-pending` (операции запрещены; retry deterministic; never returns to open).
-Diagnostics: `storageBackend=sqlite`, `memoryPortDurability=sqlite-local`,
-`localHostWired=false`, approval/audit не durable, `crossPortAtomicity=false`, encryption/lock/
-second-instance/Linux container/deploymentReady=false, `storageRootLeaseCoordinated=false`
-(caller не должен закрывать root раньше adapter). Secrets/OAuth/tokens в memory запрещены
+оставляет state `close-pending` (операции запрещены; retry deterministic; never returns to open;
+lease удерживается до successful DB close). Diagnostics: `storageBackend=sqlite`,
+`memoryPortDurability=sqlite-local`, `localHostWired=false`, approval/audit не durable,
+`crossPortAtomicity=false`, encryption/lock/second-instance/Linux container/deploymentReady=false,
+`storageRootLeaseCoordinated=true` (same-process only). Secrets/OAuth/tokens в memory запрещены
 политикой записи. LocalHost остаётся in-memory и не wired. Ubuntu container validation и Codex
 Review №6 pending; production/VPS/deployment запрещены. Не заявляется absolute security
 boundary против произвольного кода уже внутри trusted host process.
+
+**Build 3.3B3A:** root↔SQLite adapter lease coordination в одном процессе: factory приобретает
+lease до открытия DB; `root.close` fail-closed busy при active/close-pending adapters без retire
+capability и без directory teardown; successful adapter close освобождает lease; failed close и
+bootstrap pendingCleanup удерживают lease. Не process lock / flock / PID file.

@@ -138,19 +138,27 @@ export const INTERNAL_MODULE_ALLOWLIST = {
     'core/application/memory-access.gateway.ts',
   ],
   /**
-   * POSIX storage-root capability seal (Build 3.3B2B).
-   * Register/retire/markClosed/abandon: only the opener.
-   * Resolve re-export facade may import this module; SQLite must not import the sealer directly.
+   * POSIX storage-root capability seal (Build 3.3B2B / B3A).
+   * Register / prepare-close / markClosed / abandon: only the opener.
+   * Resolve and lease facades may import this module; SQLite must not import the sealer directly.
    */
   'host/storage/runtime/posix-storage-root-capability.internal.ts': [
     'host/storage/runtime/open-posix-storage-root.ts',
     'host/storage/runtime/posix-storage-root-resolve.internal.ts',
+    'host/storage/runtime/posix-storage-root-lease.internal.ts',
   ],
   /**
    * Resolver-only facade (Build 3.3B2). Exact SQLite factory may resolve trusted root path.
-   * Does not expose register/retire/markClosed/abandon.
+   * Does not expose register / prepare-close / markClosed / abandon / acquire.
    */
   'host/storage/runtime/posix-storage-root-resolve.internal.ts': [
+    'host/storage/sqlite/create-sqlite-memory-port.ts',
+  ],
+  /**
+   * Lease-only facade (Build 3.3B3A). Exact SQLite factory may acquire a child lease + trusted path.
+   * Does not expose register / prepare-close / markClosed / abandon.
+   */
+  'host/storage/runtime/posix-storage-root-lease.internal.ts': [
     'host/storage/sqlite/create-sqlite-memory-port.ts',
   ],
 };

@@ -27,8 +27,8 @@ import {
 import {
   abandonOpenedPosixStorageRootCapability,
   markOpenedPosixStorageRootCapabilityClosed,
+  prepareOpenedPosixStorageRootClose,
   registerOpenedPosixStorageRootCapability,
-  retireOpenedPosixStorageRootCapability,
 } from './posix-storage-root-capability.internal.js';
 
 export interface PosixStorageRootDiagnostics {
@@ -540,9 +540,12 @@ export function openPosixStorageRootWithSystem(
   let capabilityKey: object | undefined;
 
   const close = (): Result<void, StorageFailure> => {
-    // First close attempt permanently retires the capability before system teardown.
-    // New storage consumers are fail-closed even if the underlying close later fails.
-    if (capabilityKey !== undefined) retireOpenedPosixStorageRootCapability(capabilityKey);
+    // Atomic lease-aware gate: busy leaves capability fully open; zero leases → retired.
+    // New storage consumers are fail-closed after retire even if the underlying close later fails.
+    if (capabilityKey !== undefined) {
+      const prepared = prepareOpenedPosixStorageRootClose(capabilityKey);
+      if (!prepared.ok) return prepared;
+    }
     if (closed) return okStorage(undefined);
     const result = closeHandle(system, opened.value);
     if (result.ok) {

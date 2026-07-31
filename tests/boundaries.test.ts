@@ -119,6 +119,15 @@ describe('allowlist-based layer rules', () => {
     expect(report.filesAnalyzed).toBeGreaterThan(0);
   });
 
+  it('accepts SQLite factory lease-only capability facade fixture', () => {
+    const report = analyzeBoundaries({
+      rootDir: fixture('host-sqlite-lease-allowed'),
+      requiredLayers: [],
+    });
+    expect(report.violations).toEqual([]);
+    expect(report.filesAnalyzed).toBeGreaterThan(0);
+  });
+
   it.each([
     ['forbidden-static', 'FORBIDDEN_DEPENDENCY'],
     ['forbidden-export-from', 'FORBIDDEN_DEPENDENCY'],
@@ -175,6 +184,12 @@ describe('allowlist-based layer rules', () => {
     ['forbidden-host-sqlite-other-resolve', 'INTERNAL_MODULE_LEAK'],
     ['forbidden-host-sqlite-other-npm', 'EXTERNAL_DEPENDENCY'],
     ['forbidden-host-unrelated-resolve', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-sqlite-other-lease', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-sqlite-driver-lease', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-unrelated-lease', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-in-memory-lease', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-core-lease', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-host-lease-channel', 'INTERNAL_MODULE_LEAK'],
   ])('rejects the %s fixture with %s', (name, code) => {
     const report = analyzeBoundaries({ rootDir: fixture(name), requiredLayers: [] });
     expect(codes(report)).toContain(code);

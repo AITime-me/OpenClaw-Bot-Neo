@@ -40,8 +40,9 @@ app-private POSIX/Linux safe-open уже существующего storage root
 только Cursor/Git/static checks/unit tests, не agent runtime. Build 3.3B2A добавляет обязательный
 `MemoryQueryRequest.limit` (1..100, без default); Build 3.3B2B seals successful B1 open как
 identity-based runtime capability. Build 3.3B2 добавляет app-private SQLite MemoryPort adapter
-(`createSqliteMemoryPort`) с database только внутри genuine open safe-root; LocalHost не wired;
-approval/audit ephemeral; cross-port transaction / exclusive lock / encryption / lease coordination
-отсутствуют; не является deployment approval. Build №3 не завершён, VPS не куплен, security
-approval отсутствует pending Codex Review №6. До review, threat model и отдельного owner approval
-deployment запрещён.
+(`createSqliteMemoryPort`) с database только внутри genuine open safe-root; Build 3.3B3A добавляет
+same-process root↔adapter lease coordination (`root.close` busy while adapters hold connections;
+не process lock). LocalHost не wired; approval/audit ephemeral; cross-port transaction / exclusive
+process lock / encryption отсутствуют; не является deployment approval. Build №3 не завершён, VPS
+не куплен, security approval отсутствует pending Codex Review №6. До review, threat model и
+отдельного owner approval deployment запрещён.

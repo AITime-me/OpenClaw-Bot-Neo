@@ -55,15 +55,17 @@ Build 3.3B2 app-private SQLite MemoryPort is separate and remains unwired to Loc
 Storage input is constructor/binding input for a future adapter — not part of the Build 3.1 config
 envelope and not a claim that a disk schema exists or that a lexical path is filesystem-open-safe.
 
-**Build 3.3A / 3.3B1 / 3.3B2A / 3.3B2B / 3.3B2 (partial Build 3.3):** SQLite dependencies exact-pinned
-(`better-sqlite3@12.11.1`, `@types/better-sqlite3@7.6.13`). POSIX/Linux safe-open for an
+**Build 3.3A / 3.3B1 / 3.3B2A / 3.3B2B / 3.3B2 / 3.3B3A (partial Build 3.3):** SQLite dependencies
+exact-pinned (`better-sqlite3@12.11.1`, `@types/better-sqlite3@7.6.13`). POSIX/Linux safe-open for an
 already-existing storage root (`openPosixStorageRoot`) is implemented with honest diagnostics.
 Build 3.3B2A requires `MemoryQueryRequest.limit` (1..100). Build 3.3B2B seals genuine open roots as
 identity capabilities. Build 3.3B2 adds an app-private SQLite MemoryPort adapter that opens
 `neo-memory.sqlite` only inside a genuine open safe-root capability (no raw path, no env/cwd/home,
-no LocalHost wiring). It does not make ApprovalPort/AuditPort durable, does not provide
-cross-port transactions, exclusive process lock, second-instance protection, encryption,
-secret storage, root↔adapter lease coordination, TOCTOU elimination, privileged-attacker
+no LocalHost wiring). Build 3.3B3A coordinates same-process root↔adapter leases: `root.close()` is
+fail-closed busy while any SQLite adapter holds an open or close-pending connection; busy close does
+not retire the capability; successful adapter close releases the lease. It does not make
+ApprovalPort/AuditPort durable, does not provide cross-port transactions, exclusive process lock,
+second-instance protection, encryption, secret storage, TOCTOU elimination, privileged-attacker
 resistance, or deployment approval. Ubuntu 24.04 container validation pending. LocalHost remains
 in-memory and unwired to SQLite. Planned VPS: Timeweb Cloud 4 vCPU / 8 ГБ / 80 ГБ NVMe, Ubuntu
 24.04, Linux server-only; no Windows agent runtime.
@@ -81,6 +83,7 @@ in-memory and unwired to SQLite. Planned VPS: Timeweb Cloud 4 vCPU / 8 ГБ / 80
 | Bounded MemoryQuery limit (Build 3.3B2A) | implemented (required limit 1..100) |
 | Safe-root capability seal (Build 3.3B2B) | implemented (identity capability) |
 | SQLite MemoryPort adapter (Build 3.3B2) | implemented (app-private; LocalHost unwired) |
+| Root↔adapter lease coordination (Build 3.3B3A) | implemented (same-process; not a process lock) |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
@@ -149,13 +152,14 @@ contract only (`CURRENT_STORAGE_SCHEMA_VERSION` is the sole current-version sour
 filesystem не читается и не изменяется; backend unbound; durability none; writes/migrations/
 encryption disabled; durable ports отсутствуют.
 
-**Build 3.3A/B1/B2A/B2B/B2:** SQLite deps pinned; POSIX safe-open existing root; B2B identity
+**Build 3.3A/B1/B2A/B2B/B2/B3A:** SQLite deps pinned; POSIX safe-open existing root; B2B identity
 capability seal; Build 3.3B2 app-private SQLite MemoryPort opens `neo-memory.sqlite` only after a
-genuine open capability (owner identity is `(ownerId, namespace, recordId)`). LocalHost remains
-in-memory and unwired; ApprovalPort/AuditPort ephemeral; no cross-port transaction, encryption,
-exclusive lock, second-instance protection, or root↔adapter lease. Ubuntu container validation
-pending. Сервер/VPS не куплен. Deployment запрещён. Security approval отсутствует (Codex Review
-№6 pending). Build №3 целиком не завершён.
+genuine open capability (owner identity is `(ownerId, namespace, recordId)`). Build 3.3B3A enforces
+same-process root↔adapter lease coordination (`root.close` busy while adapters hold open/
+close-pending connections; busy does not retire the root). LocalHost remains in-memory and unwired;
+ApprovalPort/AuditPort ephemeral; no cross-port transaction, encryption, exclusive process lock, or
+second-instance protection. Ubuntu container validation pending. Сервер/VPS не куплен. Deployment
+запрещён. Security approval отсутствует (Codex Review №6 pending). Build №3 целиком не завершён.
 
 Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate
 (override запрещён). Review/tooling runner может использовать `OPENCLAW_REVIEW_NODE_OVERRIDE=1`

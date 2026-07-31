@@ -3,6 +3,10 @@ import type { MemoryPort } from '../../../core/ports/index.js';
 import type { Result } from '../../../core/domain/result.js';
 import type { DomainError } from '../../../core/domain/errors.js';
 import { failStorage, okStorage, type StorageFailure } from '../storage-failure.js';
+import {
+  acquireOpenedPosixStorageRootLease,
+  type AcquiredPosixStorageRootLease,
+} from '../runtime/posix-storage-root-lease.internal.js';
 import { resolveOpenedPosixStorageRootCapability } from '../runtime/posix-storage-root-resolve.internal.js';
 import { openSqliteDatabaseFile, type SqliteDatabase } from './better-sqlite3-driver.js';
 import {
@@ -41,10 +45,10 @@ export interface SqliteMemoryPortDiagnostics {
   readonly linuxContainerValidated: false;
   readonly deploymentReady: false;
   /**
-   * Residual: caller must not close the storage-root capability while this adapter is open.
-   * Automatic child lifecycle / lease coordination is not implemented in Build 3.3B2.
+   * Same-process root↔adapter lease: root.close() is busy while this adapter holds an open
+   * or close-pending connection. Not a process lock or second-instance protection.
    */
-  readonly storageRootLeaseCoordinated: false;
+  readonly storageRootLeaseCoordinated: true;
 }
 
 export interface SqliteMemoryPortPendingCleanup {
@@ -100,7 +104,7 @@ const SUCCESS_DIAGNOSTICS: SqliteMemoryPortDiagnostics = Object.freeze({
   secondInstanceProtection: false,
   linuxContainerValidated: false,
   deploymentReady: false,
-  storageRootLeaseCoordinated: false,
+  storageRootLeaseCoordinated: true,
 });
 
 const closedPortError = (): DomainError => ({
@@ -139,15 +143,32 @@ const closeDatabase = (db: SqliteDatabase): Result<void, StorageFailure> => {
 };
 
 /**
- * Best-effort close after a failed bootstrap. On close failure, returns CLOSE_FAILED with lifecycle.
- * Operations are not exposed; only cleanup retry remains.
+ * Close DB then release root lease only after successful database.close().
+ * Failed close retains both connection ownership and the lease.
  */
-const failAfterOpen = (db: SqliteDatabase, primary: StorageFailure): SqliteMemoryPortOpenResult => {
+const closeDatabaseAndReleaseLease = (
+  db: SqliteDatabase,
+  lease: AcquiredPosixStorageRootLease,
+): Result<void, StorageFailure> => {
+  const closed = closeDatabase(db);
+  if (closed.ok) lease.release();
+  return closed;
+};
+
+/**
+ * Best-effort close after a failed bootstrap. On close failure, returns CLOSE_FAILED with lifecycle
+ * that retains the root lease until a successful connection close. Operations are not exposed.
+ */
+const failAfterOpen = (
+  db: SqliteDatabase,
+  lease: AcquiredPosixStorageRootLease,
+  primary: StorageFailure,
+): SqliteMemoryPortOpenResult => {
   let state: ConnectionState = 'close-pending';
   const retryClose = (): Result<void, StorageFailure> => {
     if (state === 'closed') return okStorage(undefined);
     state = 'close-pending';
-    const closed = closeDatabase(db);
+    const closed = closeDatabaseAndReleaseLease(db, lease);
     if (closed.ok) state = 'closed';
     return closed;
   };
@@ -162,13 +183,15 @@ const openSqliteMemoryPortInternal = (
   openedRoot: unknown,
   hooks?: SqliteMemoryPortTestHooks,
 ): SqliteMemoryPortOpenResult => {
-  const resolved = resolveOpenedPosixStorageRootCapability(openedRoot);
-  if (!resolved.ok) return Object.freeze({ ok: false as const, error: resolved.error });
+  const acquired = acquireOpenedPosixStorageRootLease(openedRoot);
+  if (!acquired.ok) return Object.freeze({ ok: false as const, error: acquired.error });
+  const lease = acquired.value;
 
-  const storageRootPath = resolved.value.storageRootPath;
+  const storageRootPath = lease.storageRootPath;
   // Compile-time filename only — never caller-controlled; immediate child of trusted root.
   const databasePath = pathPosix.join(storageRootPath, SQLITE_MEMORY_DATABASE_FILENAME);
-  if (databasePath === storageRootPath || !databasePath.startsWith(`${storageRootPath}/`))
+  if (databasePath === storageRootPath || !databasePath.startsWith(`${storageRootPath}/`)) {
+    lease.release();
     return Object.freeze({
       ok: false as const,
       error: {
@@ -176,11 +199,13 @@ const openSqliteMemoryPortInternal = (
         reason: 'SQLite database path escaped the storage root.',
       },
     });
+  }
 
   let db: SqliteDatabase;
   try {
     db = openSqliteDatabaseFile(databasePath);
   } catch {
+    lease.release();
     return Object.freeze({
       ok: false as const,
       error: {
@@ -194,13 +219,13 @@ const openSqliteMemoryPortInternal = (
     try {
       db = hooks.wrapDatabase(db);
     } catch (error) {
-      const closed = closeDatabase(db);
+      const closed = closeDatabaseAndReleaseLease(db, lease);
       if (!closed.ok) {
         let state: ConnectionState = 'close-pending';
         const retryClose = (): Result<void, StorageFailure> => {
           if (state === 'closed') return okStorage(undefined);
           state = 'close-pending';
-          const result = closeDatabase(db);
+          const result = closeDatabaseAndReleaseLease(db, lease);
           if (result.ok) state = 'closed';
           return result;
         };
@@ -214,14 +239,14 @@ const openSqliteMemoryPortInternal = (
     const pragmas = applySqliteMemoryPragmas(db);
     const pragmaOk = verifySqliteMemoryPragmas(pragmas);
     if (!pragmaOk.ok)
-      return failAfterOpen(db, {
+      return failAfterOpen(db, lease, {
         code: 'SQLITE_PRAGMA_FAILED',
         reason: 'SQLite pragma verification failed.',
       });
 
     const integrity = runSqliteQuickCheck(db);
     if (!integrity.ok)
-      return failAfterOpen(db, {
+      return failAfterOpen(db, lease, {
         code: 'SQLITE_INTEGRITY_FAILED',
         reason: 'SQLite integrity verification failed.',
       });
@@ -230,29 +255,29 @@ const openSqliteMemoryPortInternal = (
       try {
         bootstrapSqliteMemorySchemaV1(db);
       } catch {
-        return failAfterOpen(db, {
+        return failAfterOpen(db, lease, {
           code: 'SQLITE_SCHEMA_MISMATCH',
           reason: 'SQLite schema bootstrap failed.',
         });
       }
       const afterBootstrap = verifySqliteMemorySchemaV1(db);
       if (!afterBootstrap.ok)
-        return failAfterOpen(db, {
+        return failAfterOpen(db, lease, {
           code: 'SQLITE_SCHEMA_MISMATCH',
           reason: 'SQLite schema verification failed.',
         });
     } else {
       const schema = verifySqliteMemorySchemaV1(db);
       if (!schema.ok)
-        return failAfterOpen(db, {
+        return failAfterOpen(db, lease, {
           code: 'SQLITE_SCHEMA_MISMATCH',
           reason: 'SQLite schema verification failed.',
         });
     }
 
-    // Re-check capability remains open after bootstrap work.
+    // Re-check capability remains open after bootstrap work (factory lease still held).
     const stillOpen = resolveOpenedPosixStorageRootCapability(openedRoot);
-    if (!stillOpen.ok) return failAfterOpen(db, stillOpen.error);
+    if (!stillOpen.ok) return failAfterOpen(db, lease, stillOpen.error);
 
     let connectionState: ConnectionState = 'opening';
 
@@ -263,7 +288,7 @@ const openSqliteMemoryPortInternal = (
     try {
       ({ memory } = createSqliteMemoryPortConnection(db, assertOpen));
     } catch {
-      return failAfterOpen(db, {
+      return failAfterOpen(db, lease, {
         code: 'SQLITE_OPEN_FAILED',
         reason: 'SQLite statement prepare failed.',
       });
@@ -275,12 +300,12 @@ const openSqliteMemoryPortInternal = (
       if (connectionState === 'closed') return okStorage(undefined);
       // Transition to close-pending before attempting database.close so operations stop immediately.
       connectionState = 'close-pending';
-      const closed = closeDatabase(db);
+      const closed = closeDatabaseAndReleaseLease(db, lease);
       if (closed.ok) {
         connectionState = 'closed';
         return closed;
       }
-      // Remain close-pending; ownership retained for deterministic retry. Never return to open.
+      // Remain close-pending; ownership and lease retained for deterministic retry. Never return to open.
       return closed;
     };
 
@@ -300,19 +325,19 @@ const openSqliteMemoryPortInternal = (
       typeof Reflect.get(error, 'code') === 'string';
 
     if (isErrnoLike) {
-      return failAfterOpen(db, {
+      return failAfterOpen(db, lease, {
         code: 'SQLITE_OPEN_FAILED',
         reason: 'SQLite database open failed.',
       });
     }
 
-    const closed = closeDatabase(db);
+    const closed = closeDatabaseAndReleaseLease(db, lease);
     if (!closed.ok) {
       let state: ConnectionState = 'close-pending';
       const retryClose = (): Result<void, StorageFailure> => {
         if (state === 'closed') return okStorage(undefined);
         state = 'close-pending';
-        const result = closeDatabase(db);
+        const result = closeDatabaseAndReleaseLease(db, lease);
         if (result.ok) state = 'closed';
         return result;
       };
@@ -326,7 +351,7 @@ const openSqliteMemoryPortInternal = (
  * Opens an app-private SQLite MemoryPort inside a genuine open POSIX storage-root capability.
  *
  * Does not accept raw paths, filenames, env, cwd, home, platform, or fake capabilities.
- * Does not wire LocalHost. Does not coordinate automatic root/adapter lease lifecycle.
+ * Does not wire LocalHost. Acquires a same-process root child lease for the adapter lifetime.
  */
 export function createSqliteMemoryPort(openedRoot: unknown): SqliteMemoryPortOpenResult {
   return openSqliteMemoryPortInternal(openedRoot);
@@ -345,7 +370,7 @@ export function createSqliteMemoryPortWithTestHooks(
 
 /**
  * Programmer-error path where bootstrap cleanup close also failed.
- * Not an ordinary StorageFailure Result.
+ * Not an ordinary StorageFailure Result. Pending cleanup retains connection and root lease.
  */
 export class SqliteMemoryPortOwnershipError extends Error {
   readonly pendingCleanup: SqliteMemoryPortPendingCleanup;

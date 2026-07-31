@@ -127,12 +127,12 @@ module.exports = {
       comment: 'Only the sealing owners may import a *.internal module.',
       from: {
         pathNot:
-          '^src/(core/(domain/(index|extension-permission|extension-registry-entry|extension-registry-entry\\.internal)\\.ts|policy/(confirmation-gate|extension-manifest|extension-permissions|namespace-isolation|voice-profile|webhook-ingress)\\.ts|application/(memory-write\\.service|memory-access\\.gateway|extension-registration\\.service|extension-activation\\.service|extension-activation\\.gateway|runtime-risk-classification\\.service|extension-permission\\.gateway|voice-resolution\\.gateway|webhook-ingress\\.service)\\.ts)|host/storage/runtime/(open-posix-storage-root|posix-storage-root-resolve\\.internal)\\.ts)$',
+          '^src/(core/(domain/(index|extension-permission|extension-registry-entry|extension-registry-entry\\.internal)\\.ts|policy/(confirmation-gate|extension-manifest|extension-permissions|namespace-isolation|voice-profile|webhook-ingress)\\.ts|application/(memory-write\\.service|memory-access\\.gateway|extension-registration\\.service|extension-activation\\.service|extension-activation\\.gateway|runtime-risk-classification\\.service|extension-permission\\.gateway|voice-resolution\\.gateway|webhook-ingress\\.service)\\.ts)|host/storage/runtime/(open-posix-storage-root|posix-storage-root-resolve\\.internal|posix-storage-root-lease\\.internal)\\.ts)$',
       },
       to: {
         path: '\\.internal\\.ts$',
-        // Resolver facade is gated by resolver-facade-importers-only (exact SQLite factory only).
-        pathNot: '^src/host/storage/runtime/posix-storage-root-resolve\\.internal\\.ts$',
+        // Resolve/lease facades are gated by their exact importer rules (SQLite factory only).
+        pathNot: '^src/host/storage/runtime/posix-storage-root-(resolve|lease)\\.internal\\.ts$',
       },
     },
     {
@@ -147,9 +147,20 @@ module.exports = {
       },
     },
     {
+      name: 'lease-facade-importers-only',
+      severity: 'error',
+      comment: 'Only the exact SQLite MemoryPort factory may import the lease-only facade.',
+      from: {
+        pathNot: '^src/host/storage/sqlite/create-sqlite-memory-port\\.ts$',
+      },
+      to: {
+        path: '^src/host/storage/runtime/posix-storage-root-lease\\.internal\\.ts$',
+      },
+    },
+    {
       name: 'sqlite-factory-no-sealer-internal',
       severity: 'error',
-      comment: 'SQLite factory must not import the capability sealer; only the resolver facade.',
+      comment: 'SQLite factory must not import the capability sealer; only resolve/lease facades.',
       from: {
         path: '^src/host/storage/sqlite/create-sqlite-memory-port\\.ts$',
       },
