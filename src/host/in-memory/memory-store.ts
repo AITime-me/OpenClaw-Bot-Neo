@@ -17,11 +17,7 @@ import {
 } from '../../core/domain/index.js';
 import { authorizeMemoryAccess } from '../../core/policy/namespace-isolation.js';
 import type { MemoryPort } from '../../core/ports/index.js';
-
-const notFound = (): DomainError => ({
-  code: 'VALIDATION_FAILED',
-  reason: 'Memory record not found in ephemeral local store.',
-});
+import { memoryRecordNotFound } from '../memory-port-errors.js';
 
 const authorizationDenied = (code: string, reason: string): DomainError => ({
   code: 'POLICY_DENIED',
@@ -80,12 +76,15 @@ const toRecord = (write: VerifiedMemoryWrite): MemoryRecord =>
     updatedAt: write.updatedAt,
   });
 
-const storageKey = (namespace: string, recordId: string): string => `${namespace}/${recordId}`;
+/** Canonical MemoryRecord identity: (ownerId, namespace, recordId). */
+const storageKey = (ownerId: string, namespace: string, recordId: string): string =>
+  `${ownerId}/${namespace}/${recordId}`;
 
 /**
  * Ephemeral in-memory MemoryPort. Every operation fail-closes through public
  * `authorizeMemoryAccess` (opaque authenticated evidence + owner/namespace alignment).
- * Duplicate keys overwrite (Map insertion order preserved). Query requires explicit
+ * Storage identity is (ownerId, namespace, recordId); duplicate keys overwrite while
+ * preserving Map insertion order for that exact identity. Query requires explicit
  * `limit` (1..100) and returns at most that many matching records in insertion order.
  * The `query` string is ignored (not content search). Not durable; not production-ready.
  */
@@ -132,12 +131,15 @@ export function createInMemoryMemoryStore(): MemoryPort {
       );
       if (denied !== null) return Promise.resolve(err(denied));
 
-      const write = records.get(storageKey(request.expectedNamespace, String(request.recordId)));
-      if (write === undefined) return Promise.resolve(err(notFound()));
+      const write = records.get(
+        storageKey(request.expectedOwnerId, request.expectedNamespace, String(request.recordId)),
+      );
+      if (write === undefined) return Promise.resolve(err(memoryRecordNotFound()));
       // Align stored record to opaque access owner — request fields alone are not authority.
       if (write.ownerId !== access.ownerId || write.ownerId !== request.expectedOwnerId)
-        return Promise.resolve(err(notFound()));
-      if (write.namespace !== request.expectedNamespace) return Promise.resolve(err(notFound()));
+        return Promise.resolve(err(memoryRecordNotFound()));
+      if (write.namespace !== request.expectedNamespace)
+        return Promise.resolve(err(memoryRecordNotFound()));
       return Promise.resolve(ok(toRecord(write)));
     },
 
@@ -149,7 +151,7 @@ export function createInMemoryMemoryStore(): MemoryPort {
       if (denied !== null) return Promise.resolve(err(denied));
       if (write.ownerId !== access.ownerId)
         return Promise.resolve(err(authorizationDenied('OWNER_MISMATCH', 'Write owner mismatch.')));
-      records.set(storageKey(write.namespace, String(write.recordId)), write);
+      records.set(storageKey(write.ownerId, write.namespace, String(write.recordId)), write);
       return Promise.resolve(ok(write.recordId));
     },
 
@@ -165,12 +167,17 @@ export function createInMemoryMemoryStore(): MemoryPort {
       );
       if (denied !== null) return Promise.resolve(err(denied));
 
-      const key = storageKey(request.expectedNamespace, String(request.recordId));
+      const key = storageKey(
+        request.expectedOwnerId,
+        request.expectedNamespace,
+        String(request.recordId),
+      );
       const write = records.get(key);
-      if (write === undefined) return Promise.resolve(err(notFound()));
+      if (write === undefined) return Promise.resolve(err(memoryRecordNotFound()));
       if (write.ownerId !== access.ownerId || write.ownerId !== request.expectedOwnerId)
-        return Promise.resolve(err(notFound()));
-      if (write.namespace !== request.expectedNamespace) return Promise.resolve(err(notFound()));
+        return Promise.resolve(err(memoryRecordNotFound()));
+      if (write.namespace !== request.expectedNamespace)
+        return Promise.resolve(err(memoryRecordNotFound()));
       records.delete(key);
       return Promise.resolve(ok(undefined));
     },

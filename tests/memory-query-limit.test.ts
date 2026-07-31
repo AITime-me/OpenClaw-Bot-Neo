@@ -397,19 +397,27 @@ describe('Build 3.3B2A regression', () => {
     expect(missing.ok).toBe(false);
   });
 
-  it('keeps LocalHost on in-memory storage and does not import SQLite', () => {
+  it('keeps LocalHost on in-memory storage; only the dedicated driver imports better-sqlite3', () => {
     const hostSource = readFileSync('src/host/create-local-host.ts', 'utf8');
     expect(hostSource).toContain('createInMemoryMemoryStore');
-    expect(hostSource).not.toMatch(/better-sqlite3|sqlite/i);
+    expect(hostSource).not.toMatch(/better-sqlite3|createSqliteMemoryPort|sqlite/i);
 
+    const driver = 'src/host/storage/sqlite/better-sqlite3-driver.ts'.replaceAll('\\', '/');
     for (const file of listTsFiles('src')) {
+      const normalized = file.replaceAll('\\', '/');
       const text = readFileSync(file, 'utf8');
+      if (normalized.endsWith('/better-sqlite3-driver.ts')) {
+        expect(text).toMatch(/better-sqlite3/);
+        continue;
+      }
       expect(text).not.toMatch(/from ['"]better-sqlite3['"]/);
       expect(text).not.toMatch(/require\(['"]better-sqlite3['"]\)/);
     }
+    expect(driver.endsWith('better-sqlite3-driver.ts')).toBe(true);
 
     const publicApi = readFileSync('src/index.ts', 'utf8');
     expect(publicApi).not.toContain('readMemoryQueryLimit');
     expect(publicApi).not.toContain('MEMORY_QUERY_LIMIT');
+    expect(publicApi).not.toContain('createSqliteMemoryPort');
   });
 });

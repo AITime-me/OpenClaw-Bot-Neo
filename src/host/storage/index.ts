@@ -23,3 +23,17 @@ export type {
   PosixStorageRootPolicy,
   StorageFailureExceptClose,
 } from './runtime/index.js';
+export {
+  createSqliteMemoryPort,
+  isSqliteMemoryPortOwnershipError,
+  SqliteMemoryPortOwnershipError,
+  SQLITE_MEMORY_DATABASE_FILENAME,
+  SQLITE_MEMORY_SCHEMA_VERSION,
+} from './sqlite/index.js';
+export type {
+  SqliteMemoryPortCloseFailure,
+  SqliteMemoryPortDiagnostics,
+  SqliteMemoryPortHandle,
+  SqliteMemoryPortOpenResult,
+  SqliteMemoryPortPendingCleanup,
+} from './sqlite/index.js';

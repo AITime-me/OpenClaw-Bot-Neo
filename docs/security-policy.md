@@ -278,8 +278,8 @@ second-instance protection. Ubuntu container validation по-прежнему pe
 `MEMORY_QUERY_LIMIT_MIN` / `MEMORY_QUERY_LIMIT_MAX`); default отсутствует; неверный limit →
 `VALIDATION_FAILED` без coercion/clamping. In-memory и будущий SQLite MemoryPort обязаны соблюдать
 одинаковый ceiling. Поле `query` по-прежнему не является поиском по содержимому; offset/cursor/
-pagination отсутствуют. Durable storage / SQLite adapter B2 ещё не реализованы; LocalHost остаётся
-in-memory; Linux validation и Codex Review №6 pending; production readiness не заявлена.
+pagination отсутствуют. LocalHost остаётся in-memory; Linux validation и Codex Review №6 pending;
+production readiness не заявлена. (SQLite adapter реализован отдельно в Build 3.3B2 и не wired.)
 
 **Build 3.3B2B (prerequisite):** successful B1 `OpenedPosixStorageRoot` проверяется по runtime
 object identity (module-private WeakMap), а не по structural typing. Structural clone, freeze,
@@ -288,8 +288,22 @@ spread/`Object.assign`, JSON roundtrip, Proxy wrapper, getter fake, brand string
 Capability действует только пока root в состоянии `open`; первый `close` навсегда запрещает новых
 consumers (state `retired`/`closed`); failed close не реактивирует capability. Это не secret, не
 credential, не filesystem/exclusive lock и не защита от нескольких consumers на одном open root;
-lease/reference-counting отложены. Full path доступен только внутреннему trusted resolver
-(будущий dedicated SQLite adapter entry; не package/host barrel export). SQLite adapter отсутствует;
-LocalHost in-memory; approval/audit ephemeral; encryption отсутствует; Ubuntu container validation
-и Codex Review №6 pending; production/VPS/deployment запрещены. Не заявляется absolute security
+lease/reference-counting отложены. Full path доступен только через resolve-only facade для exact
+SQLite factory (не package/host barrel export; sealer API SQLite не получает).
+
+**Build 3.3B2:** app-private `createSqliteMemoryPort` открывает compile-time `neo-memory.sqlite`
+только внутри genuine open safe-root capability; raw path/filename/env/cwd/home запрещены.
+Schema v1; empty bootstrap; verify-only reopen; no destructive migration/reset. Pragmas:
+foreign_keys ON, bounded busy_timeout, WAL, synchronous NORMAL, trusted_schema OFF (если
+поддерживается); startup `quick_check`. MemoryPort semantic parity с in-memory (auth, limit 1..100,
+owner/namespace predicates, ordinal-preserving overwrite, delete+reinsert new ordinal). Owner
+является частью storage identity `(ownerId, namespace, recordId)` для in-memory и SQLite.
+Isolation через UNIQUE(owner_id, namespace, record_id). Explicit connection close; close-failure
+оставляет state `close-pending` (операции запрещены; retry deterministic; never returns to open).
+Diagnostics: `storageBackend=sqlite`, `memoryPortDurability=sqlite-local`,
+`localHostWired=false`, approval/audit не durable, `crossPortAtomicity=false`, encryption/lock/
+second-instance/Linux container/deploymentReady=false, `storageRootLeaseCoordinated=false`
+(caller не должен закрывать root раньше adapter). Secrets/OAuth/tokens в memory запрещены
+политикой записи. LocalHost остаётся in-memory и не wired. Ubuntu container validation и Codex
+Review №6 pending; production/VPS/deployment запрещены. Не заявляется absolute security
 boundary против произвольного кода уже внутри trusted host process.

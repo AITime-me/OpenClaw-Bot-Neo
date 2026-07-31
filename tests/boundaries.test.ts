@@ -101,6 +101,24 @@ describe('allowlist-based layer rules', () => {
     expect(report.filesAnalyzed).toBeGreaterThan(0);
   });
 
+  it('accepts the dedicated better-sqlite3 driver wrapper fixture', () => {
+    const report = analyzeBoundaries({
+      rootDir: fixture('host-sqlite-driver-allowed'),
+      requiredLayers: [],
+    });
+    expect(report.violations).toEqual([]);
+    expect(report.filesAnalyzed).toBeGreaterThan(0);
+  });
+
+  it('accepts SQLite factory resolve-only capability facade fixture', () => {
+    const report = analyzeBoundaries({
+      rootDir: fixture('host-sqlite-resolve-allowed'),
+      requiredLayers: [],
+    });
+    expect(report.violations).toEqual([]);
+    expect(report.filesAnalyzed).toBeGreaterThan(0);
+  });
+
   it.each([
     ['forbidden-static', 'FORBIDDEN_DEPENDENCY'],
     ['forbidden-export-from', 'FORBIDDEN_DEPENDENCY'],
@@ -150,6 +168,13 @@ describe('allowlist-based layer rules', () => {
     ['forbidden-host-capability-channel', 'INTERNAL_MODULE_LEAK'],
     ['forbidden-core-capability', 'FORBIDDEN_DEPENDENCY'],
     ['forbidden-host-capability-posix-system', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-sqlite-sealer', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-sqlite-non-driver-npm', 'EXTERNAL_DEPENDENCY'],
+    ['forbidden-host-sqlite-factory-sealer', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-sqlite-factory-unrelated-internal', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-sqlite-other-resolve', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-sqlite-other-npm', 'EXTERNAL_DEPENDENCY'],
+    ['forbidden-host-unrelated-resolve', 'INTERNAL_MODULE_LEAK'],
   ])('rejects the %s fixture with %s', (name, code) => {
     const report = analyzeBoundaries({ rootDir: fixture(name), requiredLayers: [] });
     expect(codes(report)).toContain(code);

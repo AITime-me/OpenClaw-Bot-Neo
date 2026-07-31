@@ -50,22 +50,23 @@ lexical-only explicit path policy (win32 denies ADS colons and classic reserved 
 schema-version compatibility against immutable `CURRENT_STORAGE_SCHEMA_VERSION` only (no caller
 currentVersion override), and immutable unbound storage plan. Filesystem is not read or modified;
 storage backend remains unbound; durability none; writes disabled; migrations disabled; encryption
-absent. No durable MemoryPort/ApprovalPort/audit, no SQLite adapter, no core transaction boundary.
+absent. No durable ApprovalPort/audit and no core transaction boundary in Build 3.2; the later
+Build 3.3B2 app-private SQLite MemoryPort is separate and remains unwired to LocalHost.
 Storage input is constructor/binding input for a future adapter — not part of the Build 3.1 config
 envelope and not a claim that a disk schema exists or that a lexical path is filesystem-open-safe.
 
-**Build 3.3A / 3.3B1 / 3.3B2A / 3.3B2B (partial Build 3.3):** SQLite dependencies exact-pinned
-(`better-sqlite3@12.11.1`, `@types/better-sqlite3@7.6.13`) without adapter. POSIX/Linux safe-open
-for an already-existing storage root (`openPosixStorageRoot`) is implemented locally with honest
-diagnostics; it does not open SQLite, create a database, enable writes, make memory durable, provide
-an exclusive lock, eliminate TOCTOU, resist a privileged local attacker, or approve deployment.
-Build 3.3B2A adds required `MemoryQueryRequest.limit` (1..100, no default) so in-memory and a future
-SQLite MemoryPort share one query ceiling; `query` is still not content search; pagination/cursor
-absent. Build 3.3B2B seals a genuine B1 success as a WeakMap identity capability (structural
-forgery/Proxy rejected; close permanently retires capability; not a secret/lock; path only via
-internal resolver). Durable storage and SQLite B2 adapter remain unimplemented. Ubuntu 24.04
-container validation pending. LocalHost remains in-memory. Planned VPS: Timeweb Cloud 4 vCPU /
-8 ГБ / 80 ГБ NVMe, Ubuntu 24.04, Linux server-only; no Windows agent runtime.
+**Build 3.3A / 3.3B1 / 3.3B2A / 3.3B2B / 3.3B2 (partial Build 3.3):** SQLite dependencies exact-pinned
+(`better-sqlite3@12.11.1`, `@types/better-sqlite3@7.6.13`). POSIX/Linux safe-open for an
+already-existing storage root (`openPosixStorageRoot`) is implemented with honest diagnostics.
+Build 3.3B2A requires `MemoryQueryRequest.limit` (1..100). Build 3.3B2B seals genuine open roots as
+identity capabilities. Build 3.3B2 adds an app-private SQLite MemoryPort adapter that opens
+`neo-memory.sqlite` only inside a genuine open safe-root capability (no raw path, no env/cwd/home,
+no LocalHost wiring). It does not make ApprovalPort/AuditPort durable, does not provide
+cross-port transactions, exclusive process lock, second-instance protection, encryption,
+secret storage, root↔adapter lease coordination, TOCTOU elimination, privileged-attacker
+resistance, or deployment approval. Ubuntu 24.04 container validation pending. LocalHost remains
+in-memory and unwired to SQLite. Planned VPS: Timeweb Cloud 4 vCPU / 8 ГБ / 80 ГБ NVMe, Ubuntu
+24.04, Linux server-only; no Windows agent runtime.
 
 | Слой | Статус |
 |------|--------|
@@ -75,11 +76,11 @@ container validation pending. LocalHost remains in-memory. Planned VPS: Timeweb 
 | App-private local host composition (Build 3.0) | implemented (ephemeral / non-durable) |
 | Pure local config bootstrap (Build 3.1) | implemented (parsed-object only) |
 | Storage boundary & schema contract (Build 3.2) | implemented (lexical / unbound / no I/O) |
-| SQLite dependency gate (Build 3.3A) | pinned (no adapter) |
-| POSIX safe storage root (Build 3.3B1) | implemented (open existing root only; no SQLite) |
-| Bounded MemoryQuery limit (Build 3.3B2A) | implemented (required limit 1..100; in-memory only) |
-| Safe-root capability seal (Build 3.3B2B) | implemented (identity capability; no SQLite) |
-| SQLite MemoryPort adapter (Build 3.3B2) | not implemented |
+| SQLite dependency gate (Build 3.3A) | pinned |
+| POSIX safe storage root (Build 3.3B1) | implemented (open existing root only) |
+| Bounded MemoryQuery limit (Build 3.3B2A) | implemented (required limit 1..100) |
+| Safe-root capability seal (Build 3.3B2B) | implemented (identity capability) |
+| SQLite MemoryPort adapter (Build 3.3B2) | implemented (app-private; LocalHost unwired) |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
@@ -148,10 +149,13 @@ contract only (`CURRENT_STORAGE_SCHEMA_VERSION` is the sole current-version sour
 filesystem не читается и не изменяется; backend unbound; durability none; writes/migrations/
 encryption disabled; durable ports отсутствуют.
 
-**Build 3.3A/B1/B2A/B2B:** SQLite deps pinned without adapter; POSIX safe-open existing root only —
-no SQLite/database/writes/durability/exclusive lock; B2B identity capability seal (not a lock);
-Ubuntu container validation pending. Сервер/VPS не куплен. Deployment запрещён. Security approval
-отсутствует. Build №3 целиком не завершён.
+**Build 3.3A/B1/B2A/B2B/B2:** SQLite deps pinned; POSIX safe-open existing root; B2B identity
+capability seal; Build 3.3B2 app-private SQLite MemoryPort opens `neo-memory.sqlite` only after a
+genuine open capability (owner identity is `(ownerId, namespace, recordId)`). LocalHost remains
+in-memory and unwired; ApprovalPort/AuditPort ephemeral; no cross-port transaction, encryption,
+exclusive lock, second-instance protection, or root↔adapter lease. Ubuntu container validation
+pending. Сервер/VPS не куплен. Deployment запрещён. Security approval отсутствует (Codex Review
+№6 pending). Build №3 целиком не завершён.
 
 Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate
 (override запрещён). Review/tooling runner может использовать `OPENCLAW_REVIEW_NODE_OVERRIDE=1`

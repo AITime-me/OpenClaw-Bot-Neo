@@ -11,8 +11,8 @@ import { failStorage, okStorage, type StorageFailure } from '../storage-failure.
  * transferable serialized token, or TOCTOU/privileged-attacker proof.
  *
  * Visibility: app-private. Only `open-posix-storage-root.ts` may register/retire.
- * Resolve is reserved for a future dedicated SQLite adapter (allowlisted in B2) and tests.
- * Not re-exported from host/storage barrels or the package root.
+ * Resolve is re-exported through `posix-storage-root-resolve.internal.ts` for the exact
+ * SQLite MemoryPort factory. Not re-exported from host/storage barrels or the package root.
  */
 
 /** Lifecycle states present in the authority registry after successful construction. */

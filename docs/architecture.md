@@ -161,9 +161,9 @@ provider: если совместимого мужского голоса нет
 - **Build 3.3B2A bounded MemoryQuery contract (prerequisite for SQLite MemoryPort):**
   `MemoryQueryRequest.limit` is required (`MEMORY_QUERY_LIMIT_MIN=1` …
   `MEMORY_QUERY_LIMIT_MAX=100`); no default, no silent clamp/coercion. In-memory MemoryPort applies
-  the ceiling; future SQLite adapter must match. `query` string remains ignored (not content
-  search). No offset/cursor/pagination. Durable storage still absent; LocalHost remains in-memory;
-  SQLite B2 adapter not implemented. Linux container validation and Codex Review №6 remain pending.
+  the ceiling; SQLite MemoryPort must match. `query` string remains ignored (not content
+  search). No offset/cursor/pagination. LocalHost remains in-memory; Linux container validation
+  and Codex Review №6 remain pending.
 - **Build 3.3B2B Safe-Root Capability Seal (prerequisite for SQLite adapter):** a successful
   `OpenedPosixStorageRoot` is now a runtime-authenticated capability via module-private WeakMap
   identity (not object shape, freeze, clone, Proxy, JSON, brand strings/symbols, or TypeScript
@@ -172,15 +172,26 @@ provider: если совместимого мужского голоса нет
   it (failed close does not reactivate; successful close → `closed`). Not a secret, credential,
   filesystem lock, exclusive lock, or multi-consumer mutex — while open, multiple future adapters
   could theoretically share one genuine root; lease/reference-counting is deferred. Full path is
-  available only through an app-private internal resolver reserved for a future SQLite adapter
-  entry (not exported from host/storage barrels or package root). SQLite adapter still absent;
-  LocalHost remains in-memory; approval/audit ephemeral; encryption absent; Linux container
-  validation and Codex Review №6 pending; production/VPS/deployment forbidden.
+  available only through an app-private resolve-only facade consumed by the SQLite factory
+  (not exported from host/storage barrels or package root).
+- **Build 3.3B2 SQLite MemoryPort adapter implemented locally, pending adversarial review.**
+  App-private `createSqliteMemoryPort(openedRoot)` opens compile-time `neo-memory.sqlite` as an
+  immediate child of a genuine open B1 capability path (resolver-only; no raw path/filename/env/cwd).
+  Schema v1 bootstrap for empty DB; verify-only reopen; no destructive migration. Pragmas:
+  foreign_keys ON, busy_timeout bounded, journal_mode WAL, synchronous NORMAL, trusted_schema OFF
+  when supported; startup `quick_check`. MemoryPort parity with in-memory for auth/limit/order/
+  isolation; UNIQUE(owner_id, namespace, record_id) — owner is part of storage identity for both
+  in-memory and SQLite adapters; ordinal-preserving overwrite within that identity. Explicit
+  adapter close lifecycle (`open` → `close-pending` → `closed`). Diagnostics claim sqlite-local
+  memory durability only — `localHostWired=false`, approval/audit not durable, no cross-port
+  atomicity, no encryption, no exclusive lock, no second-instance protection, no root↔adapter
+  lease coordination, Linux container unvalidated, deploymentReady=false. LocalHost remains
+  in-memory and unwired. Codex Review №6 and VPS/deployment remain pending.
 - Сервер не куплен. Deployment не разрешён.
 - Реальный authentication/provider adapter и persistent atomic replay/idempotency store не
   реализованы. Окончательный security approval отсутствует pending Codex Review №6.
-- Linux container gate, SQLite MemoryPort adapter, secret-provider, transaction gap, и VPS/deployment
-  остаются pending.
+- Linux container gate, LocalHost SQLite wiring, durable approval/audit, secret-provider,
+  cross-port transaction gap, и VPS/deployment остаются pending.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.
 

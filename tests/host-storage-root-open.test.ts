@@ -1231,7 +1231,9 @@ describe('Build 3.3B1 hygiene', () => {
 
   it('keeps pure Build 3.2 modules free of filesystem imports', () => {
     const pure = listSources('src/host/storage').filter(
-      (path) => !path.includes('/runtime/create-node-posix-storage-system.ts'),
+      (path) =>
+        !path.includes('/runtime/create-node-posix-storage-system.ts') &&
+        !path.includes('/storage/sqlite/'),
     );
     for (const path of pure) {
       const text = readFileSync(path, 'utf8');

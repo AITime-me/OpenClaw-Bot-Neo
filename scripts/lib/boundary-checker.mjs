@@ -29,7 +29,7 @@ export const CORE_LAYER_RULES = {
   /**
    * App-private local composition (Build 3.0+), pure config bootstrap (Build 3.1),
    * storage boundary/schema contract (Build 3.2), POSIX storage-root safe-open (Build 3.3B1),
-   * and safe-root capability seal (Build 3.3B2B).
+   * safe-root capability seal (Build 3.3B2B), and SQLite MemoryPort adapter (Build 3.3B2).
    * May use public core surfaces only, including core/config parsers.
    * Must not import core internals, tests, scripts, or future channel/adapters trees.
    */
@@ -71,6 +71,15 @@ export const HOST_PATH_BUILTIN_ALLOWLIST = Object.freeze({
     'node:os',
     'node:path',
   ]),
+  'host/storage/sqlite/better-sqlite3-driver.ts': Object.freeze(['node:module']),
+});
+
+/**
+ * Path-specific host external (npm) package exceptions.
+ * Keys are paths relative to the analysed root (normally `src`), using POSIX separators.
+ */
+export const HOST_PATH_EXTERNAL_ALLOWLIST = Object.freeze({
+  'host/storage/sqlite/better-sqlite3-driver.ts': Object.freeze(['better-sqlite3']),
 });
 
 /** Sealed factories stay reachable only from the modules that are allowed to create sealed values. */
@@ -130,11 +139,19 @@ export const INTERNAL_MODULE_ALLOWLIST = {
   ],
   /**
    * POSIX storage-root capability seal (Build 3.3B2B).
-   * Register/retire: only the opener. Resolve stays in this module for tests and a future
-   * dedicated SQLite adapter entry (allowlisted in B2) — not a host-wide authority surface.
+   * Register/retire/markClosed/abandon: only the opener.
+   * Resolve re-export facade may import this module; SQLite must not import the sealer directly.
    */
   'host/storage/runtime/posix-storage-root-capability.internal.ts': [
     'host/storage/runtime/open-posix-storage-root.ts',
+    'host/storage/runtime/posix-storage-root-resolve.internal.ts',
+  ],
+  /**
+   * Resolver-only facade (Build 3.3B2). Exact SQLite factory may resolve trusted root path.
+   * Does not expose register/retire/markClosed/abandon.
+   */
+  'host/storage/runtime/posix-storage-root-resolve.internal.ts': [
+    'host/storage/sqlite/create-sqlite-memory-port.ts',
   ],
 };
 
@@ -310,6 +327,10 @@ export function analyzeBoundaries(options = {}) {
         continue;
       }
       if (!reference.specifier.startsWith('.')) {
+        if (fromLayer === 'host') {
+          const pathAllow = HOST_PATH_EXTERNAL_ALLOWLIST[fileRelative];
+          if (pathAllow !== undefined && pathAllow.includes(reference.specifier)) continue;
+        }
         violations.push({
           code: 'EXTERNAL_DEPENDENCY',
           message: `${where} imports external package ${reference.specifier}.`,

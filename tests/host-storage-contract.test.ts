@@ -493,7 +493,7 @@ describe('storage platform and hygiene', () => {
 
   it('production storage sources avoid env/cwd/platform/fs I/O call sites', () => {
     const sources = listStorageSources()
-      .filter((path) => !path.includes('/storage/runtime/'))
+      .filter((path) => !path.includes('/storage/runtime/') && !path.includes('/storage/sqlite/'))
       .map((path) => ({
         path,
         text: readFileSync(path, 'utf8'),
