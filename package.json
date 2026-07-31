@@ -43,6 +43,7 @@
     "dist"
   ],
   "dependencies": {
-    "better-sqlite3": "12.11.1"
+    "better-sqlite3": "12.11.1",
+    "fs-ext-extra-prebuilt": "2.2.10"
   }
 }
