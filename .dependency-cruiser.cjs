@@ -65,10 +65,11 @@ module.exports = {
       name: 'host-no-filesystem-builtins',
       severity: 'error',
       comment:
-        'Host may not import filesystem Node builtins except the dedicated POSIX storage-root Node adapter.',
+        'Host may not import filesystem Node builtins except the dedicated POSIX storage-root Node adapter and process-lock driver.',
       from: {
         path: '^src/host',
-        pathNot: '^src/host/storage/runtime/create-node-posix-storage-system\\.ts$',
+        pathNot:
+          '^src/host/storage/runtime/(create-node-posix-storage-system|posix-process-lock-driver)\\.ts$',
       },
       to: { path: '^(node:)?fs(/promises)?$' },
     },
@@ -102,10 +103,11 @@ module.exports = {
       name: 'core-has-no-external-packages',
       severity: 'error',
       comment:
-        'src may not import npm packages except the dedicated better-sqlite3 driver wrapper.',
+        'src may not import npm packages except the dedicated better-sqlite3 and process-lock driver wrappers.',
       from: {
         path: '^src/',
-        pathNot: '^src/host/storage/sqlite/better-sqlite3-driver\\.ts$',
+        pathNot:
+          '^src/host/storage/(sqlite/better-sqlite3-driver|runtime/posix-process-lock-driver)\\.ts$',
       },
       to: {
         dependencyTypes: ['npm', 'npm-dev', 'npm-optional', 'npm-peer', 'npm-bundled'],
@@ -122,6 +124,63 @@ module.exports = {
       },
     },
     {
+      name: 'process-lock-driver-only-fs-ext',
+      severity: 'error',
+      comment:
+        'The process-lock driver wrapper may depend only on fs-ext-extra-prebuilt among npm packages.',
+      from: { path: '^src/host/storage/runtime/posix-process-lock-driver\\.ts$' },
+      to: {
+        dependencyTypes: ['npm', 'npm-dev', 'npm-optional', 'npm-peer', 'npm-bundled'],
+        pathNot: 'node_modules/fs-ext-extra-prebuilt',
+      },
+    },
+    {
+      name: 'process-lock-driver-importers-only',
+      severity: 'error',
+      comment: 'Only the exact process-lock factory may import the process-lock driver wrapper.',
+      from: {
+        pathNot: '^src/host/storage/runtime/acquire-posix-process-lock\\.ts$',
+      },
+      to: {
+        path: '^src/host/storage/runtime/posix-process-lock-driver\\.ts$',
+      },
+    },
+    {
+      name: 'process-lock-modules-unwired',
+      severity: 'error',
+      comment:
+        'Process-lock factory/constants are app-private and unwired; host siblings may not import them.',
+      from: {
+        path: '^src/host',
+        pathNot: '^src/host/storage/runtime/acquire-posix-process-lock\\.ts$',
+      },
+      to: {
+        path: '^src/host/storage/runtime/(acquire-posix-process-lock|posix-process-lock-constants)\\.ts$',
+      },
+    },
+    {
+      name: 'process-lock-factory-no-sealer-internal',
+      severity: 'error',
+      comment: 'Process-lock factory must not import the capability sealer; only the lease facade.',
+      from: {
+        path: '^src/host/storage/runtime/acquire-posix-process-lock\\.ts$',
+      },
+      to: {
+        path: '^src/host/storage/runtime/posix-storage-root-capability\\.internal\\.ts$',
+      },
+    },
+    {
+      name: 'sqlite-factory-no-process-lock',
+      severity: 'error',
+      comment: 'SQLite factory must not import the process-lock driver or factory.',
+      from: {
+        path: '^src/host/storage/sqlite/create-sqlite-memory-port\\.ts$',
+      },
+      to: {
+        path: '^src/host/storage/runtime/(posix-process-lock-driver|acquire-posix-process-lock|posix-process-lock-constants)\\.ts$',
+      },
+    },
+    {
       name: 'sealed-modules-stay-sealed',
       severity: 'error',
       comment: 'Only the sealing owners may import a *.internal module.',
@@ -131,7 +190,8 @@ module.exports = {
       },
       to: {
         path: '\\.internal\\.ts$',
-        // Resolve/lease facades are gated by their exact importer rules (SQLite factory only).
+        // Resolve facade: exact SQLite factory. Lease facade: exact SQLite factory and
+        // exact process-lock factory (see lease-facade-importers-only).
         pathNot: '^src/host/storage/runtime/posix-storage-root-(resolve|lease)\\.internal\\.ts$',
       },
     },
@@ -149,9 +209,11 @@ module.exports = {
     {
       name: 'lease-facade-importers-only',
       severity: 'error',
-      comment: 'Only the exact SQLite MemoryPort factory may import the lease-only facade.',
+      comment:
+        'Only the exact SQLite MemoryPort factory and exact process-lock factory may import the lease-only facade.',
       from: {
-        pathNot: '^src/host/storage/sqlite/create-sqlite-memory-port\\.ts$',
+        pathNot:
+          '^src/host/storage/(sqlite/create-sqlite-memory-port|runtime/acquire-posix-process-lock)\\.ts$',
       },
       to: {
         path: '^src/host/storage/runtime/posix-storage-root-lease\\.internal\\.ts$',

@@ -1233,6 +1233,7 @@ describe('Build 3.3B1 hygiene', () => {
     const pure = listSources('src/host/storage').filter(
       (path) =>
         !path.includes('/runtime/create-node-posix-storage-system.ts') &&
+        !path.includes('/runtime/posix-process-lock-driver.ts') &&
         !path.includes('/storage/sqlite/'),
     );
     for (const path of pure) {
@@ -1240,6 +1241,7 @@ describe('Build 3.3B1 hygiene', () => {
       expect(text).not.toMatch(/\bfrom ['"]node:fs(?:\/promises)?['"]/);
       expect(text).not.toMatch(/\bfrom ['"]node:(http|https|net|tls|child_process|os)['"]/);
       expect(text).not.toMatch(/better-sqlite3/);
+      expect(text).not.toMatch(/fs-ext-extra-prebuilt/);
       expect(text).not.toMatch(/\.chmod\s*\(|\.chown\s*\(|\.mkdir\s*\(/);
     }
   });

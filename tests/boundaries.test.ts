@@ -128,6 +128,24 @@ describe('allowlist-based layer rules', () => {
     expect(report.filesAnalyzed).toBeGreaterThan(0);
   });
 
+  it('accepts the dedicated process-lock driver wrapper fixture', () => {
+    const report = analyzeBoundaries({
+      rootDir: fixture('host-process-lock-driver-allowed'),
+      requiredLayers: [],
+    });
+    expect(report.violations).toEqual([]);
+    expect(report.filesAnalyzed).toBeGreaterThan(0);
+  });
+
+  it('accepts process-lock factory lease-only capability facade fixture', () => {
+    const report = analyzeBoundaries({
+      rootDir: fixture('host-process-lock-lease-allowed'),
+      requiredLayers: [],
+    });
+    expect(report.violations).toEqual([]);
+    expect(report.filesAnalyzed).toBeGreaterThan(0);
+  });
+
   it.each([
     ['forbidden-static', 'FORBIDDEN_DEPENDENCY'],
     ['forbidden-export-from', 'FORBIDDEN_DEPENDENCY'],
@@ -190,6 +208,13 @@ describe('allowlist-based layer rules', () => {
     ['forbidden-host-in-memory-lease', 'INTERNAL_MODULE_LEAK'],
     ['forbidden-core-lease', 'FORBIDDEN_DEPENDENCY'],
     ['forbidden-host-lease-channel', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-process-lock-other-npm', 'EXTERNAL_DEPENDENCY'],
+    ['forbidden-host-process-lock-other-lease', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-sqlite-process-lock', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-runtime-process-lock-driver', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-process-lock-sealer', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-unrelated-process-lock-lease', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-host-in-memory-process-lock', 'INTERNAL_MODULE_LEAK'],
   ])('rejects the %s fixture with %s', (name, code) => {
     const report = analyzeBoundaries({ rootDir: fixture(name), requiredLayers: [] });
     expect(codes(report)).toContain(code);

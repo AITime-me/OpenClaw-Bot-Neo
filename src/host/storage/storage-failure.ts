@@ -33,7 +33,11 @@ export type StorageFailureCode =
   | 'SQLITE_PRAGMA_FAILED'
   | 'SQLITE_INTEGRITY_FAILED'
   | 'SQLITE_SCHEMA_MISMATCH'
-  | 'SQLITE_CLOSE_FAILED';
+  | 'SQLITE_CLOSE_FAILED'
+  | 'STORAGE_LOCK_HELD'
+  | 'STORAGE_LOCK_UNAVAILABLE'
+  | 'STORAGE_LOCK_ACQUIRE_FAILED'
+  | 'STORAGE_LOCK_RELEASE_FAILED';
 
 export interface StorageFailure {
   readonly code: StorageFailureCode;

@@ -72,6 +72,7 @@ export const HOST_PATH_BUILTIN_ALLOWLIST = Object.freeze({
     'node:path',
   ]),
   'host/storage/sqlite/better-sqlite3-driver.ts': Object.freeze(['node:module']),
+  'host/storage/runtime/posix-process-lock-driver.ts': Object.freeze(['node:fs', 'node:module']),
 });
 
 /**
@@ -80,6 +81,7 @@ export const HOST_PATH_BUILTIN_ALLOWLIST = Object.freeze({
  */
 export const HOST_PATH_EXTERNAL_ALLOWLIST = Object.freeze({
   'host/storage/sqlite/better-sqlite3-driver.ts': Object.freeze(['better-sqlite3']),
+  'host/storage/runtime/posix-process-lock-driver.ts': Object.freeze(['fs-ext-extra-prebuilt']),
 });
 
 /** Sealed factories stay reachable only from the modules that are allowed to create sealed values. */
@@ -155,11 +157,29 @@ export const INTERNAL_MODULE_ALLOWLIST = {
     'host/storage/sqlite/create-sqlite-memory-port.ts',
   ],
   /**
-   * Lease-only facade (Build 3.3B3A). Exact SQLite factory may acquire a child lease + trusted path.
-   * Does not expose register / prepare-close / markClosed / abandon.
+   * Lease-only facade (Build 3.3B3A / B3B3B3). Exact SQLite factory and exact process-lock factory
+   * may acquire a child lease + trusted path. Does not expose register / prepare-close /
+   * markClosed / abandon.
    */
   'host/storage/runtime/posix-storage-root-lease.internal.ts': [
     'host/storage/sqlite/create-sqlite-memory-port.ts',
+    'host/storage/runtime/acquire-posix-process-lock.ts',
+  ],
+  /**
+   * Exact process-lock driver (Build 3.3B3B3). Only the process-lock factory may import it.
+   */
+  'host/storage/runtime/posix-process-lock-driver.ts': [
+    'host/storage/runtime/acquire-posix-process-lock.ts',
+  ],
+  /**
+   * Process-lock factory (Build 3.3B3B3). Not wired into LocalHost/host barrels; no src importer yet.
+   */
+  'host/storage/runtime/acquire-posix-process-lock.ts': [],
+  /**
+   * Process-lock compile-time constants. Only the process-lock factory may import them.
+   */
+  'host/storage/runtime/posix-process-lock-constants.ts': [
+    'host/storage/runtime/acquire-posix-process-lock.ts',
   ],
 };
 

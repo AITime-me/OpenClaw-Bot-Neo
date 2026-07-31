@@ -173,9 +173,10 @@ provider: если совместимого мужского голоса нет
   active same-process SQLite adapter leases, `root.close` returns busy and leaves the capability
   fully open (Build 3.3B3A). Not a secret, credential, filesystem lock, exclusive lock, or
   cross-process mutex — while open, multiple low-level adapters may share one genuine root, each
-  with an independent lease. Full path/lease acquisition is available only through app-private
-  resolve/lease facades consumed by the SQLite factory (not exported from host/storage barrels or
-  package root).
+  with an independent lease. Full path acquisition is available through the app-private resolve
+  facade (exact SQLite factory). Child lease acquisition is available through the app-private
+  lease facade consumed by the exact SQLite factory and the exact process-lock factory (not
+  exported from host/storage barrels or package root). The lease itself is not a process lock.
 - **Build 3.3B2 SQLite MemoryPort adapter implemented locally, pending adversarial review.**
   App-private `createSqliteMemoryPort(openedRoot)` opens compile-time `neo-memory.sqlite` as an
   immediate child of a genuine open B1 capability path (lease-aware acquisition; no raw
@@ -197,11 +198,21 @@ provider: если совместимого мужского голоса нет
   directory-handle close, no pendingCleanup. Failed adapter/bootstrap close retains the lease;
   pendingCleanup retry success releases it. Not a process lock, flock, PID file, or second-instance
   guard; multiple same-process adapters remain allowed. LocalHost unwired.
+- **Build 3.3B3B2 / B3B3B3 process-lock dependency + primitive:** `fs-ext-extra-prebuilt@2.2.10`
+  exact-pinned (Linux dependency gate complete). App-private `acquirePosixProcessLock` acquires
+  exclusive nonblocking flock on compile-time `neo.primary.lock` inside a genuine open root after
+  child lease acquisition; release is close-fd only; placeholder is never unlinked for stale
+  recovery. Diagnostics claim cooperative flock held at primitive level while
+  `processLockWiredToNeo=false` / `secondInstanceProtectionActiveForNeo=false` /
+  `localHostWired=false` / `deploymentReady=false`. Not wired to LocalHost; Neo second-instance
+  protection inactive; systemd layer pending; Linux validation of the implemented primitive
+  pending. Advisory only — non-cooperating processes can bypass; no privileged-attacker / NFS /
+  path-replacement resistance.
 - Сервер не куплен. Deployment не разрешён.
 - Реальный authentication/provider adapter и persistent atomic replay/idempotency store не
   реализованы. Окончательный security approval отсутствует pending Codex Review №6.
-- Linux container gate, LocalHost SQLite wiring, durable approval/audit, secret-provider,
-  cross-port transaction gap, и VPS/deployment остаются pending.
+- Linux primitive validation (B3B3B3), LocalHost SQLite/process-lock wiring, durable approval/audit,
+  secret-provider, cross-port transaction gap, systemd layer, и VPS/deployment остаются pending.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.
 

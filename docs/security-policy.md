@@ -290,8 +290,9 @@ Capability действует только пока root в состоянии `
 capability. При активных same-process SQLite leases `root.close` возвращает busy и оставляет
 capability полностью open (Build 3.3B3A). Это не secret, не credential, не filesystem/exclusive/
 process lock и не second-instance protection; несколько low-level adapters на одном open root
-по-прежнему разрешены. Full path/lease доступны только через resolve/lease facades для exact
-SQLite factory (не package/host barrel export; sealer API SQLite не получает).
+по-прежнему разрешены. Resolve facade — exact SQLite factory; lease facade — exact SQLite factory
+и exact process-lock factory (не package/host barrel export; sealer API этим factories не
+получают). Lease сам по себе не process lock.
 
 **Build 3.3B2:** app-private `createSqliteMemoryPort` открывает compile-time `neo-memory.sqlite`
 только внутри genuine open safe-root capability; raw path/filename/env/cwd/home запрещены.
@@ -314,3 +315,13 @@ boundary против произвольного кода уже внутри tr
 lease до открытия DB; `root.close` fail-closed busy при active/close-pending adapters без retire
 capability и без directory teardown; successful adapter close освобождает lease; failed close и
 bootstrap pendingCleanup удерживают lease. Не process lock / flock / PID file.
+
+**Build 3.3B3B2 / B3B3B3:** exact pin `fs-ext-extra-prebuilt@2.2.10`; app-private Linux-only
+`acquirePosixProcessLock` на fixed placeholder `neo.primary.lock` (не SQLite DB/WAL/SHM, не PID
+file). Kernel flock exclusive nonblocking; close fd освобождает lock; root child lease удерживается
+пока fd open/release-pending; placeholder может остаться после crash и никогда не unlink для stale
+recovery. Cooperative second acquire → `STORAGE_LOCK_HELD`. Primitive **не** wired к LocalHost/Neo;
+`secondInstanceProtectionActiveForNeo=false`; systemd layer отсутствует; Linux validation
+implemented primitive pending (dependency gate уже выполнен). Advisory only: non-cooperating
+process может обойти; нет privileged-attacker / NFS / path-replacement resistance; не absolute OS
+mutex и не global single-writer для всех SQLite clients.

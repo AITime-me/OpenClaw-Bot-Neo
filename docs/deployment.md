@@ -41,8 +41,11 @@ app-private POSIX/Linux safe-open уже существующего storage root
 `MemoryQueryRequest.limit` (1..100, без default); Build 3.3B2B seals successful B1 open как
 identity-based runtime capability. Build 3.3B2 добавляет app-private SQLite MemoryPort adapter
 (`createSqliteMemoryPort`) с database только внутри genuine open safe-root; Build 3.3B3A добавляет
-same-process root↔adapter lease coordination (`root.close` busy while adapters hold connections;
-не process lock). LocalHost не wired; approval/audit ephemeral; cross-port transaction / exclusive
-process lock / encryption отсутствуют; не является deployment approval. Build №3 не завершён, VPS
-не куплен, security approval отсутствует pending Codex Review №6. До review, threat model и
-отдельного owner approval deployment запрещён.
+same-process root↔adapter lease coordination (`root.close` busy while adapters hold connections).
+Build 3.3B3B2 pin'ит `fs-ext-extra-prebuilt@2.2.10`; Build 3.3B3B3 добавляет app-private Linux
+exclusive process-lock primitive (`neo.primary.lock`, flock, close-fd release) **без** LocalHost/Neo
+wiring — Neo second-instance protection inactive; systemd unit/layer pending; Linux primitive
+validation pending. LocalHost не wired; approval/audit ephemeral; cross-port transaction /
+encryption отсутствуют; не является deployment approval. Build №3 не завершён, VPS не куплен,
+security approval отсутствует pending Codex Review №6. До review, threat model и отдельного owner
+approval deployment запрещён.
