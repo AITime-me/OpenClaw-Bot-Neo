@@ -238,9 +238,17 @@ provider: если совместимого мужского голоса нет
   lock, creates SQLite MemoryPort, assembles LocalHost with SQLite memory + in-memory Approval/Audit,
   wraps with B3C1 owner, and returns frozen owner only after full startup success. Deterministic
   startup rollback: SQLite → process-lock → storage-root. Shutdown order matches B3C1. Not exported
-  via package/host barrels; not connected to Neo startup. Complete B3C2 Linux integration gate
-  pending B3C4. systemd, durable approval/audit, secret-provider, encryption, cross-port
-  transactions, Neo second-instance protection, and VPS/deployment remain pending/prohibited.
+  via package/host barrels; not connected to Neo startup. B3B3/B3B5 process-lock primitive remains
+  unwired to Neo. Complete B3C4 Linux integration gate pending. systemd, durable approval/audit,
+  secret-provider, encryption, cross-port transactions, Neo second-instance protection, and
+  VPS/deployment remain pending/prohibited.
+- **Build 3.3B3C3 durable composition hardening implemented locally, pending adversarial review.**
+  Malformed closer/cleanup result guards, startup cleanup reentrancy latch tests, frozen terminal
+  failure snapshots, and exact dynamic-import target allowlist for `createPosixDurableLocalHost`.
+  Operation gate rejects all new host operations after close starts; synchronous
+  `seedLocalApprovalGrant` throws a stable lifecycle rejection in every non-open state (no silent
+  discard). Does not connect factory to Neo startup or inflate readiness diagnostics. B3C4 Linux
+  integration gate still pending.
 - Neo second-instance protection activation, durable approval/audit, secret-provider, cross-port
   transaction gap, systemd layer, и VPS/deployment остаются pending.
 - Только после security review: sandbox/integration environment.

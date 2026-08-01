@@ -177,6 +177,33 @@ const assertNoResourceLeak = (value: unknown): void => {
   expect(value).not.toHaveProperty('errno');
 };
 
+const hostileOkGetter = (): unknown => {
+  const value: Record<string, unknown> = {};
+  Object.defineProperty(value, 'ok', {
+    get(): never {
+      throw new Error('secret-hostile-ok');
+    },
+    enumerable: true,
+  });
+  return value;
+};
+
+const hostileOkProxy = (): unknown =>
+  new Proxy(
+    {},
+    {
+      get(): never {
+        throw new Error('secret-proxy-ok');
+      },
+    },
+  );
+
+const revokedOkProxy = (): unknown => {
+  const { proxy, revoke } = Proxy.revocable({ ok: true }, {});
+  revoke();
+  return proxy;
+};
+
 type Sequence = string[];
 
 const fakeMemoryPort = (): MemoryPort => ({
@@ -946,6 +973,433 @@ describe('POSIX durable LocalHost composition — startup failures and rollback'
   });
 });
 
+describe('POSIX durable LocalHost composition — startup cleanup reentrancy', () => {
+  type PendingCleanup =
+    import('../src/host/durable/posix-durable-local-host-composition-failures.js').PosixDurableCompositionPendingCleanup;
+
+  it('nested sqlite cleanup retry is stable and does not double sqlite or advance stages', async () => {
+    const sequence: Sequence = [];
+    const root = createFakeRoot(sequence);
+    const lock = createFakeLock(sequence);
+    let sqliteCloseCalls = 0;
+    const nestedResults: unknown[] = [];
+    const pendingCell: { current?: PendingCleanup } = {};
+    const sqlite = createFakeSqlite(sequence, () => {
+      sqliteCloseCalls += 1;
+      sequence.push('sqlite-close');
+      if (pendingCell.current !== undefined) {
+        nestedResults.push(pendingCell.current.retry());
+        nestedResults.push(pendingCell.current.retry());
+      }
+      return okStorage(undefined);
+    });
+
+    const result = await createPosixDurableLocalHostWithTestHooks(validInput(), {
+      getPlatform: () => 'linux',
+      loadRootFactory: async () => ({ openPosixStorageRoot: () => okStorage(root) }),
+      loadProcessLockFactory: async () => ({ acquirePosixProcessLock: () => okStorage(lock) }),
+      loadSqliteFactory: async () => ({ createSqliteMemoryPort: () => okStorage(sqlite) }),
+      assembleLocalHost: () => {
+        throw new Error('assembly failed');
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok || !('pendingCleanup' in result)) return;
+    pendingCell.current = result.pendingCleanup;
+    const outer = result.pendingCleanup.retry();
+    expect(outer).toMatchObject({
+      ok: false,
+      error: { code: 'DURABLE_COMPOSITION_ASSEMBLY_FAILED' },
+    });
+    expect(outer).not.toHaveProperty('pendingCleanup');
+    expect(sqliteCloseCalls).toBe(1);
+    expect(sequence.filter((s) => s === 'lock-release')).toHaveLength(1);
+    expect(sequence.filter((s) => s === 'root-close')).toHaveLength(1);
+    for (const nested of nestedResults) {
+      expect(nested).toMatchObject({
+        ok: false,
+        error: { code: 'DURABLE_COMPOSITION_OWNERSHIP_CLEANUP_REQUIRED', stage: 'sqlite' },
+      });
+    }
+    expect(sequence.filter((s) => s === 'sqlite-close')).toHaveLength(1);
+  });
+
+  it('nested process-lock cleanup retry does not double lock or invoke root', async () => {
+    const sequence: Sequence = [];
+    const root = createFakeRoot(sequence);
+    let lockReleaseCalls = 0;
+    const nestedResults: unknown[] = [];
+    const pendingCell: { current?: PendingCleanup } = {};
+    const lock = createFakeLock(sequence, () => {
+      lockReleaseCalls += 1;
+      sequence.push('lock-release');
+      if (pendingCell.current !== undefined) nestedResults.push(pendingCell.current.retry());
+      return okStorage(undefined);
+    });
+    const sqlite = createFakeSqlite(sequence);
+
+    const result = await createPosixDurableLocalHostWithTestHooks(validInput(), {
+      getPlatform: () => 'linux',
+      loadRootFactory: async () => ({ openPosixStorageRoot: () => okStorage(root) }),
+      loadProcessLockFactory: async () => ({ acquirePosixProcessLock: () => okStorage(lock) }),
+      loadSqliteFactory: async () => ({ createSqliteMemoryPort: () => okStorage(sqlite) }),
+      assembleLocalHost: () => {
+        throw new Error('assembly failed');
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok || !('pendingCleanup' in result)) return;
+    pendingCell.current = result.pendingCleanup;
+    const outer = result.pendingCleanup.retry();
+    expect(outer).toMatchObject({
+      ok: false,
+      error: { code: 'DURABLE_COMPOSITION_ASSEMBLY_FAILED' },
+    });
+    expect(lockReleaseCalls).toBe(1);
+    expect(sequence.filter((s) => s === 'sqlite-close')).toHaveLength(1);
+    expect(sequence.filter((s) => s === 'root-close')).toHaveLength(1);
+    for (const nested of nestedResults) {
+      expect(nested).toMatchObject({
+        ok: false,
+        error: { code: 'DURABLE_COMPOSITION_OWNERSHIP_CLEANUP_REQUIRED', stage: 'process-lock' },
+      });
+    }
+  });
+
+  it('nested storage-root cleanup retry does not double root and returns terminal only outer', async () => {
+    const sequence: Sequence = [];
+    let rootCloseCalls = 0;
+    const nestedResults: unknown[] = [];
+    const pendingCell: { current?: PendingCleanup } = {};
+    const root = createFakeRoot(sequence, () => {
+      rootCloseCalls += 1;
+      sequence.push('root-close');
+      if (pendingCell.current !== undefined) nestedResults.push(pendingCell.current.retry());
+      return okStorage(undefined);
+    });
+    const lock = createFakeLock(sequence);
+    const sqlite = createFakeSqlite(sequence);
+
+    const result = await createPosixDurableLocalHostWithTestHooks(validInput(), {
+      getPlatform: () => 'linux',
+      loadRootFactory: async () => ({ openPosixStorageRoot: () => okStorage(root) }),
+      loadProcessLockFactory: async () => ({ acquirePosixProcessLock: () => okStorage(lock) }),
+      loadSqliteFactory: async () => ({ createSqliteMemoryPort: () => okStorage(sqlite) }),
+      assembleLocalHost: () => {
+        throw new Error('assembly failed');
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok || !('pendingCleanup' in result)) return;
+    pendingCell.current = result.pendingCleanup;
+    const outer = result.pendingCleanup.retry();
+    expect(outer).toMatchObject({
+      ok: false,
+      error: { code: 'DURABLE_COMPOSITION_ASSEMBLY_FAILED' },
+    });
+    expect(rootCloseCalls).toBe(1);
+    for (const nested of nestedResults) {
+      expect(nested).toMatchObject({
+        ok: false,
+        error: { code: 'DURABLE_COMPOSITION_OWNERSHIP_CLEANUP_REQUIRED', stage: 'storage-root' },
+      });
+    }
+    const again = result.pendingCleanup.retry();
+    expect(again).toMatchObject({
+      ok: false,
+      error: { code: 'DURABLE_COMPOSITION_ASSEMBLY_FAILED' },
+    });
+    expect(rootCloseCalls).toBe(1);
+  });
+
+  it('nested retry during sqlite cleanup failure preserves stage and primary failure', async () => {
+    const sequence: Sequence = [];
+    const root = createFakeRoot(sequence);
+    const lock = createFakeLock(sequence);
+    let sqliteCleanupAttempts = 0;
+    const pendingCell: { current?: PendingCleanup } = {};
+    const pendingRetry = (): Result<void, StorageFailure> => {
+      sqliteCleanupAttempts += 1;
+      sequence.push('sqlite-pending');
+      if (sqliteCleanupAttempts === 1 && pendingCell.current !== undefined) {
+        pendingCell.current.retry();
+      }
+      if (sqliteCleanupAttempts === 1) return null as unknown as Result<void, StorageFailure>;
+      return okStorage(undefined);
+    };
+
+    const result = await createPosixDurableLocalHostWithTestHooks(validInput(), {
+      getPlatform: () => 'linux',
+      loadRootFactory: async () => ({ openPosixStorageRoot: () => okStorage(root) }),
+      loadProcessLockFactory: async () => ({ acquirePosixProcessLock: () => okStorage(lock) }),
+      loadSqliteFactory: async () => ({
+        createSqliteMemoryPort: () => {
+          throw Object.assign(new Error('ownership'), {
+            pendingCleanup: { retryClose: pendingRetry },
+          });
+        },
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok || !('pendingCleanup' in result)) return;
+    pendingCell.current = result.pendingCleanup;
+    expect(sequence).not.toContain('lock-release');
+    const first = result.pendingCleanup.retry();
+    expect(first.ok).toBe(false);
+    expect('pendingCleanup' in first).toBe(true);
+    expect(sequence.filter((s) => s === 'lock-release')).toHaveLength(0);
+    expect(sqliteCleanupAttempts).toBe(1);
+
+    const terminal = result.pendingCleanup.retry();
+    expect(terminal).toMatchObject({
+      ok: false,
+      error: { code: 'DURABLE_STORAGE_BOOTSTRAP_FAILED' },
+    });
+    expect(terminal).not.toHaveProperty('pendingCleanup');
+    expect(sequence).toEqual(['sqlite-pending', 'sqlite-pending', 'lock-release', 'root-close']);
+  });
+});
+
+describe('POSIX durable LocalHost composition — startup cleanup hostile results', () => {
+  it('sqlite hostile cleanup returns ownership-required without throw and preserves stage', async () => {
+    const sequence: Sequence = [];
+    const root = createFakeRoot(sequence);
+    const lock = createFakeLock(sequence);
+    let sqliteCleanupAttempts = 0;
+    const pendingRetry = (): Result<void, StorageFailure> => {
+      sqliteCleanupAttempts += 1;
+      sequence.push('sqlite-pending');
+      if (sqliteCleanupAttempts === 1) return hostileOkGetter() as Result<void, StorageFailure>;
+      return okStorage(undefined);
+    };
+
+    const result = await createPosixDurableLocalHostWithTestHooks(validInput(), {
+      getPlatform: () => 'linux',
+      loadRootFactory: async () => ({ openPosixStorageRoot: () => okStorage(root) }),
+      loadProcessLockFactory: async () => ({ acquirePosixProcessLock: () => okStorage(lock) }),
+      loadSqliteFactory: async () => ({
+        createSqliteMemoryPort: () => {
+          throw Object.assign(new Error('ownership'), {
+            pendingCleanup: { retryClose: pendingRetry },
+          });
+        },
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok || !('pendingCleanup' in result)) return;
+    const first = result.pendingCleanup.retry();
+    expect(() => first).not.toThrow();
+    expect(first).toMatchObject({
+      ok: false,
+      error: { code: 'DURABLE_COMPOSITION_OWNERSHIP_CLEANUP_REQUIRED', stage: 'sqlite' },
+    });
+    expect(sequence.filter((s) => s === 'lock-release')).toHaveLength(0);
+    assertNoResourceLeak(first);
+
+    const terminal = result.pendingCleanup.retry();
+    expect(terminal).toMatchObject({
+      ok: false,
+      error: { code: 'DURABLE_STORAGE_BOOTSTRAP_FAILED' },
+    });
+    expect(terminal).not.toHaveProperty('pendingCleanup');
+    expect(sequence).toEqual(['sqlite-pending', 'sqlite-pending', 'lock-release', 'root-close']);
+  });
+
+  it('process-lock hostile cleanup returns ownership-required without advancing to root', async () => {
+    const sequence: Sequence = [];
+    const root = createFakeRoot(sequence);
+    let lockHostilePasses = 2;
+    const lock = createFakeLock(sequence, () => {
+      sequence.push('lock-release');
+      if (lockHostilePasses > 0) {
+        lockHostilePasses -= 1;
+        return hostileOkProxy() as Result<void, StorageFailure>;
+      }
+      return okStorage(undefined);
+    });
+    const sqlite = createFakeSqlite(sequence);
+
+    const result = await createPosixDurableLocalHostWithTestHooks(validInput(), {
+      getPlatform: () => 'linux',
+      loadRootFactory: async () => ({ openPosixStorageRoot: () => okStorage(root) }),
+      loadProcessLockFactory: async () => ({ acquirePosixProcessLock: () => okStorage(lock) }),
+      loadSqliteFactory: async () => ({ createSqliteMemoryPort: () => okStorage(sqlite) }),
+      assembleLocalHost: () => {
+        throw new Error('assembly failed');
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok || !('pendingCleanup' in result)) return;
+    const first = result.pendingCleanup.retry();
+    expect(() => first).not.toThrow();
+    expect(first).toMatchObject({
+      ok: false,
+      error: { code: 'DURABLE_COMPOSITION_OWNERSHIP_CLEANUP_REQUIRED', stage: 'process-lock' },
+    });
+    expect(sequence.filter((s) => s === 'sqlite-close')).toHaveLength(1);
+    expect(sequence.filter((s) => s === 'root-close')).toHaveLength(0);
+
+    const terminal = result.pendingCleanup.retry();
+    expect(terminal).toMatchObject({
+      ok: false,
+      error: { code: 'DURABLE_COMPOSITION_ASSEMBLY_FAILED' },
+    });
+    expect(sequence.filter((s) => s === 'root-close')).toHaveLength(1);
+  });
+
+  it('storage-root hostile cleanup returns ownership-required and retries same stage', async () => {
+    const sequence: Sequence = [];
+    let rootAttempts = 0;
+    const root = createFakeRoot(sequence, () => {
+      rootAttempts += 1;
+      sequence.push('root-close');
+      if (rootAttempts <= 2) return revokedOkProxy() as Result<void, StorageFailure>;
+      return okStorage(undefined);
+    });
+    const lock = createFakeLock(sequence);
+    const sqlite = createFakeSqlite(sequence);
+
+    const result = await createPosixDurableLocalHostWithTestHooks(validInput(), {
+      getPlatform: () => 'linux',
+      loadRootFactory: async () => ({ openPosixStorageRoot: () => okStorage(root) }),
+      loadProcessLockFactory: async () => ({ acquirePosixProcessLock: () => okStorage(lock) }),
+      loadSqliteFactory: async () => ({ createSqliteMemoryPort: () => okStorage(sqlite) }),
+      assembleLocalHost: () => {
+        throw new Error('assembly failed');
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok || !('pendingCleanup' in result)) return;
+    const first = result.pendingCleanup.retry();
+    expect(first).toMatchObject({
+      ok: false,
+      error: { code: 'DURABLE_COMPOSITION_OWNERSHIP_CLEANUP_REQUIRED', stage: 'storage-root' },
+    });
+    expect(rootAttempts).toBe(2);
+
+    const terminal = result.pendingCleanup.retry();
+    expect(terminal).toMatchObject({
+      ok: false,
+      error: { code: 'DURABLE_COMPOSITION_ASSEMBLY_FAILED' },
+    });
+    expect(rootAttempts).toBe(3);
+  });
+
+  it('preserves stage order across hostile sqlite then hostile lock before terminal cleanup', async () => {
+    const sequence: Sequence = [];
+    const root = createFakeRoot(sequence);
+    let sqliteAttempts = 0;
+    let lockAttempts = 0;
+    const sqlite = createFakeSqlite(sequence, () => {
+      sqliteAttempts += 1;
+      sequence.push('sqlite-close');
+      if (sqliteAttempts === 1) return hostileOkGetter() as Result<void, StorageFailure>;
+      return okStorage(undefined);
+    });
+    const lock = createFakeLock(sequence, () => {
+      lockAttempts += 1;
+      sequence.push('lock-release');
+      if (lockAttempts === 1) return hostileOkProxy() as Result<void, StorageFailure>;
+      return okStorage(undefined);
+    });
+
+    const result = await createPosixDurableLocalHostWithTestHooks(validInput(), {
+      getPlatform: () => 'linux',
+      loadRootFactory: async () => ({ openPosixStorageRoot: () => okStorage(root) }),
+      loadProcessLockFactory: async () => ({ acquirePosixProcessLock: () => okStorage(lock) }),
+      loadSqliteFactory: async () => ({ createSqliteMemoryPort: () => okStorage(sqlite) }),
+      assembleLocalHost: () => {
+        throw new Error('assembly failed');
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok || !('pendingCleanup' in result)) return;
+    const sqliteRetry = result.pendingCleanup.retry();
+    expect(sqliteRetry).toMatchObject({
+      ok: false,
+      error: { code: 'DURABLE_COMPOSITION_OWNERSHIP_CLEANUP_REQUIRED', stage: 'process-lock' },
+    });
+    expect(sequence.filter((s) => s === 'sqlite-close')).toHaveLength(2);
+    expect(sequence.filter((s) => s === 'lock-release')).toHaveLength(1);
+    expect(sequence.filter((s) => s === 'root-close')).toHaveLength(0);
+
+    const lockRetry = result.pendingCleanup.retry();
+    expect(lockRetry).toMatchObject({
+      ok: false,
+      error: { code: 'DURABLE_COMPOSITION_ASSEMBLY_FAILED' },
+    });
+    expect(lockRetry).not.toHaveProperty('pendingCleanup');
+    expect(sequence).toEqual([
+      'sqlite-close',
+      'sqlite-close',
+      'lock-release',
+      'lock-release',
+      'root-close',
+    ]);
+  });
+});
+
+describe('POSIX durable LocalHost composition — terminal failure immutability', () => {
+  it('freezes stored terminal ordinary failure against mutation and idempotent retry', async () => {
+    const sequence: Sequence = [];
+    let rootAttempts = 0;
+    const root = createFakeRoot(sequence, () => {
+      rootAttempts += 1;
+      sequence.push('root-close');
+      if (rootAttempts === 1)
+        return failStorage('STORAGE_ROOT_CLOSE_FAILED', 'Failed to close storage root handle.');
+      return okStorage(undefined);
+    });
+
+    const result = await createPosixDurableLocalHostWithTestHooks(validInput(), {
+      getPlatform: () => 'linux',
+      loadRootFactory: async () => ({ openPosixStorageRoot: () => okStorage(root) }),
+      loadProcessLockFactory: async () => ({
+        acquirePosixProcessLock: () =>
+          err({ code: 'STORAGE_LOCK_UNAVAILABLE', reason: 'lock unavailable' }),
+      }),
+      loadSqliteFactory: async () => ({
+        createSqliteMemoryPort: () => {
+          throw new Error('sqlite must not run');
+        },
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok || !('pendingCleanup' in result)) return;
+    const copiedRetry = result.pendingCleanup.retry;
+    const terminal = copiedRetry.call({ fake: true });
+    expect(terminal.ok).toBe(false);
+    expect(Object.isFrozen(terminal)).toBe(true);
+    expect(Object.isFrozen((terminal as { error: object }).error)).toBe(true);
+    const terminalError = (terminal as { error: { code: string; reason: string } }).error;
+    const originalCode = terminalError.code;
+    const originalReason = terminalError.reason;
+    try {
+      (terminalError as { code: string }).code = 'MUTATED';
+      (terminalError as { reason: string }).reason = 'leaked /var/lib/secret';
+      (terminalError as { stage?: string }).stage = 'sqlite';
+    } catch {
+      // strict freeze may throw
+    }
+    expect(terminalError.code).toBe(originalCode);
+    expect(terminalError.reason).toBe(originalReason);
+    assertNoResourceLeak(terminalError);
+
+    const again = result.pendingCleanup.retry();
+    expect(again).toEqual(terminal);
+    expect(again).not.toHaveProperty('pendingCleanup');
+  });
+});
+
 describe('POSIX durable LocalHost composition — owner.close adapter retries', () => {
   it('retries SQLite closer before lock/root and is idempotent after success', async () => {
     const sequence: Sequence = [];
@@ -1087,6 +1541,73 @@ describe('POSIX durable LocalHost composition — owner.close adapter retries', 
 
     expect(result.value.close().ok).toBe(true);
     expect(sequence).toEqual(['sqlite-close', 'sqlite-close', 'lock-release', 'root-close']);
+  });
+
+  it('maps hostile sqlite handle close to stage failure without releasing lock or root', async () => {
+    const sequence: Sequence = [];
+    let sqliteAttempts = 0;
+    const root = createFakeRoot(sequence);
+    const lock = createFakeLock(sequence);
+    const sqlite = createFakeSqlite(sequence, () => {
+      sqliteAttempts += 1;
+      sequence.push('sqlite-close');
+      if (sqliteAttempts === 1) return hostileOkGetter() as Result<void, StorageFailure>;
+      return okStorage(undefined);
+    });
+
+    const result = await createPosixDurableLocalHostWithTestHooks(validInput(), {
+      getPlatform: () => 'linux',
+      loadRootFactory: async () => ({ openPosixStorageRoot: () => okStorage(root) }),
+      loadProcessLockFactory: async () => ({ acquirePosixProcessLock: () => okStorage(lock) }),
+      loadSqliteFactory: async () => ({ createSqliteMemoryPort: () => okStorage(sqlite) }),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const first = result.value.close();
+    expect(() => first).not.toThrow();
+    expect(first.ok).toBe(false);
+    if (!first.ok) {
+      expect(first.error.code).toBe('DURABLE_HOST_CLOSE_FAILED');
+      expect(first.error.stage).toBe('memory');
+      assertNoResourceLeak(first.error);
+      expect(JSON.stringify(first.error)).not.toMatch(/secret-hostile/i);
+    }
+    expect(sequence).toEqual(['sqlite-close']);
+
+    expect(result.value.close().ok).toBe(true);
+    expect(sequence).toEqual(['sqlite-close', 'sqlite-close', 'lock-release', 'root-close']);
+  });
+
+  it('maps hostile lock release to stage failure without closing root', async () => {
+    const sequence: Sequence = [];
+    let lockAttempts = 0;
+    const root = createFakeRoot(sequence);
+    const lock = createFakeLock(sequence, () => {
+      lockAttempts += 1;
+      sequence.push('lock-release');
+      if (lockAttempts === 1) return hostileOkProxy() as Result<void, StorageFailure>;
+      return okStorage(undefined);
+    });
+    const sqlite = createFakeSqlite(sequence);
+
+    const result = await createPosixDurableLocalHostWithTestHooks(validInput(), {
+      getPlatform: () => 'linux',
+      loadRootFactory: async () => ({ openPosixStorageRoot: () => okStorage(root) }),
+      loadProcessLockFactory: async () => ({ acquirePosixProcessLock: () => okStorage(lock) }),
+      loadSqliteFactory: async () => ({ createSqliteMemoryPort: () => okStorage(sqlite) }),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const first = result.value.close();
+    expect(first.ok).toBe(false);
+    if (!first.ok) expect(first.error.stage).toBe('process-lock');
+    expect(sequence).toEqual(['sqlite-close', 'lock-release']);
+    expect(sequence.filter((s) => s === 'root-close')).toHaveLength(0);
+
+    expect(result.value.close().ok).toBe(true);
+    expect(sequence.filter((s) => s === 'root-close')).toHaveLength(1);
   });
 });
 

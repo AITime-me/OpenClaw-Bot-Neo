@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { BoundaryReport } from '../scripts/lib/boundary-checker.mjs';
-import { analyzeBoundaries, extractReferences } from '../scripts/lib/boundary-checker.mjs';
+import {
+  analyzeBoundaries,
+  extractReferences,
+  POSIX_DURABLE_COMPOSITION_FACTORY_PATH,
+  toPosix,
+} from '../scripts/lib/boundary-checker.mjs';
 
 const fixture = (name: string): string => `tests/fixtures/boundaries/${name}`;
 const codes = (report: BoundaryReport): readonly string[] =>
@@ -153,6 +158,33 @@ describe('allowlist-based layer rules', () => {
     });
     expect(report.violations).toEqual([]);
     expect(report.filesAnalyzed).toBeGreaterThan(0);
+  });
+
+  it.each([
+    'host-durable-dynamic-import-root-allowed',
+    'host-durable-dynamic-import-lock-allowed',
+    'host-durable-dynamic-import-sqlite-allowed',
+  ])('accepts approved composition dynamic import fixture %s', (name) => {
+    const report = analyzeBoundaries({ rootDir: fixture(name), requiredLayers: [] });
+    expect(report.violations).toEqual([]);
+    expect(report.filesAnalyzed).toBeGreaterThan(0);
+  });
+
+  it('normalizes Windows-style separators via toPosix before composition allowlist checks', () => {
+    expect(toPosix('host\\durable\\create-posix-durable-local-host.ts')).toBe(
+      POSIX_DURABLE_COMPOSITION_FACTORY_PATH,
+    );
+    expect(POSIX_DURABLE_COMPOSITION_FACTORY_PATH).not.toContain('\\');
+  });
+
+  it.each([
+    ['forbidden-host-durable-dynamic-import-arbitrary', 'DYNAMIC_IMPORT_TARGET_FORBIDDEN'],
+    ['forbidden-host-durable-dynamic-import-external', 'EXTERNAL_DEPENDENCY'],
+    ['forbidden-host-durable-similar-importer', 'DYNAMIC_IMPORT_FORBIDDEN'],
+    ['forbidden-host-durable-sibling-dynamic-import', 'DYNAMIC_IMPORT_FORBIDDEN'],
+  ])('rejects composition dynamic import fixture %s with %s', (name, code) => {
+    const report = analyzeBoundaries({ rootDir: fixture(name), requiredLayers: [] });
+    expect(codes(report)).toContain(code);
   });
 
   it.each([

@@ -20,6 +20,7 @@ import {
 import {
   failDurableCloseBusy,
   failDurableCloseStage,
+  isStrictOkResult,
   okDurableClose,
   type DurableLocalHostOwnerCloseResult,
   type DurableResourceCloseResult,
@@ -76,14 +77,13 @@ const hostClosedReadFailure = (): DomainError => ({
   reason: 'Durable local host is closed.',
 });
 
-const runResourceCloser = (
-  closer: () => DurableResourceCloseResult,
-): DurableResourceCloseResult | 'threw' => {
+const runResourceCloser = (closer: () => DurableResourceCloseResult): 'success' | 'failure' => {
   try {
-    return closer();
+    const closed = closer();
+    return isStrictOkResult(closed) ? 'success' : 'failure';
   } catch {
-    // Raw closer throws must not escape as ordinary public failures; stage ownership retained.
-    return 'threw';
+    // Raw closer throws and malformed returns must not escape; stage ownership retained.
+    return 'failure';
   }
 };
 
@@ -182,8 +182,7 @@ export function createDurableLocalHostOwner(
   const advanceShutdown = (): DurableLocalHostOwnerCloseResult => {
     while (stageCursor !== 'done') {
       if (stageCursor === 'memory') {
-        const closed = runResourceCloser(closeMemory);
-        if (closed === 'threw' || !closed.ok) {
+        if (runResourceCloser(closeMemory) !== 'success') {
           lifecycle = 'close-pending';
           return failDurableCloseStage('memory');
         }
@@ -191,16 +190,14 @@ export function createDurableLocalHostOwner(
         continue;
       }
       if (stageCursor === 'process-lock') {
-        const released = runResourceCloser(releaseProcessLock);
-        if (released === 'threw' || !released.ok) {
+        if (runResourceCloser(releaseProcessLock) !== 'success') {
           lifecycle = 'close-pending';
           return failDurableCloseStage('process-lock');
         }
         stageCursor = 'storage-root';
         continue;
       }
-      const rootClosed = runResourceCloser(closeStorageRoot);
-      if (rootClosed === 'threw' || !rootClosed.ok) {
+      if (runResourceCloser(closeStorageRoot) !== 'success') {
         lifecycle = 'close-pending';
         return failDurableCloseStage('storage-root');
       }

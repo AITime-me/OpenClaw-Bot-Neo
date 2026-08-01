@@ -37,6 +37,7 @@ import {
 } from './create-durable-local-host-owner.js';
 import {
   failResourceClose,
+  isStrictOkResult,
   okResourceClose,
   type DurableLocalHostOwnerCloseResult,
   type DurableResourceCloseResult,
@@ -225,7 +226,7 @@ const createHandleCloser = (
     if (done) return okResourceClose();
     try {
       const closed = closeOnce();
-      if (closed.ok) {
+      if (isStrictOkResult(closed)) {
         done = true;
         return okResourceClose();
       }
@@ -247,6 +248,8 @@ const freezeTerminalOutcome = (
       ...(outcome.error.stage === undefined ? {} : { stage: outcome.error.stage }),
     }),
   });
+
+const isCleanupSuccess = (value: unknown): boolean => isStrictOkResult(value);
 
 /**
  * Startup ownership cleanup controller.
@@ -270,14 +273,14 @@ const createStartupCleanupController = (
       if (stage === 'sqlite') {
         if (owned.sqlitePending !== undefined) {
           const cleaned = owned.sqlitePending();
-          if (!cleaned.ok) {
+          if (!isCleanupSuccess(cleaned)) {
             return failCompositionCleanupRequired('sqlite', pendingCleanup);
           }
           owned.sqlitePending = undefined;
           owned.sqlite = undefined;
         } else if (owned.sqlite !== undefined) {
           const closed = owned.sqlite.close();
-          if (!closed.ok) {
+          if (!isCleanupSuccess(closed)) {
             return failCompositionCleanupRequired('sqlite', pendingCleanup);
           }
           owned.sqlite = undefined;
@@ -289,14 +292,14 @@ const createStartupCleanupController = (
       if (stage === 'process-lock') {
         if (owned.lockPending !== undefined) {
           const cleaned = owned.lockPending();
-          if (!cleaned.ok) {
+          if (!isCleanupSuccess(cleaned)) {
             return failCompositionCleanupRequired('process-lock', pendingCleanup);
           }
           owned.lockPending = undefined;
           owned.lock = undefined;
         } else if (owned.lock !== undefined) {
           const released = owned.lock.release();
-          if (!released.ok) {
+          if (!isCleanupSuccess(released)) {
             return failCompositionCleanupRequired('process-lock', pendingCleanup);
           }
           owned.lock = undefined;
@@ -308,14 +311,14 @@ const createStartupCleanupController = (
       // storage-root — handle.close() is itself the ownership-aware retry; keep handle until success.
       if (owned.rootPending !== undefined) {
         const cleaned = owned.rootPending();
-        if (!cleaned.ok) {
+        if (!isCleanupSuccess(cleaned)) {
           return failCompositionCleanupRequired('storage-root', pendingCleanup);
         }
         owned.rootPending = undefined;
         owned.root = undefined;
       } else if (owned.root !== undefined) {
         const closed = owned.root.close();
-        if (!closed.ok) {
+        if (!isCleanupSuccess(closed)) {
           return failCompositionCleanupRequired('storage-root', pendingCleanup);
         }
         owned.root = undefined;

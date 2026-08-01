@@ -27,6 +27,19 @@ export type DurableResourceCloseFailure = {
 
 export type DurableResourceCloseResult = Result<void, DurableResourceCloseFailure>;
 
+/**
+ * Runtime guard for injected closers and handle adapters. Only boolean `ok: true` counts as success.
+ * Total/non-throwing: hostile getters, Proxies, and revoked Proxies return false without escaping.
+ */
+export const isStrictOkResult = (value: unknown): value is { readonly ok: true } => {
+  try {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+    return Reflect.get(value, 'ok') === true;
+  } catch {
+    return false;
+  }
+};
+
 export const okDurableClose = (): DurableLocalHostOwnerCloseResult => ok(undefined);
 
 export const failDurableCloseBusy = (): DurableLocalHostOwnerCloseResult =>
@@ -52,7 +65,9 @@ export const failDurableCloseStage = (
 export const okResourceClose = (): DurableResourceCloseResult => ok(undefined);
 
 export const failResourceClose = (reason: string): DurableResourceCloseResult =>
-  err({
-    code: 'RESOURCE_CLOSE_FAILED',
-    reason,
-  });
+  err(
+    Object.freeze({
+      code: 'RESOURCE_CLOSE_FAILED' as const,
+      reason,
+    }),
+  );

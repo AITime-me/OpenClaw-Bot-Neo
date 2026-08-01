@@ -84,6 +84,19 @@ export const HOST_PATH_EXTERNAL_ALLOWLIST = Object.freeze({
   'host/storage/runtime/posix-process-lock-driver.ts': Object.freeze(['fs-ext-extra-prebuilt']),
 });
 
+/**
+ * Exact POSIX durable composition factory may lazy-load only these repository-relative targets
+ * after the Linux gate. No wildcards; similarly named importers do not inherit authority.
+ */
+export const POSIX_DURABLE_COMPOSITION_FACTORY_PATH =
+  'host/durable/create-posix-durable-local-host.ts';
+
+export const POSIX_DURABLE_COMPOSITION_DYNAMIC_IMPORT_TARGETS = Object.freeze([
+  'host/storage/runtime/open-posix-storage-root.ts',
+  'host/storage/runtime/acquire-posix-process-lock.ts',
+  'host/storage/sqlite/create-sqlite-memory-port.ts',
+]);
+
 /** Sealed factories stay reachable only from the modules that are allowed to create sealed values. */
 export const INTERNAL_MODULE_ALLOWLIST = {
   'core/domain/approval.internal.ts': ['core/domain/index.ts', 'core/policy/confirmation-gate.ts'],
@@ -187,6 +200,8 @@ export const INTERNAL_MODULE_ALLOWLIST = {
 };
 
 const toPosix = (value) => value.split('\\').join('/');
+
+export { toPosix };
 
 const listFiles = (root) => {
   if (!existsSync(root)) return [];
@@ -338,15 +353,20 @@ export function analyzeBoundaries(options = {}) {
         continue;
       }
       if (reference.kind === 'dynamic-import') {
-        // Build 3.3B3C2: exact POSIX durable composition factory may lazily load root/lock/SQLite
-        // after the Linux gate. All other dynamic imports remain forbidden.
-        const allowedLazyComposition =
-          fileRelative === 'host/durable/create-posix-durable-local-host.ts';
-        if (!allowedLazyComposition)
+        if (fileRelative !== POSIX_DURABLE_COMPOSITION_FACTORY_PATH) {
           violations.push({
             code: 'DYNAMIC_IMPORT_FORBIDDEN',
             message: `${where} uses dynamic import; core cannot load executable extensions.`,
           });
+        } else {
+          const target = resolveRelative(rootDir, file, reference.specifier);
+          if (!POSIX_DURABLE_COMPOSITION_DYNAMIC_IMPORT_TARGETS.includes(target.relative)) {
+            violations.push({
+              code: 'DYNAMIC_IMPORT_TARGET_FORBIDDEN',
+              message: `${where} dynamic import target is not allowlisted for the composition factory.`,
+            });
+          }
+        }
       }
       if (isBuiltin(reference.specifier)) {
         if (fromLayer === 'host') {

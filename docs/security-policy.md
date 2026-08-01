@@ -344,8 +344,14 @@ diagnostics оставляют real-wiring flags false. Pure controller тест
 Codex Review №6 pending; deployment запрещён.
 
 **Build 3.3B3C2:** app-private Linux-gated POSIX durable composition (`createPosixDurableLocalHost`)
-wire'ит real POSIX root → exclusive process lock → SQLite MemoryPort, переиспользует B3C1 owner,
-выполняет deterministic startup rollback (SQLite → lock → root). Existing `createLocalHost()`
-остаётся in-memory. Factory не package/host-exported; не подключена к Neo startup; complete B3C2
-Linux integration gate pending B3C4; systemd pending; durable Approval/Audit absent; secret
+wire'ит real POSIX root → exclusive process lock → SQLite MemoryPort **внутри factory only**,
+переиспользует B3C1 owner, выполняет deterministic startup rollback (SQLite → lock → root).
+Existing `createLocalHost()` остаётся in-memory. Factory не package/host-exported; не подключена к
+Neo startup; B3B3/B3B5 process-lock primitive сам по себе остаётся unwired к Neo; complete B3C4
+Linux integration gate pending; systemd pending; durable Approval/Audit absent; secret
 provider/encryption absent. Codex Review №6 pending; deployment запрещён.
+
+**Build 3.3B3C3:** defensive hardening перед B3C4 — malformed closer/cleanup validation,
+startup cleanup reentrancy safety, frozen terminal failures, exact dynamic-import target allowlist
+для composition factory. Не меняет Neo wiring, diagnostics readiness claims или deployment status.
+Codex Review №6 pending; deployment запрещён.

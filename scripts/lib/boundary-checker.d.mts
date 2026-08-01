@@ -21,6 +21,9 @@ export interface AnalyzeBoundariesOptions {
 export declare const CORE_LAYER_RULES: Readonly<Record<string, readonly string[]>>;
 export declare const REQUIRED_CORE_LAYERS: readonly string[];
 export declare const INTERNAL_MODULE_ALLOWLIST: Readonly<Record<string, readonly string[]>>;
+export declare const POSIX_DURABLE_COMPOSITION_FACTORY_PATH: string;
+export declare const POSIX_DURABLE_COMPOSITION_DYNAMIC_IMPORT_TARGETS: ReadonlyArray<string>;
+export declare function toPosix(value: string): string;
 export declare function extractReferences(
   sourceText: string,
   fileName: string,

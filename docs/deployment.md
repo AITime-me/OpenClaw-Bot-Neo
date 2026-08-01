@@ -52,8 +52,11 @@ Ubuntu 24.04 / linux-amd64 / Node 22.13.0. Build 3.3B3B5 records
 systemd unit/layer pending. Build 3.3B3C1 adds pure durable owner/controller lifecycle over fake
 closures only (non-reentrant ordered close; snapshotted closers). Build 3.3B3C2 wires real POSIX
 root → process lock → SQLite MemoryPort into that owner via an app-private Linux-gated factory
-with deterministic startup rollback; factory is not connected to Neo startup; complete composition
-Linux integration gate pending B3C4. Existing `createLocalHost()` остаётся in-memory;
+with deterministic startup rollback **inside the factory only**; factory is not connected to Neo
+startup; B3B3/B3B5 process-lock primitive itself remains unwired to Neo; complete composition
+Linux integration gate pending B3C4. Build 3.3B3C3 adds malformed-result guards, cleanup
+reentrancy hardening, terminal failure freezing, and exact dynamic-import allowlist without changing
+Neo wiring. Existing `createLocalHost()` остаётся in-memory;
 process lock не участвует в Neo startup lifecycle; approval/audit ephemeral; cross-port transaction /
 encryption отсутствуют; не является deployment approval. Build №3 не завершён, VPS не куплен,
 security approval отсутствует pending Codex Review №6. До review, threat model и отдельного owner

@@ -11,6 +11,7 @@ import {
 import { DURABLE_LOCAL_HOST_OWNER_DIAGNOSTICS } from '../src/host/durable/durable-local-host-owner-diagnostics.js';
 import {
   failResourceClose,
+  isStrictOkResult,
   okResourceClose,
   type DurableResourceCloseResult,
 } from '../src/host/durable/durable-local-host-owner-failures.js';
@@ -108,6 +109,35 @@ const assertNoResourceLeak = (value: unknown): void => {
   expect(value).not.toHaveProperty('stack');
   expect(value).not.toHaveProperty('errno');
 };
+
+const hostileOkGetter = (): unknown => {
+  const value: Record<string, unknown> = {};
+  Object.defineProperty(value, 'ok', {
+    get(): never {
+      throw new Error('secret-hostile-ok');
+    },
+    enumerable: true,
+  });
+  return value;
+};
+
+const hostileOkProxy = (): unknown =>
+  new Proxy(
+    {},
+    {
+      get(): never {
+        throw new Error('secret-proxy-ok');
+      },
+    },
+  );
+
+const revokedOkProxy = (): unknown => {
+  const { proxy, revoke } = Proxy.revocable({ ok: true }, {});
+  revoke();
+  return proxy;
+};
+
+const SEED_CLOSED_MESSAGE = 'Durable local host is closed.';
 
 describe('durable local host owner surface', () => {
   it('exposes exact frozen owner keys and frozen nested surfaces', () => {
@@ -457,6 +487,65 @@ describe('durable local host owner shutdown order', () => {
     expect(stillBlocked.ok).toBe(false);
     expect(writeMemory).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [
+      'undefined',
+      (): DurableResourceCloseResult => undefined as unknown as DurableResourceCloseResult,
+    ],
+    ['null', (): DurableResourceCloseResult => null as unknown as DurableResourceCloseResult],
+    ['primitive', (): DurableResourceCloseResult => 1 as unknown as DurableResourceCloseResult],
+    [
+      'object without ok',
+      (): DurableResourceCloseResult => ({}) as unknown as DurableResourceCloseResult,
+    ],
+    [
+      'truthy non-boolean ok',
+      (): DurableResourceCloseResult => ({ ok: 'true' }) as unknown as DurableResourceCloseResult,
+    ],
+    [
+      'malformed success',
+      (): DurableResourceCloseResult => ({ ok: 1 }) as unknown as DurableResourceCloseResult,
+    ],
+    [
+      'malformed failure',
+      (): DurableResourceCloseResult =>
+        ({
+          ok: false,
+          error: { code: 'LEAK', reason: '/var/lib/neo.primary.lock errno=2' },
+        }) as unknown as DurableResourceCloseResult,
+    ],
+  ])(
+    'maps malformed closer result %s to frozen stage failure without TypeError',
+    (_label, memory) => {
+      const sequence: Sequence = [];
+      let attempts = 0;
+      const owner = createOwner(
+        fakeHost(),
+        trackingResources(sequence, {
+          memory: () => {
+            attempts += 1;
+            if (attempts === 1) return memory();
+            return okResourceClose();
+          },
+        }),
+      );
+
+      const first = owner.close();
+      expect(first.ok).toBe(false);
+      if (!first.ok) {
+        expect(first.error.code).toBe('DURABLE_HOST_CLOSE_FAILED');
+        expect(first.error.stage).toBe('memory');
+        assertNoResourceLeak(first.error);
+        expect(JSON.stringify(first.error)).not.toMatch(/secret|errno|neo\.primary/i);
+      }
+      expect(sequence).toEqual(['memory']);
+
+      const second = owner.close();
+      expect(second.ok).toBe(true);
+      expect(sequence).toEqual(['memory', 'memory', 'process-lock', 'storage-root']);
+    },
+  );
 });
 
 describe('durable local host owner non-reentrant shutdown', () => {
@@ -503,6 +592,46 @@ describe('durable local host owner non-reentrant shutdown', () => {
       expect(nested.error.code).toBe('DURABLE_HOST_CLOSE_BUSY');
       expect(nested.error.stage).toBe('operations');
       assertNoResourceLeak(nested.error);
+    }
+    expect(sequence).toEqual(['memory', 'process-lock', 'storage-root']);
+    expect(owner.close().ok).toBe(true);
+    expect(sequence).toEqual(['memory', 'process-lock', 'storage-root']);
+  });
+
+  it('two nested close calls from one closer are both busy and stage runs once', () => {
+    const sequence: Sequence = [];
+    let nestedFirst: Awaited<ReturnType<DurableLocalHostOwner['close']>> | undefined;
+    let nestedSecond: Awaited<ReturnType<DurableLocalHostOwner['close']>> | undefined;
+    const owner = bindOwner((getOwner) =>
+      createDurableLocalHostOwner({
+        host: fakeHost(),
+        resources: {
+          closeMemory: () => {
+            sequence.push('memory');
+            nestedFirst = getOwner().close();
+            nestedSecond = getOwner().close();
+            return okResourceClose();
+          },
+          releaseProcessLock: () => {
+            sequence.push('process-lock');
+            return okResourceClose();
+          },
+          closeStorageRoot: () => {
+            sequence.push('storage-root');
+            return okResourceClose();
+          },
+        },
+      }),
+    );
+
+    const outer = owner.close();
+    expect(outer.ok).toBe(true);
+    for (const nested of [nestedFirst, nestedSecond]) {
+      expect(nested?.ok).toBe(false);
+      if (nested && !nested.ok) {
+        expect(nested.error.code).toBe('DURABLE_HOST_CLOSE_BUSY');
+        expect(nested.error.stage).toBe('operations');
+      }
     }
     expect(sequence).toEqual(['memory', 'process-lock', 'storage-root']);
     expect(owner.close().ok).toBe(true);
@@ -732,6 +861,86 @@ describe('durable local host owner snapshotted closers', () => {
   });
 });
 
+describe('durable local host owner strict result guard', () => {
+  it.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['primitive', 1],
+    ['array', [true]],
+    ['function', (): boolean => true],
+    ['object without ok', {}],
+    ['truthy string ok', { ok: 'true' }],
+    ['numeric ok', { ok: 1 }],
+    ['false ok', { ok: false }],
+    ['throwing getter', hostileOkGetter()],
+    ['hostile proxy', hostileOkProxy()],
+    ['revoked proxy', revokedOkProxy()],
+  ])('isStrictOkResult returns false without throwing for %s', (_label, value) => {
+    expect(() => isStrictOkResult(value)).not.toThrow();
+    expect(isStrictOkResult(value)).toBe(false);
+  });
+
+  it('accepts only boolean true ok without throwing', () => {
+    expect(() => isStrictOkResult({ ok: true })).not.toThrow();
+    expect(isStrictOkResult({ ok: true })).toBe(true);
+  });
+});
+
+describe('durable local host owner hostile closer results', () => {
+  it.each([
+    ['throwing getter', hostileOkGetter],
+    ['hostile proxy', hostileOkProxy],
+    ['revoked proxy', revokedOkProxy],
+  ])('maps %s closer result to frozen stage failure without raw leak', (label, hostile) => {
+    const sequence: Sequence = [];
+    let attempts = 0;
+    const owner = createOwner(
+      fakeHost(),
+      trackingResources(sequence, {
+        memory: () => {
+          attempts += 1;
+          if (attempts === 1) return hostile() as DurableResourceCloseResult;
+          return okResourceClose();
+        },
+      }),
+    );
+
+    const first = owner.close();
+    expect(() => first).not.toThrow();
+    expect(first.ok).toBe(false);
+    if (!first.ok) {
+      expect(first.error.code).toBe('DURABLE_HOST_CLOSE_FAILED');
+      expect(first.error.stage).toBe('memory');
+      assertNoResourceLeak(first.error);
+      expect(JSON.stringify(first.error)).not.toMatch(/secret-hostile|secret-proxy/i);
+    }
+    expect(sequence).toEqual(['memory']);
+
+    const second = owner.close();
+    expect(second.ok).toBe(true);
+    expect(sequence).toEqual(['memory', 'memory', 'process-lock', 'storage-root']);
+    void label;
+  });
+
+  it('hostile memory failure does not release process-lock or storage-root', () => {
+    const sequence: Sequence = [];
+    let memoryHostile = true;
+    const owner = createOwner(
+      fakeHost(),
+      trackingResources(sequence, {
+        memory: (): DurableResourceCloseResult =>
+          memoryHostile ? (hostileOkGetter() as DurableResourceCloseResult) : okResourceClose(),
+      }),
+    );
+
+    expect(owner.close().ok).toBe(false);
+    expect(sequence).toEqual(['memory']);
+    memoryHostile = false;
+    expect(owner.close().ok).toBe(true);
+    expect(sequence).toEqual(['memory', 'memory', 'process-lock', 'storage-root']);
+  });
+});
+
 describe('durable local host owner immutable failures', () => {
   it('freezes busy and stage failure payloads against field mutation', async () => {
     const pending = deferred<Result<MemoryWriteOutcome, MemoryWriteFailure>>();
@@ -783,6 +992,168 @@ describe('durable local host owner immutable failures', () => {
       expect(failed.error.reason).toBe('Durable local host close failed at memory stage.');
     }
   });
+
+  it('freezes internal resource close failure payload', () => {
+    const failed = failResourceClose('Failed to close durable resource.');
+    expect(failed.ok).toBe(false);
+    if (!failed.ok) {
+      expect(Object.isFrozen(failed.error)).toBe(true);
+      try {
+        (failed.error as { reason: string }).reason = 'mutated';
+      } catch {
+        // strict freeze may throw
+      }
+      expect(failed.error.reason).toBe('Failed to close durable resource.');
+    }
+  });
+});
+
+describe('durable local host owner closer operation gate', () => {
+  const bindOwner = (
+    build: (getOwner: () => DurableLocalHostOwner) => DurableLocalHostOwner,
+  ): DurableLocalHostOwner => {
+    const cell: { current?: DurableLocalHostOwner } = {};
+    const created = build(() => {
+      if (cell.current === undefined) throw new TypeError('owner not initialized');
+      return cell.current;
+    });
+    cell.current = created;
+    return created;
+  };
+
+  it('blocks writeMemory, readMemory, and seed from closer after gate closes', () => {
+    const writeMemory = vi.fn<LocalHost['writeMemory']>(() =>
+      Promise.resolve(ok(okWriteOutcome())),
+    );
+    const readMemory = vi.fn<LocalHost['readMemory']>(() =>
+      Promise.resolve(err({ code: 'VALIDATION_FAILED', reason: 'absent' })),
+    );
+    const seed = vi.fn<LocalHost['seedLocalApprovalGrant']>(() => undefined);
+    const sequence: Sequence = [];
+    const owner = bindOwner((getOwner) =>
+      createDurableLocalHostOwner({
+        host: fakeHost({ writeMemory, readMemory, seedLocalApprovalGrant: seed }),
+        resources: {
+          closeMemory: () => {
+            sequence.push('memory');
+            void getOwner().host.writeMemory(authenticatedAccess(), writeCommand());
+            void getOwner().host.readMemory(authenticatedAccess(), {
+              recordId: asRecordId('record-from-closer'),
+              expectedOwnerId: authenticatedAccess().ownerId,
+              expectedNamespace: 'personal',
+            });
+            try {
+              getOwner().host.seedLocalApprovalGrant(
+                grantForCommand(writeCommand(), authenticatedAccess()),
+              );
+            } catch (error) {
+              expect(error).toMatchObject({ message: SEED_CLOSED_MESSAGE });
+            }
+            return okResourceClose();
+          },
+          releaseProcessLock: () => {
+            sequence.push('process-lock');
+            return okResourceClose();
+          },
+          closeStorageRoot: () => {
+            sequence.push('storage-root');
+            return okResourceClose();
+          },
+        },
+      }),
+    );
+
+    expect(owner.close().ok).toBe(true);
+    expect(writeMemory).not.toHaveBeenCalled();
+    expect(readMemory).not.toHaveBeenCalled();
+    expect(seed).not.toHaveBeenCalled();
+    expect(sequence).toEqual(['memory', 'process-lock', 'storage-root']);
+  });
+
+  it('rejects seedLocalApprovalGrant in close-pending and after closed without calling delegate', () => {
+    const sequence: Sequence = [];
+    const seed = vi.fn<LocalHost['seedLocalApprovalGrant']>(() => undefined);
+    let memoryFails = true;
+    const owner = createOwner(
+      fakeHost({ seedLocalApprovalGrant: seed }),
+      trackingResources(sequence, {
+        memory: () => (memoryFails ? failResourceClose('memory busy') : okResourceClose()),
+      }),
+    );
+
+    expect(owner.close().ok).toBe(false);
+    expect(() => {
+      owner.host.seedLocalApprovalGrant(grantForCommand(writeCommand(), authenticatedAccess()));
+    }).toThrow(SEED_CLOSED_MESSAGE);
+    expect(seed).not.toHaveBeenCalled();
+
+    memoryFails = false;
+    expect(owner.close().ok).toBe(true);
+    expect(() => {
+      owner.host.seedLocalApprovalGrant(grantForCommand(writeCommand(), authenticatedAccess()));
+    }).toThrow(SEED_CLOSED_MESSAGE);
+    expect(seed).not.toHaveBeenCalled();
+  });
+
+  it('rejects seed from reentrant closer during closing without aborting shutdown', () => {
+    const sequence: Sequence = [];
+    const seed = vi.fn<LocalHost['seedLocalApprovalGrant']>(() => undefined);
+    const owner = bindOwner((getOwner) =>
+      createDurableLocalHostOwner({
+        host: fakeHost({ seedLocalApprovalGrant: seed }),
+        resources: {
+          closeMemory: () => {
+            sequence.push('memory');
+            expect(() => {
+              getOwner().host.seedLocalApprovalGrant(
+                grantForCommand(writeCommand(), authenticatedAccess()),
+              );
+            }).toThrow(SEED_CLOSED_MESSAGE);
+            return okResourceClose();
+          },
+          releaseProcessLock: () => {
+            sequence.push('process-lock');
+            return okResourceClose();
+          },
+          closeStorageRoot: () => {
+            sequence.push('storage-root');
+            return okResourceClose();
+          },
+        },
+      }),
+    );
+
+    expect(owner.close().ok).toBe(true);
+    expect(seed).not.toHaveBeenCalled();
+    expect(sequence).toEqual(['memory', 'process-lock', 'storage-root']);
+  });
+
+  it('close from active host delegate returns busy and closes after operation completes', async () => {
+    const pending = deferred<Result<MemoryWriteOutcome, MemoryWriteFailure>>();
+    let closeFromDelegate: Awaited<ReturnType<DurableLocalHostOwner['close']>> | undefined;
+    const writeMemory = vi.fn<LocalHost['writeMemory']>(async () => {
+      closeFromDelegate = owner.close();
+      return pending.promise;
+    });
+    const sequence: Sequence = [];
+    const owner = createOwner(fakeHost({ writeMemory }), trackingResources(sequence));
+
+    const inFlight = owner.host.writeMemory(authenticatedAccess(), writeCommand());
+    await Promise.resolve();
+    expect(closeFromDelegate?.ok).toBe(false);
+    if (closeFromDelegate && !closeFromDelegate.ok) {
+      expect(closeFromDelegate.error.code).toBe('DURABLE_HOST_CLOSE_BUSY');
+      expect(closeFromDelegate.error.stage).toBe('operations');
+    }
+    expect(sequence).toEqual([]);
+
+    pending.resolve(ok(okWriteOutcome()));
+    await inFlight;
+
+    const closed = owner.close();
+    expect(closed.ok).toBe(true);
+    expect(sequence).toEqual(['memory', 'process-lock', 'storage-root']);
+  });
 });
 
 describe('durable local host owner hostile thenables', () => {
@@ -833,6 +1204,62 @@ describe('durable local host owner hostile thenables', () => {
         } catch {
           // rejection handler may throw the reason; count must stay non-negative
         }
+        return undefined;
+      },
+    })) as unknown as LocalHost['writeMemory'];
+    const owner = createOwner(fakeHost({ writeMemory }), trackingResources(sequence));
+    void owner.host.writeMemory(authenticatedAccess(), writeCommand());
+    expect(owner.close().ok).toBe(true);
+    expect(sequence).toEqual(['memory', 'process-lock', 'storage-root']);
+  });
+
+  it('ignores non-function then property without double decrement', () => {
+    const sequence: Sequence = [];
+    const writeMemory = (() => ({ then: 'not-a-function' })) as unknown as LocalHost['writeMemory'];
+    const owner = createOwner(fakeHost({ writeMemory }), trackingResources(sequence));
+    const result = owner.host.writeMemory(authenticatedAccess(), writeCommand());
+    expect(result).toEqual({ then: 'not-a-function' });
+    expect(owner.close().ok).toBe(true);
+    expect(sequence).toEqual(['memory', 'process-lock', 'storage-root']);
+  });
+
+  it('decrements once when thenable rejects twice', () => {
+    const sequence: Sequence = [];
+    const writeMemory = (() => ({
+      then: (
+        _onFulfilled?: ((value: unknown) => unknown) | null,
+        onRejected?: ((reason: unknown) => unknown) | null,
+      ) => {
+        onRejected?.(new Error('first reject'));
+        try {
+          onRejected?.(new Error('second reject'));
+        } catch {
+          // second reject must not double-decrement
+        }
+        return undefined;
+      },
+    })) as unknown as LocalHost['writeMemory'];
+    const owner = createOwner(fakeHost({ writeMemory }), trackingResources(sequence));
+    expect(() => {
+      void owner.host.writeMemory(authenticatedAccess(), writeCommand());
+    }).toThrow(/first reject/);
+    expect(owner.close().ok).toBe(true);
+    expect(sequence).toEqual(['memory', 'process-lock', 'storage-root']);
+  });
+
+  it('decrements once when thenable rejects then resolves', () => {
+    const sequence: Sequence = [];
+    const writeMemory = (() => ({
+      then: (
+        onFulfilled?: ((value: unknown) => unknown) | null,
+        onRejected?: ((reason: unknown) => unknown) | null,
+      ) => {
+        try {
+          onRejected?.(new Error('reject first'));
+        } catch {
+          // reject handler decrements once; hostile then continues to fulfill
+        }
+        onFulfilled?.(ok(okWriteOutcome()));
         return undefined;
       },
     })) as unknown as LocalHost['writeMemory'];
