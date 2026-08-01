@@ -23,6 +23,7 @@ import type {
   PosixPathIdentity,
   PosixStorageSystem,
 } from '../src/host/storage/runtime/posix-storage-system.js';
+import { createSqliteMemoryPort } from '../src/host/storage/sqlite/create-sqlite-memory-port.js';
 
 const REPO_ROOT = '/opt/openclaw-bot-neo-b3b3';
 const SERVICE_UID = 1001;
@@ -1001,19 +1002,24 @@ describe('acquirePosixProcessLock isolation and diagnostics', () => {
     expect(root.close().ok).toBe(true);
   });
 
-  it('diagnostics are honest and frozen; LocalHost remains in-memory', () => {
+  it('diagnostics are honest and frozen; LocalHost and SQLite remain unwired', () => {
     const storageRoot = createTempStorageRoot();
     const { root } = openGenuineRoot(storageRoot);
     const result = acquirePosixProcessLockWithTestHooks(root, linuxHooks(createFakeDriver()));
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('expected ok');
     const d = result.value.diagnostics;
+    expect(Object.isFrozen(d)).toBe(true);
+    expect(Object.isFrozen(result.value)).toBe(true);
     expect(d.storageLock).toBe('flock');
     expect(d.exclusiveProcessLockHeld).toBe(true);
     expect(d.cooperativeSecondInstanceProtection).toBe(true);
     expect(d.storageRootLeaseCoordinated).toBe(true);
     expect(d.lockFilePolicyVerified).toBe(true);
     expect(d.releaseUsesFdClose).toBe(true);
+    // Build 3.3B3B5: pinned-target Linux primitive gate evidence only.
+    expect(d.linuxIntegrationValidatedForPrimitive).toBe(true);
+    // Mutation-resistant honesty: wiring / protection / deployment remain false.
     expect(d.localHostWired).toBe(false);
     expect(d.processLockWiredToNeo).toBe(false);
     expect(d.secondInstanceProtectionActiveForNeo).toBe(false);
@@ -1021,13 +1027,99 @@ describe('acquirePosixProcessLock isolation and diagnostics', () => {
     expect(d.privilegedAttackerResistant).toBe(false);
     expect(d.pathReplacementResistant).toBe(false);
     expect(d.distributedFilesystemSupported).toBe(false);
-    expect(d.linuxIntegrationValidatedForPrimitive).toBe(false);
     expect(d.deploymentReady).toBe(false);
+    expect(() => {
+      (
+        d as { linuxIntegrationValidatedForPrimitive: boolean }
+      ).linuxIntegrationValidatedForPrimitive = false;
+    }).toThrow();
+    expect(d.linuxIntegrationValidatedForPrimitive).toBe(true);
     assertNoLeak(d);
 
     const host = createLocalHost({ clock: { now: () => new Date('2020-01-01T00:00:00.000Z') } });
     expect(host.diagnostics.storage).toBe('in-memory');
+    expect(host.diagnostics).not.toHaveProperty('linuxIntegrationValidatedForPrimitive');
+    expect(host.diagnostics).not.toHaveProperty('processLockWiredToNeo');
+    expect(host.diagnostics).not.toHaveProperty('secondInstanceProtectionActiveForNeo');
+
+    const sqliteRootPath = createTempStorageRoot();
+    const { root: sqliteRoot } = openGenuineRoot(sqliteRootPath);
+    const sqlite = createSqliteMemoryPort(sqliteRoot);
+    expect(sqlite.ok).toBe(true);
+    if (!sqlite.ok) throw new Error('expected sqlite ok');
+    expect(sqlite.value.diagnostics.localHostWired).toBe(false);
+    expect(sqlite.value.diagnostics.storageBackend).toBe('sqlite');
+    expect(sqlite.value.diagnostics.deploymentReady).toBe(false);
+    expect(sqlite.value.diagnostics.exclusiveProcessLock).toBe(false);
+    expect(sqlite.value.diagnostics.secondInstanceProtection).toBe(false);
+    expect(sqlite.value.diagnostics.linuxContainerValidated).toBe(false);
+    expect(sqlite.value.diagnostics).not.toHaveProperty('linuxIntegrationValidatedForPrimitive');
+    expect(sqlite.value.diagnostics).not.toHaveProperty('processLockWiredToNeo');
+    expect(sqlite.value.close().ok).toBe(true);
+    expect(sqliteRoot.close().ok).toBe(true);
+
     expect(result.value.release().ok).toBe(true);
+    expect(root.close().ok).toBe(true);
+  });
+
+  it('test hooks cannot alter Linux validation evidence or honesty flags', () => {
+    const storageRoot = createTempStorageRoot();
+    const { root } = openGenuineRoot(storageRoot);
+    const result = acquirePosixProcessLockWithTestHooks(root, {
+      getPlatform: () => 'linux',
+      driver: createFakeDriver(),
+      getEffectiveUid: () => SERVICE_UID,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok');
+    const d = result.value.diagnostics;
+    expect(d.linuxIntegrationValidatedForPrimitive).toBe(true);
+    expect(d.localHostWired).toBe(false);
+    expect(d.processLockWiredToNeo).toBe(false);
+    expect(d.secondInstanceProtectionActiveForNeo).toBe(false);
+    expect(d.systemdLayerConfigured).toBe(false);
+    expect(d.distributedFilesystemSupported).toBe(false);
+    expect(d.deploymentReady).toBe(false);
+    expect(Object.keys(result.value)).toEqual(['diagnostics', 'release']);
+    expect(result.value.release().ok).toBe(true);
+    expect(root.close().ok).toBe(true);
+  });
+
+  it('contention and ordinary failures do not return held validation diagnostics', () => {
+    const storageRoot = createTempStorageRoot();
+    const { root } = openGenuineRoot(storageRoot);
+    const kernel = createSharedFakeKernel();
+    const holder = acquirePosixProcessLockWithTestHooks(
+      root,
+      linuxHooks(createFakeDriver({ kernel })),
+    );
+    expect(holder.ok).toBe(true);
+
+    const contended = acquirePosixProcessLockWithTestHooks(
+      root,
+      linuxHooks(createFakeDriver({ kernel })),
+    );
+    expect(contended.ok).toBe(false);
+    if (contended.ok) throw new Error('expected fail');
+    expect(contended).not.toHaveProperty('value');
+    expect(contended).not.toHaveProperty('diagnostics');
+    expect(JSON.stringify(contended)).not.toMatch(/linuxIntegrationValidatedForPrimitive/);
+    expect(contended.error.code).toBe('STORAGE_LOCK_HELD');
+    assertNoLeak(contended);
+
+    const ordinary = acquirePosixProcessLockWithTestHooks(
+      root,
+      linuxHooks(createFakeDriver({ flockError: errno('EIO') })),
+    );
+    expect(ordinary.ok).toBe(false);
+    if (ordinary.ok) throw new Error('expected fail');
+    expect(ordinary).not.toHaveProperty('value');
+    expect(ordinary).not.toHaveProperty('diagnostics');
+    expect(JSON.stringify(ordinary)).not.toMatch(/linuxIntegrationValidatedForPrimitive/);
+    expect(ordinary.error.code).toBe('STORAGE_LOCK_ACQUIRE_FAILED');
+    assertNoLeak(ordinary);
+
+    if (holder.ok) expect(holder.value.release().ok).toBe(true);
     expect(root.close().ok).toBe(true);
   });
 });

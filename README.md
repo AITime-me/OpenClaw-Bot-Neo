@@ -55,7 +55,7 @@ Build 3.3B2 app-private SQLite MemoryPort is separate and remains unwired to Loc
 Storage input is constructor/binding input for a future adapter — not part of the Build 3.1 config
 envelope and not a claim that a disk schema exists or that a lexical path is filesystem-open-safe.
 
-**Build 3.3A / 3.3B1 / 3.3B2A / 3.3B2B / 3.3B2 / 3.3B3A / 3.3B3B2 / 3.3B3B3 / 3.3B3B4-F1 (partial Build 3.3):**
+**Build 3.3A / 3.3B1 / 3.3B2A / 3.3B2B / 3.3B2 / 3.3B3A / 3.3B3B2 / 3.3B3B3 / 3.3B3B4-F1 / 3.3B3B5 (partial Build 3.3):**
 SQLite dependencies exact-pinned (`better-sqlite3@12.11.1`, `@types/better-sqlite3@7.6.13`). Process
 lock dependency exact-pinned (`fs-ext-extra-prebuilt@2.2.10`). POSIX/Linux safe-open for an
 already-existing storage root (`openPosixStorageRoot`) is implemented with honest diagnostics.
@@ -72,15 +72,21 @@ required caller-visible `fs.constants.O_CLOEXEC`, which is `undefined` on Node v
 (libuv 1.49.2 still sets `O_CLOEXEC` atomically inside `open` as implementation evidence). Build
 3.3B3B4-F1 remediates Candidate C: open uses only `O_RDWR|O_CREAT|O_NOFOLLOW` mode `0600`, then
 fail-closed post-open `getfd`/`FD_CLOEXEC` verification via the pinned native package (no production
-`setfd`, no magic numeric `O_CLOEXEC`). Runtime research probe passed; this remediation remains
-**pending adversarial review and a repeated B3B4 Linux gate**. The primitive is **not** wired to
-LocalHost/Neo — Neo second-instance protection remains inactive. Placeholder may remain after crash;
-never unlinked for stale recovery. Non-cooperating processes can bypass advisory flock; no
-privileged-attacker / NFS / path-replacement resistance. It does not make ApprovalPort/AuditPort
-durable, does not provide cross-port transactions, encryption, secret storage, TOCTOU elimination,
-or deployment approval. LocalHost remains in-memory and unwired to SQLite/process-lock. systemd
-absent. Planned VPS: Timeweb Cloud 4 vCPU / 8 ГБ / 80 ГБ NVMe, Ubuntu 24.04, Linux server-only; no
-Windows agent runtime.
+`setfd`, no magic numeric `O_CLOEXEC`). Runtime research probe passed; Candidate C was committed;
+the full repeated Build 3.3B3B4 Linux gate then **PASSED**
+(`BUILD_3_3B3B4_LINUX_PRIMITIVE_GATE_PASSED`) on Ubuntu 24.04.4 LTS / linux-amd64 / glibc 2.39 /
+Docker overlayfs / Node v22.13.0 / npm 10.9.2 (default production acquire, getfd/FD_CLOEXEC,
+same/separate-process contention, normal + SIGKILL release, unsafe-file rejection, redaction,
+no unlink/stale deletion, no setfd). Build 3.3B3B5 records
+`linuxIntegrationValidatedForPrimitive=true` as pinned-target evidence only. The primitive is
+**not** wired to LocalHost/Neo — Neo second-instance protection remains inactive. Placeholder may
+remain after crash; never unlinked for stale recovery. Advisory/cooperative only —
+non-cooperating processes can bypass; no privileged-attacker / NFS / path-replacement resistance;
+overlayfs gate does not prove NFS/CIFS (`distributedFilesystemSupported=false`). It does not make
+ApprovalPort/AuditPort durable, does not provide cross-port transactions, encryption, secret
+storage, TOCTOU elimination, or deployment approval. LocalHost remains in-memory and unwired to
+SQLite/process-lock. systemd absent. Codex Review №6 pending. Planned VPS: Timeweb Cloud 4 vCPU /
+8 ГБ / 80 ГБ NVMe, Ubuntu 24.04, Linux server-only; no Windows agent runtime.
 
 | Слой | Статус |
 |------|--------|
@@ -98,7 +104,8 @@ Windows agent runtime.
 | Root↔adapter lease coordination (Build 3.3B3A) | implemented (same-process; not a process lock) |
 | Process lock dependency pin (Build 3.3B3B2) | pinned (`fs-ext-extra-prebuilt@2.2.10`) |
 | App-private exclusive process lock (Build 3.3B3B3) | implemented (primitive only; LocalHost/Neo unwired) |
-| Linux CLOEXEC runtime remediation (Build 3.3B3B4-F1) | implemented pending adversarial review + repeated B3B4 |
+| Linux CLOEXEC runtime remediation (Build 3.3B3B4-F1) | implemented (Candidate C committed) |
+| Linux process-lock primitive validation (Build 3.3B3B4/B3B5) | recorded (`linuxIntegrationValidatedForPrimitive=true`; unwired) |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
@@ -167,7 +174,7 @@ contract only (`CURRENT_STORAGE_SCHEMA_VERSION` is the sole current-version sour
 filesystem не читается и не изменяется; backend unbound; durability none; writes/migrations/
 encryption disabled; durable ports отсутствуют.
 
-**Build 3.3A/B1/B2A/B2B/B2/B3A/B3B2/B3B3/B3B4-F1:** SQLite deps pinned; process-lock dependency pinned;
+**Build 3.3A/B1/B2A/B2B/B2/B3A/B3B2/B3B3/B3B4-F1/B3B5:** SQLite deps pinned; process-lock dependency pinned;
 POSIX safe-open existing root; B2B identity capability seal; Build 3.3B2 app-private SQLite
 MemoryPort opens `neo-memory.sqlite` only after a genuine open capability (owner identity is
 `(ownerId, namespace, recordId)`). Build 3.3B3A enforces same-process root↔adapter lease
@@ -175,11 +182,13 @@ coordination (`root.close` busy while adapters hold open/close-pending connectio
 retire the root). Build 3.3B3B3 adds an app-private Linux exclusive process-lock primitive
 (`neo.primary.lock`, flock, close-fd release) that is not wired to LocalHost/Neo — Neo
 second-instance protection remains inactive. Original B3B4 Linux gate FAILED on missing
-`fs.constants.O_CLOEXEC`; B3B4-F1 uses post-open `getfd`/`FD_CLOEXEC` verification (Candidate C)
-pending adversarial review and repeated B3B4; systemd layer pending. LocalHost remains in-memory
-and unwired; ApprovalPort/AuditPort ephemeral; no cross-port transaction or encryption. Сервер/VPS
-не куплен. Deployment запрещён. Security approval отсутствует (Codex Review №6 pending). Build №3
-целиком не завершён.
+`fs.constants.O_CLOEXEC`; B3B4-F1 Candidate C (post-open `getfd`/`FD_CLOEXEC`) was committed;
+runtime research probe passed; full repeated B3B4 then PASSED on the pinned Ubuntu 24.04 /
+linux-amd64 / Node 22.13.0 stack. Build 3.3B3B5 records
+`linuxIntegrationValidatedForPrimitive=true` (evidence only; not NFS, not deployment, not Neo
+protection). systemd layer pending. LocalHost remains in-memory and unwired; ApprovalPort/AuditPort
+ephemeral; no cross-port transaction or encryption. Сервер/VPS не куплен. Deployment запрещён.
+Security approval отсутствует (Codex Review №6 pending). Build №3 целиком не завершён.
 
 Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate
 (override запрещён). Review/tooling runner может использовать `OPENCLAW_REVIEW_NODE_OVERRIDE=1`

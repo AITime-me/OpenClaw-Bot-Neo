@@ -26,7 +26,12 @@ export interface PosixProcessLockDiagnostics {
   readonly privilegedAttackerResistant: false;
   readonly pathReplacementResistant: false;
   readonly distributedFilesystemSupported: false;
-  readonly linuxIntegrationValidatedForPrimitive: false;
+  /**
+   * Evidence only: this committed primitive passed the disposable Linux integration gate on the
+   * pinned target stack (Ubuntu 24.04 / linux-amd64 / Node 22.13.0). Does not imply LocalHost/Neo
+   * wiring, systemd, NFS/distributed support, deployment readiness, or privileged-attacker resistance.
+   */
+  readonly linuxIntegrationValidatedForPrimitive: true;
   readonly deploymentReady: false;
 }
 
@@ -77,7 +82,7 @@ const SUCCESS_DIAGNOSTICS: PosixProcessLockDiagnostics = Object.freeze({
   privilegedAttackerResistant: false,
   pathReplacementResistant: false,
   distributedFilesystemSupported: false,
-  linuxIntegrationValidatedForPrimitive: false,
+  linuxIntegrationValidatedForPrimitive: true,
   deploymentReady: false,
 });
 

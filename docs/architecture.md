@@ -198,25 +198,31 @@ provider: если совместимого мужского голоса нет
   directory-handle close, no pendingCleanup. Failed adapter/bootstrap close retains the lease;
   pendingCleanup retry success releases it. Not a process lock, flock, PID file, or second-instance
   guard; multiple same-process adapters remain allowed. LocalHost unwired.
-- **Build 3.3B3B2 / B3B3B3 / B3B4-F1 process-lock dependency + primitive:** `fs-ext-extra-prebuilt@2.2.10`
-  exact-pinned (Linux dependency gate complete). App-private `acquirePosixProcessLock` acquires
-  exclusive nonblocking flock on compile-time `neo.primary.lock` inside a genuine open root after
-  child lease acquisition; release is close-fd only; placeholder is never unlinked for stale
-  recovery. Open flags are `O_RDWR|O_CREAT|O_NOFOLLOW` mode `0600` only — Node v22.13.0 does not
-  export caller-visible `fs.constants.O_CLOEXEC`; Linux libuv sets CLOEXEC atomically inside `open`
-  as implementation evidence. Production verifies actual `FD_CLOEXEC` fail-closed via native
-  `fcntlSync(fd, "getfd")` after open (Candidate C / Build 3.3B3B4-F1); no production `setfd`; no
-  magic numeric `O_CLOEXEC`. Original B3B4 Linux gate FAILED; runtime research probe passed;
-  remediation pending adversarial review and repeated B3B4. Diagnostics claim cooperative flock
-  held at primitive level while `processLockWiredToNeo=false` /
-  `secondInstanceProtectionActiveForNeo=false` / `localHostWired=false` / `deploymentReady=false`.
-  Not wired to LocalHost; Neo second-instance protection inactive; systemd layer pending. Advisory
-  only — non-cooperating processes can bypass; no privileged-attacker / NFS / path-replacement
+- **Build 3.3B3B2 / B3B3B3 / B3B4-F1 / B3B5 process-lock dependency + primitive + Linux evidence:**
+  `fs-ext-extra-prebuilt@2.2.10` exact-pinned (Linux dependency gate complete). App-private
+  `acquirePosixProcessLock` acquires exclusive nonblocking flock on compile-time `neo.primary.lock`
+  inside a genuine open root after child lease acquisition; release is close-fd only; placeholder is
+  never unlinked for stale recovery. Open flags are `O_RDWR|O_CREAT|O_NOFOLLOW` mode `0600` only —
+  Node v22.13.0 does not export caller-visible `fs.constants.O_CLOEXEC`; Linux libuv sets CLOEXEC
+  atomically inside `open` as implementation evidence. Production verifies actual `FD_CLOEXEC`
+  fail-closed via native `fcntlSync(fd, "getfd")` after open (Candidate C / Build 3.3B3B4-F1
+  committed); no production `setfd`; no magic numeric `O_CLOEXEC`. Original B3B4 Linux gate FAILED;
+  runtime research probe passed; full repeated B3B4 then PASSED
+  (`BUILD_3_3B3B4_LINUX_PRIMITIVE_GATE_PASSED`) on Ubuntu 24.04.4 LTS / linux-amd64 / glibc 2.39 /
+  Docker overlayfs / Node v22.13.0 (default production acquire, getfd/FD_CLOEXEC, same/separate-process
+  contention, normal + SIGKILL release, unsafe-file rejection, redaction, no unlink/stale deletion).
+  Build 3.3B3B5 records `linuxIntegrationValidatedForPrimitive=true` as pinned-target disposable-gate
+  evidence only — not a claim that the current filesystem is production-supported, not NFS/CIFS
+  (`distributedFilesystemSupported=false`), not LocalHost/Neo wiring, not systemd, not deployment
+  readiness. Diagnostics also keep `processLockWiredToNeo=false` /
+  `secondInstanceProtectionActiveForNeo=false` / `localHostWired=false` / `deploymentReady=false` /
+  `systemdLayerConfigured=false`. Process lock does not participate in Neo startup lifecycle.
+  Advisory only — non-cooperating processes can bypass; no privileged-attacker / path-replacement
   resistance.
 - Сервер не куплен. Deployment не разрешён.
 - Реальный authentication/provider adapter и persistent atomic replay/idempotency store не
   реализованы. Окончательный security approval отсутствует pending Codex Review №6.
-- Repeated Linux B3B4 gate after F1 review, LocalHost SQLite/process-lock wiring, durable
+- LocalHost SQLite/process-lock wiring, Neo second-instance protection activation, durable
   approval/audit, secret-provider, cross-port transaction gap, systemd layer, и VPS/deployment
   остаются pending.
 - Только после security review: sandbox/integration environment.
