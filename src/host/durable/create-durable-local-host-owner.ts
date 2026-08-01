@@ -12,7 +12,7 @@ import {
   type MemoryRecord,
   type Result,
 } from '../../core/domain/index.js';
-import type { LocalHost } from '../create-local-host.js';
+import type { LocalHost } from '../local-host.js';
 import {
   DURABLE_LOCAL_HOST_OWNER_DIAGNOSTICS,
   type DurableLocalHostOwnerDiagnostics,

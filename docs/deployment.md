@@ -50,8 +50,10 @@ wiring — Neo second-instance protection inactive. Original B3B4 Linux gate FAI
 Ubuntu 24.04 / linux-amd64 / Node 22.13.0. Build 3.3B3B5 records
 `linuxIntegrationValidatedForPrimitive=true` (pinned-target evidence only; not NFS, not deployment).
 systemd unit/layer pending. Build 3.3B3C1 adds pure durable owner/controller lifecycle over fake
-closures only (non-reentrant ordered close; snapshotted closers) — not real root/lock/SQLite
-wiring, not production bootstrap. LocalHost не wired;
+closures only (non-reentrant ordered close; snapshotted closers). Build 3.3B3C2 wires real POSIX
+root → process lock → SQLite MemoryPort into that owner via an app-private Linux-gated factory
+with deterministic startup rollback; factory is not connected to Neo startup; complete composition
+Linux integration gate pending B3C4. Existing `createLocalHost()` остаётся in-memory;
 process lock не участвует в Neo startup lifecycle; approval/audit ephemeral; cross-port transaction /
 encryption отсутствуют; не является deployment approval. Build №3 не завершён, VPS не куплен,
 security approval отсутствует pending Codex Review №6. До review, threat model и отдельного owner

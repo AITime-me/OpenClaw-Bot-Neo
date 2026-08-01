@@ -172,9 +172,12 @@ export const INTERNAL_MODULE_ALLOWLIST = {
     'host/storage/runtime/acquire-posix-process-lock.ts',
   ],
   /**
-   * Process-lock factory (Build 3.3B3B3). Not wired into LocalHost/host barrels; no src importer yet.
+   * Process-lock factory (Build 3.3B3B3 / B3C2). Exact POSIX durable composition factory may import it.
+   * No wildcard host/durable/** — sibling durable modules remain forbidden.
    */
-  'host/storage/runtime/acquire-posix-process-lock.ts': [],
+  'host/storage/runtime/acquire-posix-process-lock.ts': [
+    'host/durable/create-posix-durable-local-host.ts',
+  ],
   /**
    * Process-lock compile-time constants. Only the process-lock factory may import them.
    */
@@ -334,11 +337,17 @@ export function analyzeBoundaries(options = {}) {
         });
         continue;
       }
-      if (reference.kind === 'dynamic-import')
-        violations.push({
-          code: 'DYNAMIC_IMPORT_FORBIDDEN',
-          message: `${where} uses dynamic import; core cannot load executable extensions.`,
-        });
+      if (reference.kind === 'dynamic-import') {
+        // Build 3.3B3C2: exact POSIX durable composition factory may lazily load root/lock/SQLite
+        // after the Linux gate. All other dynamic imports remain forbidden.
+        const allowedLazyComposition =
+          fileRelative === 'host/durable/create-posix-durable-local-host.ts';
+        if (!allowedLazyComposition)
+          violations.push({
+            code: 'DYNAMIC_IMPORT_FORBIDDEN',
+            message: `${where} uses dynamic import; core cannot load executable extensions.`,
+          });
+      }
       if (isBuiltin(reference.specifier)) {
         if (fromLayer === 'host') {
           const specifier = reference.specifier.startsWith('node:')

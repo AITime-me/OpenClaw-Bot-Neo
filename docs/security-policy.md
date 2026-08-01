@@ -340,6 +340,12 @@ absolute OS mutex и не global single-writer для всех SQLite clients.
 **Build 3.3B3C1:** app-private pure durable owner/controller с operation gate и ordered retryable
 non-reentrant shutdown на snapshotted injected fake closures only. Не открывает POSIX root /
 process lock / SQLite; не делает MemoryPort durable; не wired к LocalHost production bootstrap;
-diagnostics оставляют real-wiring flags false. B3C2 adapters must encapsulate ownership-aware
-retry inside closures. Pure controller тестируется на Windows; реальная durable composition —
-B3C2 (Linux-gated). Codex Review №6 pending; deployment запрещён.
+diagnostics оставляют real-wiring flags false. Pure controller тестируется на Windows.
+Codex Review №6 pending; deployment запрещён.
+
+**Build 3.3B3C2:** app-private Linux-gated POSIX durable composition (`createPosixDurableLocalHost`)
+wire'ит real POSIX root → exclusive process lock → SQLite MemoryPort, переиспользует B3C1 owner,
+выполняет deterministic startup rollback (SQLite → lock → root). Existing `createLocalHost()`
+остаётся in-memory. Factory не package/host-exported; не подключена к Neo startup; complete B3C2
+Linux integration gate pending B3C4; systemd pending; durable Approval/Audit absent; secret
+provider/encryption absent. Codex Review №6 pending; deployment запрещён.

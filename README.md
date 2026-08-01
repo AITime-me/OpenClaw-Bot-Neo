@@ -84,14 +84,22 @@ remain after crash; never unlinked for stale recovery. Advisory/cooperative only
 non-cooperating processes can bypass; no privileged-attacker / NFS / path-replacement resistance;
 overlayfs gate does not prove NFS/CIFS (`distributedFilesystemSupported=false`). It does not make
 ApprovalPort/AuditPort durable, does not provide cross-port transactions, encryption, secret
-storage, TOCTOU elimination, or deployment approval. LocalHost remains in-memory and unwired to
-SQLite/process-lock. systemd absent. Codex Review №6 pending. Planned VPS: Timeweb Cloud 4 vCPU /
-8 ГБ / 80 ГБ NVMe, Ubuntu 24.04, Linux server-only; no Windows agent runtime.
+storage, TOCTOU elimination, or deployment approval. At B3B5 time LocalHost still remained
+in-memory and unwired to SQLite/process-lock. systemd absent. Codex Review №6 pending. Planned VPS:
+Timeweb Cloud 4 vCPU / 8 ГБ / 80 ГБ NVMe, Ubuntu 24.04, Linux server-only; no Windows agent runtime.
 
 **Build 3.3B3C1:** app-private pure durable owner/controller (`createDurableLocalHostOwner`) with
 operation gate and ordered retryable non-reentrant shutdown over snapshotted injected fake
 resource closures only. Not a real root/lock/SQLite composition; not package-exported;
-Windows-testable pure lifecycle only. B3C2 required for real durable wiring. Deployment prohibited.
+Windows-testable pure lifecycle only. Deployment prohibited.
+
+**Build 3.3B3C2:** app-private Linux-gated POSIX durable composition factory
+(`createPosixDurableLocalHost`) wires real POSIX root → exclusive process lock → SQLite MemoryPort,
+reuses B3C1 owner/controller, and returns frozen `{ host, diagnostics, close }` only after full
+startup success. Startup rollback is deterministic (SQLite → lock → root). Existing
+`createLocalHost()` remains in-memory. Factory is not package/host-exported; not connected to Neo
+startup; complete B3C2 Linux integration gate pending B3C4; systemd pending; durable Approval/Audit
+absent; secret provider/encryption absent. Codex Review №6 pending. Deployment prohibited.
 
 | Слой | Статус |
 |------|--------|
@@ -111,7 +119,8 @@ Windows-testable pure lifecycle only. B3C2 required for real durable wiring. Dep
 | App-private exclusive process lock (Build 3.3B3B3) | implemented (primitive only; LocalHost/Neo unwired) |
 | Linux CLOEXEC runtime remediation (Build 3.3B3B4-F1) | implemented (Candidate C committed) |
 | Linux process-lock primitive validation (Build 3.3B3B4/B3B5) | recorded (`linuxIntegrationValidatedForPrimitive=true`; unwired) |
-| Durable owner/controller fake lifecycle (Build 3.3B3C1) | implemented (app-private; fake closures only; unwired) |
+| Durable owner/controller fake lifecycle (Build 3.3B3C1) | implemented (app-private; fake closures only) |
+| POSIX durable LocalHost composition (Build 3.3B3C2) | implemented (app-private; Linux-gated; Neo unwired; B3C4 gate pending) |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
@@ -195,8 +204,12 @@ linux-amd64 / Node 22.13.0 stack. Build 3.3B3B5 records
 protection). Build 3.3B3C1 adds a pure app-private durable owner/controller lifecycle (fake
 closures only; operation gate; ordered retryable non-reentrant close; snapshotted closers)
 without real root/lock/SQLite wiring.
-systemd layer pending. LocalHost remains in-memory and unwired; ApprovalPort/AuditPort
-ephemeral; no cross-port transaction or encryption. Сервер/VPS не куплен. Deployment запрещён.
+Build 3.3B3C2 adds the app-private Linux-gated POSIX durable composition factory that wires real
+POSIX root → process lock → SQLite MemoryPort into a B3C1 owner (startup rollback
+SQLite → lock → root). Factory remains app-private / Neo-unwired; complete composition Linux
+integration gate pending B3C4. systemd layer pending. Existing `createLocalHost()` remains
+in-memory; ApprovalPort/AuditPort ephemeral; no cross-port transaction or encryption.
+Сервер/VPS не куплен. Deployment запрещён.
 Security approval отсутствует (Codex Review №6 pending). Build №3 целиком не завершён.
 
 Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate

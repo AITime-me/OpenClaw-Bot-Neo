@@ -149,10 +149,11 @@ module.exports = {
       name: 'process-lock-modules-unwired',
       severity: 'error',
       comment:
-        'Process-lock factory/constants are app-private and unwired; host siblings may not import them.',
+        'Process-lock factory/constants are app-private; only the exact process-lock factory and the exact POSIX durable composition factory may import them.',
       from: {
         path: '^src/host',
-        pathNot: '^src/host/storage/runtime/acquire-posix-process-lock\\.ts$',
+        pathNot:
+          '^src/host/(storage/runtime/acquire-posix-process-lock|durable/create-posix-durable-local-host)\\.ts$',
       },
       to: {
         path: '^src/host/storage/runtime/(acquire-posix-process-lock|posix-process-lock-constants)\\.ts$',

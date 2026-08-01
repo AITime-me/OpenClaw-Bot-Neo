@@ -189,7 +189,8 @@ provider: если совместимого мужского голоса нет
   claim sqlite-local memory durability only — `localHostWired=false`, approval/audit not durable,
   no cross-port atomicity, no encryption, no exclusive lock, no second-instance protection,
   `storageRootLeaseCoordinated=true` (same-process only), Linux container unvalidated,
-  deploymentReady=false. LocalHost remains in-memory and unwired. Codex Review №6 and
+  deploymentReady=false. At B3B2 time LocalHost remained in-memory and unwired (B3C2 later adds
+  app-private durable composition; Neo still unwired). Codex Review №6 and
   VPS/deployment remain pending.
 - **Build 3.3B3A Root/Adapter Lease Coordination implemented locally, pending adversarial review.**
   Module-private active lease tracking on genuine open POSIX roots; SQLite factory acquires a child
@@ -230,11 +231,18 @@ provider: если совместимого мужского голоса нет
   inside those closures (no raw OwnershipError across the boundary). Not exported via
   package/host/storage barrels. Does not open POSIX root, acquire process lock, or open SQLite;
   diagnostics keep all real-wiring flags false. Existing `createLocalHost()` remains in-memory
-  without `close`. Pure controller is testable on Windows; actual durable composition remains
-  unwired and Linux-gated for B3C2. Deployment prohibited.
-- LocalHost SQLite/process-lock real wiring (B3C2), Neo second-instance protection activation,
-  durable approval/audit, secret-provider, cross-port transaction gap, systemd layer, и
-  VPS/deployment остаются pending.
+  without `close`. Pure controller is testable on Windows. Deployment prohibited.
+- **Build 3.3B3C2 POSIX durable composition implemented locally, pending adversarial review.**
+  App-private `createPosixDurableLocalHost` (Linux-gated; lazy native loaders after platform gate)
+  validates pure config/storage plan/policy, opens genuine POSIX root, acquires exclusive process
+  lock, creates SQLite MemoryPort, assembles LocalHost with SQLite memory + in-memory Approval/Audit,
+  wraps with B3C1 owner, and returns frozen owner only after full startup success. Deterministic
+  startup rollback: SQLite → process-lock → storage-root. Shutdown order matches B3C1. Not exported
+  via package/host barrels; not connected to Neo startup. Complete B3C2 Linux integration gate
+  pending B3C4. systemd, durable approval/audit, secret-provider, encryption, cross-port
+  transactions, Neo second-instance protection, and VPS/deployment remain pending/prohibited.
+- Neo second-instance protection activation, durable approval/audit, secret-provider, cross-port
+  transaction gap, systemd layer, и VPS/deployment остаются pending.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.
 

@@ -1,59 +1,14 @@
-import {
-  executeMemoryWrite,
-  type MemoryWriteCommand,
-  type MemoryWriteFailure,
-  type MemoryWriteOutcome,
-} from '../core/application/index.js';
-import {
-  err,
-  type ApprovalGrant,
-  type AuthenticatedMemoryAccessContext,
-  type DomainError,
-  type MemoryReadRequest,
-  type MemoryRecord,
-  type Result,
-} from '../core/domain/index.js';
 import type { ClockPort, MemoryPolicyPort, SensitiveDataScannerPort } from '../core/ports/index.js';
-import { authorizeMemoryAccess } from '../core/policy/namespace-isolation.js';
-import { LOCAL_HOST_DIAGNOSTICS, type LocalHostDiagnostics } from './diagnostics.js';
+import { assembleLocalHostFromPorts } from './assemble-local-host.js';
+import { LOCAL_HOST_DIAGNOSTICS } from './diagnostics.js';
 import { createInMemoryApprovalStore } from './in-memory/approval-store.js';
 import { createInMemoryAuditLog } from './in-memory/audit-log.js';
 import { createDenyByDefaultMemoryPolicy } from './in-memory/memory-policy.js';
 import { createInMemoryMemoryStore } from './in-memory/memory-store.js';
 import { createInMemorySensitiveDataScanner } from './in-memory/sensitive-data-scanner.js';
+import type { CreateLocalHostInput, LocalHost } from './local-host.js';
 
-/**
- * Explicit composition input. Trusted clock evidence cannot be invented inside host;
- * callers must inject a ClockPort. Authenticated access is supplied per use-case call.
- * Memory policy defaults to deny-by-default; allow must be injected explicitly.
- */
-export interface CreateLocalHostInput {
-  readonly clock: ClockPort;
-  readonly scanner?: SensitiveDataScannerPort;
-  readonly policy?: MemoryPolicyPort;
-}
-
-/**
- * App-private local host surface for Build 3.0 integration checks.
- * Not a service locator; not published via package exports.
- */
-export interface LocalHost {
-  readonly diagnostics: LocalHostDiagnostics;
-  writeMemory(
-    access: AuthenticatedMemoryAccessContext,
-    command: MemoryWriteCommand,
-  ): Promise<Result<MemoryWriteOutcome, MemoryWriteFailure>>;
-  readMemory(
-    access: AuthenticatedMemoryAccessContext,
-    request: MemoryReadRequest,
-  ): Promise<Result<MemoryRecord, DomainError>>;
-  /**
-   * Local-only helper: stores a plain ApprovalGrant for ApprovalPort lookup/consume.
-   * Does not seal ValidatedApproval, does not create AuthenticatedMemoryAccessContext,
-   * and is not an approval issuance authority.
-   */
-  seedLocalApprovalGrant(grant: ApprovalGrant): void;
-}
+export type { CreateLocalHostInput, LocalHost } from './local-host.js';
 
 const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object';
@@ -122,28 +77,13 @@ export function createLocalHost(input: CreateLocalHostInput): LocalHost {
     input['policy'] === undefined ? createDenyByDefaultMemoryPolicy() : input['policy'],
   );
 
-  const host: LocalHost = {
+  return assembleLocalHostFromPorts({
+    memory,
+    approvals,
+    audit,
+    scanner,
+    policy,
+    clock,
     diagnostics: LOCAL_HOST_DIAGNOSTICS,
-    writeMemory: (access, command) =>
-      executeMemoryWrite({ scanner, policy, approvals, memory, audit, clock }, access, command),
-    readMemory: (access, request) => {
-      const decision = authorizeMemoryAccess(access, 'read', {
-        ownerId: request.expectedOwnerId,
-        namespace: request.expectedNamespace,
-      });
-      if (!decision.allowed)
-        return Promise.resolve(
-          err({
-            code: 'POLICY_DENIED',
-            reason: `${decision.code}: ${decision.reason}`,
-          }),
-        );
-      return memory.read(request, access);
-    },
-    seedLocalApprovalGrant: (grant) => {
-      approvals.seed(grant);
-    },
-  };
-
-  return Object.freeze(host);
+  });
 }

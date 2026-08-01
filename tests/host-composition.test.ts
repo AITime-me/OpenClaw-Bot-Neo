@@ -478,7 +478,7 @@ describe('adversarial memory authorization (F1/F2/F3)', () => {
 
   it('regression: memory-store and host read path require authorizeMemoryAccess', () => {
     const storeSource = readFileSync('src/host/in-memory/memory-store.ts', 'utf8');
-    const hostSource = readFileSync('src/host/create-local-host.ts', 'utf8');
+    const hostSource = readFileSync('src/host/assemble-local-host.ts', 'utf8');
     expect(storeSource).toContain('authorizeMemoryAccess');
     expect(hostSource).toContain('authorizeMemoryAccess');
     expect(storeSource).not.toMatch(/void access/);
