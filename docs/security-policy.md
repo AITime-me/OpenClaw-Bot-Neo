@@ -335,5 +335,11 @@ lease удерживается пока fd open/release-pending; placeholder м�
 wired к LocalHost/Neo и не участвует в Neo startup lifecycle;
 `secondInstanceProtectionActiveForNeo=false`; systemd layer отсутствует. Advisory only:
 non-cooperating process может обойти; нет privileged-attacker / path-replacement resistance; не
-absolute OS mutex и не global single-writer для всех SQLite clients. Codex Review №6 pending;
-deployment запрещён.
+absolute OS mutex и не global single-writer для всех SQLite clients.
+
+**Build 3.3B3C1:** app-private pure durable owner/controller с operation gate и ordered retryable
+non-reentrant shutdown на snapshotted injected fake closures only. Не открывает POSIX root /
+process lock / SQLite; не делает MemoryPort durable; не wired к LocalHost production bootstrap;
+diagnostics оставляют real-wiring flags false. B3C2 adapters must encapsulate ownership-aware
+retry inside closures. Pure controller тестируется на Windows; реальная durable composition —
+B3C2 (Linux-gated). Codex Review №6 pending; deployment запрещён.

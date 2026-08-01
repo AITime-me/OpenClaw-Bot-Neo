@@ -222,9 +222,19 @@ provider: если совместимого мужского голоса нет
 - Сервер не куплен. Deployment не разрешён.
 - Реальный authentication/provider adapter и persistent atomic replay/idempotency store не
   реализованы. Окончательный security approval отсутствует pending Codex Review №6.
-- LocalHost SQLite/process-lock wiring, Neo second-instance protection activation, durable
-  approval/audit, secret-provider, cross-port transaction gap, systemd layer, и VPS/deployment
-  остаются pending.
+- **Build 3.3B3C1 durable owner/controller (fake lifecycle) implemented locally, pending
+  adversarial review.** App-private pure `createDurableLocalHostOwner` provides frozen
+  `{ host, diagnostics, close }` with composition-level operation gate and ordered retryable
+  non-reentrant shutdown (`memory` → `process-lock` → `storage-root`) over closers snapshotted at
+  construction from injected resource closures only. B3C2 adapters must keep ownership-aware retry
+  inside those closures (no raw OwnershipError across the boundary). Not exported via
+  package/host/storage barrels. Does not open POSIX root, acquire process lock, or open SQLite;
+  diagnostics keep all real-wiring flags false. Existing `createLocalHost()` remains in-memory
+  without `close`. Pure controller is testable on Windows; actual durable composition remains
+  unwired and Linux-gated for B3C2. Deployment prohibited.
+- LocalHost SQLite/process-lock real wiring (B3C2), Neo second-instance protection activation,
+  durable approval/audit, secret-provider, cross-port transaction gap, systemd layer, и
+  VPS/deployment остаются pending.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.
 

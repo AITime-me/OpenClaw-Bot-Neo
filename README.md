@@ -88,6 +88,11 @@ storage, TOCTOU elimination, or deployment approval. LocalHost remains in-memory
 SQLite/process-lock. systemd absent. Codex Review №6 pending. Planned VPS: Timeweb Cloud 4 vCPU /
 8 ГБ / 80 ГБ NVMe, Ubuntu 24.04, Linux server-only; no Windows agent runtime.
 
+**Build 3.3B3C1:** app-private pure durable owner/controller (`createDurableLocalHostOwner`) with
+operation gate and ordered retryable non-reentrant shutdown over snapshotted injected fake
+resource closures only. Not a real root/lock/SQLite composition; not package-exported;
+Windows-testable pure lifecycle only. B3C2 required for real durable wiring. Deployment prohibited.
+
 | Слой | Статус |
 |------|--------|
 | Target architecture | planned |
@@ -106,6 +111,7 @@ SQLite/process-lock. systemd absent. Codex Review №6 pending. Planned VPS: Tim
 | App-private exclusive process lock (Build 3.3B3B3) | implemented (primitive only; LocalHost/Neo unwired) |
 | Linux CLOEXEC runtime remediation (Build 3.3B3B4-F1) | implemented (Candidate C committed) |
 | Linux process-lock primitive validation (Build 3.3B3B4/B3B5) | recorded (`linuxIntegrationValidatedForPrimitive=true`; unwired) |
+| Durable owner/controller fake lifecycle (Build 3.3B3C1) | implemented (app-private; fake closures only; unwired) |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
@@ -186,7 +192,10 @@ second-instance protection remains inactive. Original B3B4 Linux gate FAILED on 
 runtime research probe passed; full repeated B3B4 then PASSED on the pinned Ubuntu 24.04 /
 linux-amd64 / Node 22.13.0 stack. Build 3.3B3B5 records
 `linuxIntegrationValidatedForPrimitive=true` (evidence only; not NFS, not deployment, not Neo
-protection). systemd layer pending. LocalHost remains in-memory and unwired; ApprovalPort/AuditPort
+protection). Build 3.3B3C1 adds a pure app-private durable owner/controller lifecycle (fake
+closures only; operation gate; ordered retryable non-reentrant close; snapshotted closers)
+without real root/lock/SQLite wiring.
+systemd layer pending. LocalHost remains in-memory and unwired; ApprovalPort/AuditPort
 ephemeral; no cross-port transaction or encryption. Сервер/VPS не куплен. Deployment запрещён.
 Security approval отсутствует (Codex Review №6 pending). Build №3 целиком не завершён.
 
