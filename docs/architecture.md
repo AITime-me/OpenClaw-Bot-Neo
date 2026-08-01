@@ -198,21 +198,27 @@ provider: если совместимого мужского голоса нет
   directory-handle close, no pendingCleanup. Failed adapter/bootstrap close retains the lease;
   pendingCleanup retry success releases it. Not a process lock, flock, PID file, or second-instance
   guard; multiple same-process adapters remain allowed. LocalHost unwired.
-- **Build 3.3B3B2 / B3B3B3 process-lock dependency + primitive:** `fs-ext-extra-prebuilt@2.2.10`
+- **Build 3.3B3B2 / B3B3B3 / B3B4-F1 process-lock dependency + primitive:** `fs-ext-extra-prebuilt@2.2.10`
   exact-pinned (Linux dependency gate complete). App-private `acquirePosixProcessLock` acquires
   exclusive nonblocking flock on compile-time `neo.primary.lock` inside a genuine open root after
   child lease acquisition; release is close-fd only; placeholder is never unlinked for stale
-  recovery. Diagnostics claim cooperative flock held at primitive level while
-  `processLockWiredToNeo=false` / `secondInstanceProtectionActiveForNeo=false` /
-  `localHostWired=false` / `deploymentReady=false`. Not wired to LocalHost; Neo second-instance
-  protection inactive; systemd layer pending; Linux validation of the implemented primitive
-  pending. Advisory only — non-cooperating processes can bypass; no privileged-attacker / NFS /
-  path-replacement resistance.
+  recovery. Open flags are `O_RDWR|O_CREAT|O_NOFOLLOW` mode `0600` only — Node v22.13.0 does not
+  export caller-visible `fs.constants.O_CLOEXEC`; Linux libuv sets CLOEXEC atomically inside `open`
+  as implementation evidence. Production verifies actual `FD_CLOEXEC` fail-closed via native
+  `fcntlSync(fd, "getfd")` after open (Candidate C / Build 3.3B3B4-F1); no production `setfd`; no
+  magic numeric `O_CLOEXEC`. Original B3B4 Linux gate FAILED; runtime research probe passed;
+  remediation pending adversarial review and repeated B3B4. Diagnostics claim cooperative flock
+  held at primitive level while `processLockWiredToNeo=false` /
+  `secondInstanceProtectionActiveForNeo=false` / `localHostWired=false` / `deploymentReady=false`.
+  Not wired to LocalHost; Neo second-instance protection inactive; systemd layer pending. Advisory
+  only — non-cooperating processes can bypass; no privileged-attacker / NFS / path-replacement
+  resistance.
 - Сервер не куплен. Deployment не разрешён.
 - Реальный authentication/provider adapter и persistent atomic replay/idempotency store не
   реализованы. Окончательный security approval отсутствует pending Codex Review №6.
-- Linux primitive validation (B3B3B3), LocalHost SQLite/process-lock wiring, durable approval/audit,
-  secret-provider, cross-port transaction gap, systemd layer, и VPS/deployment остаются pending.
+- Repeated Linux B3B4 gate after F1 review, LocalHost SQLite/process-lock wiring, durable
+  approval/audit, secret-provider, cross-port transaction gap, systemd layer, и VPS/deployment
+  остаются pending.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.
 

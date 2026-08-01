@@ -316,12 +316,17 @@ lease до открытия DB; `root.close` fail-closed busy при active/clos
 capability и без directory teardown; successful adapter close освобождает lease; failed close и
 bootstrap pendingCleanup удерживают lease. Не process lock / flock / PID file.
 
-**Build 3.3B3B2 / B3B3B3:** exact pin `fs-ext-extra-prebuilt@2.2.10`; app-private Linux-only
+**Build 3.3B3B2 / B3B3B3 / B3B4-F1:** exact pin `fs-ext-extra-prebuilt@2.2.10`; app-private Linux-only
 `acquirePosixProcessLock` на fixed placeholder `neo.primary.lock` (не SQLite DB/WAL/SHM, не PID
-file). Kernel flock exclusive nonblocking; close fd освобождает lock; root child lease удерживается
-пока fd open/release-pending; placeholder может остаться после crash и никогда не unlink для stale
-recovery. Cooperative second acquire → `STORAGE_LOCK_HELD`. Primitive **не** wired к LocalHost/Neo;
-`secondInstanceProtectionActiveForNeo=false`; systemd layer отсутствует; Linux validation
-implemented primitive pending (dependency gate уже выполнен). Advisory only: non-cooperating
-process может обойти; нет privileged-attacker / NFS / path-replacement resistance; не absolute OS
-mutex и не global single-writer для всех SQLite clients.
+file). Open: `O_RDWR|O_CREAT|O_NOFOLLOW` mode `0600` — Node v22.13.0 не экспортирует
+`fs.constants.O_CLOEXEC`; Linux libuv атомарно выставляет CLOEXEC внутри `open` (implementation
+evidence). Production fail-closed проверяет фактический `FD_CLOEXEC` через native
+`fcntlSync(fd, "getfd")` после open (Candidate C); `setfd` и magic numeric `O_CLOEXEC` не
+используются. Original B3B4 Linux gate FAILED; runtime research probe passed; F1 remediation
+pending adversarial review и repeated B3B4. Kernel flock exclusive nonblocking; close fd
+освобождает lock; root child lease удерживается пока fd open/release-pending; placeholder может
+остаться после crash и никогда не unlink для stale recovery. Cooperative second acquire →
+`STORAGE_LOCK_HELD`. Primitive **не** wired к LocalHost/Neo; `secondInstanceProtectionActiveForNeo=false`;
+systemd layer отсутствует. Advisory only: non-cooperating process может обойти; нет
+privileged-attacker / NFS / path-replacement resistance; не absolute OS mutex и не global
+single-writer для всех SQLite clients.

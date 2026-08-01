@@ -311,6 +311,24 @@ const acquirePosixProcessLockInternal = (
     return mapOpenOrStatError(error);
   }
 
+  const cloexec = driver.verifyCloseOnExec(fd);
+  if (!cloexec.ok) {
+    if (cloexec.kind === 'unavailable') {
+      return failAfterFdOpen(
+        driver,
+        fd,
+        lease,
+        unavailable('Exclusive process lock is unavailable on this runtime.'),
+      );
+    }
+    return failAfterFdOpen(
+      driver,
+      fd,
+      lease,
+      acquireFailed('Exclusive process lock acquisition failed.'),
+    );
+  }
+
   let stats: PosixProcessLockFileStat;
   try {
     stats = driver.fstatLockFd(fd);

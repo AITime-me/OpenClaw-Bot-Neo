@@ -11,7 +11,10 @@ import {
   isPosixProcessLockOwnershipError,
 } from '../src/host/storage/runtime/acquire-posix-process-lock.js';
 import { POSIX_PROCESS_LOCK_FILENAME } from '../src/host/storage/runtime/posix-process-lock-constants.js';
-import type { PosixProcessLockDriver } from '../src/host/storage/runtime/posix-process-lock-driver.js';
+import type {
+  PosixProcessLockCloexecVerification,
+  PosixProcessLockDriver,
+} from '../src/host/storage/runtime/posix-process-lock-driver.js';
 import { createNodePosixProcessLockDriverWithPrimitives } from '../src/host/storage/runtime/posix-process-lock-driver.js';
 import { openPosixStorageRootWithSystem } from '../src/host/storage/runtime/open-posix-storage-root.js';
 import type { OpenedPosixStorageRoot } from '../src/host/storage/runtime/open-posix-storage-root.js';
@@ -167,6 +170,7 @@ type FakeDriverOptions = {
   readonly fileUid?: number;
   readonly nlink?: number;
   readonly isFile?: boolean;
+  readonly cloexecVerification?: PosixProcessLockCloexecVerification;
   /** Shared fake kernel flock state — required for multi-driver contention tests. */
   readonly kernel?: FakeKernelState;
 };
@@ -175,6 +179,8 @@ type FakeDriver = PosixProcessLockDriver & {
   readonly openedPaths: string[];
   readonly closeCalls: number;
   readonly flockCalls: number;
+  readonly verifyCalls: number[];
+  readonly fstatCalls: number[];
   readonly unlinkCalls: number;
   readonly contents: Map<string, string>;
   readonly kernel: FakeKernelState;
@@ -195,6 +201,8 @@ const createFakeDriver = (options: FakeDriverOptions = {}): FakeDriver => {
   const openedPaths: string[] = [];
   const closeCalls = { count: 0 };
   const flockCalls = { count: 0 };
+  const verifyCalls: number[] = [];
+  const fstatCalls: number[] = [];
   const unlinkCalls = { count: 0 };
   let closeFailuresLeft = options.closeFailures ?? 0;
   let flockErrorOnce = options.flockErrorOnce;
@@ -206,6 +214,12 @@ const createFakeDriver = (options: FakeDriverOptions = {}): FakeDriver => {
     },
     get flockCalls() {
       return flockCalls.count;
+    },
+    get verifyCalls() {
+      return verifyCalls;
+    },
+    get fstatCalls() {
+      return fstatCalls;
     },
     get unlinkCalls() {
       return unlinkCalls.count;
@@ -226,7 +240,12 @@ const createFakeDriver = (options: FakeDriverOptions = {}): FakeDriver => {
       kernel.fdToPath.set(fd, absoluteLockPath);
       return fd;
     },
+    verifyCloseOnExec: (fd: number): PosixProcessLockCloexecVerification => {
+      verifyCalls.push(fd);
+      return options.cloexecVerification ?? Object.freeze({ ok: true as const });
+    },
     fstatLockFd: (fd: number) => {
+      fstatCalls.push(fd);
       if (options.fstatError !== undefined) throw options.fstatError;
       if (!kernel.fdToPath.has(fd)) {
         const error = new Error('bad fd') as NodeJS.ErrnoException;
@@ -1068,39 +1087,89 @@ describe('production process-lock driver secure-open contract', () => {
     O_EXCL: 0b100_0000,
   });
 
+  const FD_CLOEXEC_BIT = 1;
+
   type Capture = {
     openCalls: Array<{ path: string; flags: number; mode: number | undefined }>;
     openInvoked: boolean;
+    fcntlCalls: Array<{ fd: number }>;
+    fstatCalls: number[];
+    flockCalls: number[];
+    resolveFdCloexecCalls: number;
+    nativeLoadCalls: number;
   };
 
   const createCapturingPrimitives = (
     constants: typeof BASE_CONSTANTS | Record<string, number | undefined>,
+    options: {
+      readonly fdCloexec?: unknown;
+      readonly hasFdCloexec?: boolean;
+      readonly getFdResult?: unknown;
+      readonly hasGetFdResult?: boolean;
+      readonly getFdThrow?: unknown;
+      readonly resolveFdCloexecThrow?: unknown;
+      readonly fcntlGetFdImpl?: (fd: number) => number;
+    } = {},
   ): {
     readonly primitives: Parameters<typeof createNodePosixProcessLockDriverWithPrimitives>[0];
     readonly capture: Capture;
   } => {
-    const capture: Capture = { openCalls: [], openInvoked: false };
+    const capture: Capture = {
+      openCalls: [],
+      openInvoked: false,
+      fcntlCalls: [],
+      fstatCalls: [],
+      flockCalls: [],
+      resolveFdCloexecCalls: 0,
+      nativeLoadCalls: 0,
+    };
     const primitives = Object.freeze({
       openSync: (path: string, flags: number, mode?: number): number => {
         capture.openInvoked = true;
         capture.openCalls.push({ path, flags, mode });
         return 7;
       },
-      fstatSync: () =>
-        Object.freeze({
+      fstatSync: (fd: number) => {
+        capture.fstatCalls.push(fd);
+        return Object.freeze({
           isFile: () => true,
           mode: 0o600,
           uid: SERVICE_UID,
           nlink: 1,
-        }),
+        });
+      },
       closeSync: (): void => undefined,
-      flockSync: (): void => undefined,
+      flockSync: (fd: number): void => {
+        capture.flockCalls.push(fd);
+      },
+      fcntlGetFd: (fd: number): number => {
+        capture.fcntlCalls.push({ fd });
+        capture.nativeLoadCalls += 1;
+        if (options.fcntlGetFdImpl !== undefined) return options.fcntlGetFdImpl(fd);
+        if (options.getFdThrow !== undefined) {
+          // Test seam must rethrow arbitrary values (string/null/errno) to prove redaction.
+          // eslint-disable-next-line @typescript-eslint/only-throw-error -- deliberate non-Error throws
+          throw options.getFdThrow;
+        }
+        if (options.hasGetFdResult === true) return options.getFdResult as number;
+        return FD_CLOEXEC_BIT;
+      },
+      resolveFdCloexec: (): unknown => {
+        capture.resolveFdCloexecCalls += 1;
+        capture.nativeLoadCalls += 1;
+        if (options.resolveFdCloexecThrow !== undefined) {
+          // eslint-disable-next-line @typescript-eslint/only-throw-error -- deliberate non-Error throws
+          throw options.resolveFdCloexecThrow;
+        }
+        if (options.hasFdCloexec === true) return options.fdCloexec;
+        return FD_CLOEXEC_BIT;
+      },
       constants: Object.freeze({ ...constants }),
     });
     return { primitives, capture };
   };
 
-  it('passes exact combined secure flags and mode 0o600 without TRUNC/APPEND/EXCL', () => {
+  it('passes exact combined secure flags and mode 0o600 without TRUNC/APPEND/EXCL/CLOEXEC', () => {
     const { primitives, capture } = createCapturingPrimitives(BASE_CONSTANTS);
     const driver = createNodePosixProcessLockDriverWithPrimitives(primitives);
     const fd = driver.openLockFile('/tmp/neo-contract.lock');
@@ -1109,38 +1178,82 @@ describe('production process-lock driver secure-open contract', () => {
     const call = capture.openCalls[0];
     expect(call).toBeDefined();
     if (call === undefined) throw new Error('call');
-    const expected =
-      BASE_CONSTANTS.O_RDWR |
-      BASE_CONSTANTS.O_CREAT |
-      BASE_CONSTANTS.O_NOFOLLOW |
-      BASE_CONSTANTS.O_CLOEXEC;
+    const expected = BASE_CONSTANTS.O_RDWR | BASE_CONSTANTS.O_CREAT | BASE_CONSTANTS.O_NOFOLLOW;
     expect(call.flags).toBe(expected);
     expect(call.mode).toBe(0o600);
     expect((call.flags & BASE_CONSTANTS.O_TRUNC) === 0).toBe(true);
     expect((call.flags & BASE_CONSTANTS.O_APPEND) === 0).toBe(true);
     expect((call.flags & BASE_CONSTANTS.O_EXCL) === 0).toBe(true);
+    expect((call.flags & BASE_CONSTANTS.O_CLOEXEC) === 0).toBe(true);
     expect(call.flags & BASE_CONSTANTS.O_RDWR).toBe(BASE_CONSTANTS.O_RDWR);
     expect(call.flags & BASE_CONSTANTS.O_CREAT).toBe(BASE_CONSTANTS.O_CREAT);
     expect(call.flags & BASE_CONSTANTS.O_NOFOLLOW).toBe(BASE_CONSTANTS.O_NOFOLLOW);
-    expect(call.flags & BASE_CONSTANTS.O_CLOEXEC).toBe(BASE_CONSTANTS.O_CLOEXEC);
+  });
+
+  it('presence or absence of primitive O_CLOEXEC does not change open flags', () => {
+    for (const constants of [
+      BASE_CONSTANTS,
+      { ...BASE_CONSTANTS, O_CLOEXEC: undefined },
+      {
+        O_RDWR: BASE_CONSTANTS.O_RDWR,
+        O_CREAT: BASE_CONSTANTS.O_CREAT,
+        O_NOFOLLOW: BASE_CONSTANTS.O_NOFOLLOW,
+      },
+    ]) {
+      const { primitives, capture } = createCapturingPrimitives(constants);
+      const driver = createNodePosixProcessLockDriverWithPrimitives(primitives);
+      driver.openLockFile('/tmp/neo-contract.lock');
+      const expected = BASE_CONSTANTS.O_RDWR | BASE_CONSTANTS.O_CREAT | BASE_CONSTANTS.O_NOFOLLOW;
+      expect(capture.openCalls[0]?.flags).toBe(expected);
+    }
+  });
+
+  it('source does not require fs.constants.O_CLOEXEC or magic numeric CLOEXEC', () => {
+    const driverSource = readFileSync(
+      join(process.cwd(), 'src/host/storage/runtime/posix-process-lock-driver.ts'),
+      'utf8',
+    );
+    expect(driverSource).not.toMatch(/O_RDWR\s*\|\s*O_CREAT\s*\|\s*O_NOFOLLOW\s*\|\s*O_CLOEXEC/);
+    expect(driverSource).not.toMatch(
+      /return\s+O_RDWR\s*\|\s*O_CREAT\s*\|\s*O_NOFOLLOW\s*\|\s*O_CLOEXEC/,
+    );
+    expect(driverSource).not.toMatch(/typeof O_CLOEXEC !== 'number'/);
+    expect(driverSource).not.toMatch(/0x80000|524288/);
+    expect(driverSource).not.toMatch(/fcntlSync\([^)]*['"]setfd['"]/);
+    expect(driverSource).toMatch(/fcntlGetFd|['"]getfd['"]/);
+    expect(driverSource).toMatch(/verifyCloseOnExec/);
   });
 
   it.each([
     ['O_NOFOLLOW', { ...BASE_CONSTANTS, O_NOFOLLOW: undefined }],
-    ['O_CLOEXEC', { ...BASE_CONSTANTS, O_CLOEXEC: undefined }],
     ['O_RDWR', { ...BASE_CONSTANTS, O_RDWR: undefined }],
     ['O_CREAT', { ...BASE_CONSTANTS, O_CREAT: undefined }],
-  ] as const)('missing %s fails closed before openSync', (_label, constants) => {
-    const { primitives, capture } = createCapturingPrimitives(constants);
+  ] as const)(
+    'missing %s fails closed before openSync with zero native load',
+    (_label, constants) => {
+      const { primitives, capture } = createCapturingPrimitives(constants);
+      const driver = createNodePosixProcessLockDriverWithPrimitives(primitives);
+      let thrown: unknown;
+      try {
+        driver.openLockFile('/tmp/neo-contract.lock');
+      } catch (error) {
+        thrown = error;
+      }
+      expect(capture.openInvoked).toBe(false);
+      expect(capture.nativeLoadCalls).toBe(0);
+      expect(capture.resolveFdCloexecCalls).toBe(0);
+      expect(errnoCodeOf(thrown)).toBe('STORAGE_LOCK_FLAGS_UNAVAILABLE');
+    },
+  );
+
+  it('missing O_CLOEXEC alone does not block open', () => {
+    const { primitives, capture } = createCapturingPrimitives({
+      ...BASE_CONSTANTS,
+      O_CLOEXEC: undefined,
+    });
     const driver = createNodePosixProcessLockDriverWithPrimitives(primitives);
-    let thrown: unknown;
-    try {
-      driver.openLockFile('/tmp/neo-contract.lock');
-    } catch (error) {
-      thrown = error;
-    }
-    expect(capture.openInvoked).toBe(false);
-    expect(errnoCodeOf(thrown)).toBe('STORAGE_LOCK_FLAGS_UNAVAILABLE');
+    expect(driver.openLockFile('/tmp/neo-contract.lock')).toBe(7);
+    expect(capture.openInvoked).toBe(true);
   });
 
   it('open failure stays redacted when wired through the acquire factory', () => {
@@ -1170,6 +1283,227 @@ describe('production process-lock driver secure-open contract', () => {
     const flags = capture.openCalls[0]?.flags ?? 0;
     expect(flags & BASE_CONSTANTS.O_TRUNC).toBe(0);
   });
+
+  it('CLOEXEC verification success: getfd after open, before fstat/flock', () => {
+    const storageRoot = createTempStorageRoot();
+    const { root } = openGenuineRoot(storageRoot);
+    const { primitives, capture } = createCapturingPrimitives(BASE_CONSTANTS, {
+      hasGetFdResult: true,
+      getFdResult: FD_CLOEXEC_BIT,
+    });
+    const driver = createNodePosixProcessLockDriverWithPrimitives(primitives);
+    const result = acquirePosixProcessLockWithTestHooks(root, linuxHooks(driver));
+    expect(result.ok).toBe(true);
+    expect(capture.openCalls).toHaveLength(1);
+    expect(capture.fcntlCalls).toEqual([{ fd: 7 }]);
+    expect(capture.fstatCalls).toEqual([7]);
+    expect(capture.flockCalls).toEqual([7]);
+    expect(capture.resolveFdCloexecCalls).toBe(1);
+    expect(capture.openInvoked).toBe(true);
+    if (result.ok) expect(result.value.release().ok).toBe(true);
+    expect(root.close().ok).toBe(true);
+  });
+
+  it('accepts getfd with CLOEXEC bit plus unrelated flags', () => {
+    const { primitives } = createCapturingPrimitives(BASE_CONSTANTS, {
+      hasGetFdResult: true,
+      getFdResult: FD_CLOEXEC_BIT | 0b10,
+    });
+    const driver = createNodePosixProcessLockDriverWithPrimitives(primitives);
+    expect(driver.openLockFile('/tmp/x')).toBe(7);
+    expect(driver.verifyCloseOnExec(7)).toEqual({ ok: true });
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['null', null],
+    ['string', '1'],
+    ['NaN', Number.NaN],
+    ['zero', 0],
+    ['negative', -1],
+    ['non-integer', 1.5],
+    ['multi-bit', 0b11],
+  ] as const)('FD_CLOEXEC %s fails closed as unavailable', (_label, value) => {
+    const { primitives, capture } = createCapturingPrimitives(BASE_CONSTANTS, {
+      hasFdCloexec: true,
+      fdCloexec: value,
+    });
+    const driver = createNodePosixProcessLockDriverWithPrimitives(primitives);
+    driver.openLockFile('/tmp/x');
+    const verification = driver.verifyCloseOnExec(7);
+    expect(verification).toEqual({ ok: false, kind: 'unavailable' });
+    expect(capture.fcntlCalls).toHaveLength(0);
+  });
+
+  it.each([
+    ['zero', 0],
+    ['bit absent', 0b10],
+    ['negative', -1],
+    ['NaN', Number.NaN],
+    ['float', 1.5],
+    ['string', '1' as unknown as number],
+    ['null', null as unknown as number],
+    ['undefined', undefined as unknown as number],
+  ] as const)('getfd result %s fails closed as verification-failed', (_label, value) => {
+    const { primitives } = createCapturingPrimitives(BASE_CONSTANTS, {
+      hasGetFdResult: true,
+      getFdResult: value,
+    });
+    const driver = createNodePosixProcessLockDriverWithPrimitives(primitives);
+    expect(driver.verifyCloseOnExec(7)).toEqual({ ok: false, kind: 'verification-failed' });
+  });
+
+  it('getfd throw maps to verification-failed without leaking details', () => {
+    const storageRoot = createTempStorageRoot();
+    const { root } = openGenuineRoot(storageRoot);
+    const boom = errno('EINVAL');
+    (boom as { syscall?: string }).syscall = 'fcntl';
+    const { primitives } = createCapturingPrimitives(BASE_CONSTANTS, { getFdThrow: boom });
+    const driver = createNodePosixProcessLockDriverWithPrimitives(primitives);
+    const result = acquirePosixProcessLockWithTestHooks(root, linuxHooks(driver));
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected fail');
+    expect(result.error.code).toBe('STORAGE_LOCK_ACQUIRE_FAILED');
+    assertNoLeak(result);
+    expect(root.close().ok).toBe(true);
+  });
+
+  it.each([['string throw'], ['null throw']] as const)(
+    '%s from getfd is verification-failed',
+    (label) => {
+      const thrown = label === 'string throw' ? 'boom' : null;
+      const { primitives } = createCapturingPrimitives(BASE_CONSTANTS, { getFdThrow: thrown });
+      const driver = createNodePosixProcessLockDriverWithPrimitives(primitives);
+      expect(driver.verifyCloseOnExec(7)).toEqual({ ok: false, kind: 'verification-failed' });
+    },
+  );
+
+  it('native resolve failure after open maps to unavailable and closes fd', () => {
+    const storageRoot = createTempStorageRoot();
+    const { root } = openGenuineRoot(storageRoot);
+    const nativeErr = new Error('dlopen') as NodeJS.ErrnoException;
+    nativeErr.code = 'STORAGE_LOCK_NATIVE_UNAVAILABLE';
+    let closed = 0;
+    const { primitives, capture } = createCapturingPrimitives(BASE_CONSTANTS, {
+      resolveFdCloexecThrow: nativeErr,
+    });
+    const driver = createNodePosixProcessLockDriverWithPrimitives(
+      Object.freeze({
+        ...primitives,
+        closeSync: (): void => {
+          closed += 1;
+        },
+      }),
+    );
+    const result = acquirePosixProcessLockWithTestHooks(root, linuxHooks(driver));
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('expected fail');
+    expect(result.error.code).toBe('STORAGE_LOCK_UNAVAILABLE');
+    expect(closed).toBe(1);
+    expect(capture.fstatCalls).toHaveLength(0);
+    expect(capture.flockCalls).toHaveLength(0);
+    assertNoLeak(result);
+    expect(root.close().ok).toBe(true);
+  });
+
+  it('getter/proxy error on getfd is verification-failed', () => {
+    const poisoned = new Proxy(
+      {},
+      {
+        get(): never {
+          throw errno('EIO');
+        },
+      },
+    );
+    const { primitives } = createCapturingPrimitives(BASE_CONSTANTS, {
+      fcntlGetFdImpl: () => (poisoned as { value: number }).value,
+    });
+    const driver = createNodePosixProcessLockDriverWithPrimitives(primitives);
+    expect(driver.verifyCloseOnExec(7)).toEqual({ ok: false, kind: 'verification-failed' });
+  });
+});
+
+describe('acquirePosixProcessLock CLOEXEC verification cleanup', () => {
+  it.each([
+    [
+      'unavailable',
+      { ok: false as const, kind: 'unavailable' as const },
+      'STORAGE_LOCK_UNAVAILABLE',
+    ],
+    [
+      'verification-failed',
+      { ok: false as const, kind: 'verification-failed' as const },
+      'STORAGE_LOCK_ACQUIRE_FAILED',
+    ],
+  ] as const)(
+    '%s with close success closes fd, releases lease, root closable',
+    (_label, cloexecVerification, expectedCode) => {
+      const storageRoot = createTempStorageRoot();
+      const { root } = openGenuineRoot(storageRoot);
+      const driver = createFakeDriver({ cloexecVerification });
+      const result = acquirePosixProcessLockWithTestHooks(root, linuxHooks(driver));
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error('expected fail');
+      expect(result.error.code).toBe(expectedCode);
+      expect(driver.closeCalls).toBe(1);
+      expect(driver.fstatCalls).toHaveLength(0);
+      expect(driver.flockCalls).toBe(0);
+      expect(driver.verifyCalls).toHaveLength(1);
+      expect(root.close().ok).toBe(true);
+      assertNoLeak(result);
+    },
+  );
+
+  it.each([
+    ['unavailable', { ok: false as const, kind: 'unavailable' as const }],
+    ['verification-failed', { ok: false as const, kind: 'verification-failed' as const }],
+  ] as const)(
+    '%s with close failure retains ownership; retry success releases once',
+    (_label, cloexecVerification) => {
+      const storageRoot = createTempStorageRoot();
+      const { root } = openGenuineRoot(storageRoot);
+      const driver = createFakeDriver({ cloexecVerification, closeFailures: 2 });
+      const result = acquirePosixProcessLockWithTestHooks(root, linuxHooks(driver));
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error('expected fail');
+      expect('pendingCleanup' in result).toBe(true);
+      if (!('pendingCleanup' in result)) throw new Error('pending');
+      expect(result.error.code).toBe('STORAGE_LOCK_RELEASE_FAILED');
+      expect(driver.closeCalls).toBe(1);
+      expect(root.close().ok).toBe(false);
+      expect(result.pendingCleanup.retryRelease().ok).toBe(false);
+      expect(root.close().ok).toBe(false);
+      expect(result.pendingCleanup.retryRelease().ok).toBe(true);
+      expect(result.pendingCleanup.retryRelease().ok).toBe(true);
+      expect(driver.closeCalls).toBe(3);
+      expect(root.close().ok).toBe(true);
+      assertNoLeak(result);
+    },
+  );
+
+  it('verification runs after open and before fstat/flock on success path', () => {
+    const storageRoot = createTempStorageRoot();
+    const { root } = openGenuineRoot(storageRoot);
+    const driver = createFakeDriver();
+    const result = acquirePosixProcessLockWithTestHooks(root, linuxHooks(driver));
+    expect(result.ok).toBe(true);
+    expect(driver.openedPaths).toHaveLength(1);
+    expect(driver.verifyCalls).toHaveLength(1);
+    expect(driver.fstatCalls).toEqual(driver.verifyCalls);
+    expect(driver.flockCalls).toBe(1);
+    if (result.ok) expect(result.value.release().ok).toBe(true);
+    expect(root.close().ok).toBe(true);
+  });
+
+  it('open failure does not invoke CLOEXEC verification', () => {
+    const storageRoot = createTempStorageRoot();
+    const { root } = openGenuineRoot(storageRoot);
+    const driver = createFakeDriver({ openError: errno('EACCES') });
+    const result = acquirePosixProcessLockWithTestHooks(root, linuxHooks(driver));
+    expect(result.ok).toBe(false);
+    expect(driver.verifyCalls).toHaveLength(0);
+    expect(root.close().ok).toBe(true);
+  });
 });
 
 describe('fs-ext-extra-prebuilt module-load smoke (informational, not Linux production proof)', () => {
@@ -1177,10 +1511,12 @@ describe('fs-ext-extra-prebuilt module-load smoke (informational, not Linux prod
     const require = createRequire(import.meta.url);
     const mod = require('fs-ext-extra-prebuilt') as {
       flockSync?: unknown;
+      fcntlSync?: unknown;
       constants?: unknown;
     };
     expect(typeof mod.flockSync).toBe('function');
+    expect(typeof mod.fcntlSync).toBe('function');
     expect(mod.constants).toBeTypeOf('object');
-    // Any local LockFileEx/flock exercise here is informational only — not Ubuntu primitive validation.
+    // Any local LockFileEx/flock/getfd exercise here is informational only — not Ubuntu primitive validation.
   });
 });

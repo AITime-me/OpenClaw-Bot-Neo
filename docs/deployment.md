@@ -44,8 +44,9 @@ identity-based runtime capability. Build 3.3B2 добавляет app-private SQ
 same-process root↔adapter lease coordination (`root.close` busy while adapters hold connections).
 Build 3.3B3B2 pin'ит `fs-ext-extra-prebuilt@2.2.10`; Build 3.3B3B3 добавляет app-private Linux
 exclusive process-lock primitive (`neo.primary.lock`, flock, close-fd release) **без** LocalHost/Neo
-wiring — Neo second-instance protection inactive; systemd unit/layer pending; Linux primitive
-validation pending. LocalHost не wired; approval/audit ephemeral; cross-port transaction /
-encryption отсутствуют; не является deployment approval. Build №3 не завершён, VPS не куплен,
-security approval отсутствует pending Codex Review №6. До review, threat model и отдельного owner
-approval deployment запрещён.
+wiring — Neo second-instance protection inactive. Original B3B4 Linux gate FAILED (`fs.constants.O_CLOEXEC`
+undefined on Node v22.13.0); Build 3.3B3B4-F1 remediates via post-open `getfd`/`FD_CLOEXEC`
+verification (Candidate C) pending adversarial review and repeated B3B4; systemd unit/layer pending.
+LocalHost не wired; approval/audit ephemeral; cross-port transaction / encryption отсутствуют; не
+является deployment approval. Build №3 не завершён, VPS не куплен, security approval отсутствует
+pending Codex Review №6. До review, threat model и отдельного owner approval deployment запрещён.
