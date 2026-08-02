@@ -8,8 +8,9 @@ import {
   NEO_STATUS_LAUNCHER,
   type NeoRuntimeScenarioKey,
 } from './neo-runtime-gate-constants.ts';
-import type { NeoScenarioResult } from './neo-runtime-evidence.ts';
-import type { NeoRuntimeProcessManager } from './neo-runtime-process-manager.ts';
+import type { NeoScenarioResult, NeoReadinessWaitOutcome } from './neo-runtime-evidence.ts';
+import { redactNeoGateText } from './neo-runtime-evidence.ts';
+import type { NeoRuntimeProcessManager, ManagedChild } from './neo-runtime-process-manager.ts';
 
 const NEO_READINESS_FILENAME = 'ready.json' as const;
 
@@ -192,12 +193,62 @@ const launchNeo = (
     { cwd: ctx.repositoryRoot, env: process.env, detached: true },
   );
 
-const waitReady = async (
+const READINESS_WAIT_SUMMARY_MAX_BYTES = 256 as const;
+
+export const summarizeBoundedReadinessWaitText = (
+  text: string,
+  maxBytes = READINESS_WAIT_SUMMARY_MAX_BYTES,
+): string => {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxBytes) return trimmed;
+  return trimmed.slice(trimmed.length - maxBytes);
+};
+
+const summarizeBounded = summarizeBoundedReadinessWaitText;
+
+const parseStatusReason = (stdout: string): string | undefined => {
+  const lines = stdout
+    .trim()
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index];
+    if (line === undefined) continue;
+    try {
+      const parsed = JSON.parse(line) as { reason?: unknown };
+      if (typeof parsed.reason === 'string') return parsed.reason;
+    } catch {
+      // Ignore non-JSON lines.
+    }
+  }
+  return undefined;
+};
+
+const describeNeoChildState = (
+  neoChild?: ManagedChild,
+): Pick<NeoReadinessWaitOutcome, 'neoChildState' | 'neoChildExitCode' | 'neoChildSignal'> => {
+  if (neoChild === undefined) {
+    return { neoChildState: 'unknown', neoChildExitCode: null, neoChildSignal: null };
+  }
+  if (!neoChild.exited) {
+    return { neoChildState: 'alive', neoChildExitCode: null, neoChildSignal: null };
+  }
+  return {
+    neoChildState: 'exited',
+    neoChildExitCode: neoChild.exitCode,
+    neoChildSignal: neoChild.signal,
+  };
+};
+
+export const waitNeoReadiness = async (
   ctx: NeoScenarioContext,
   executionRoot: string,
   timeoutMs: number = DEFAULT_STATUS_WAIT_MS,
-): Promise<boolean> => {
-  const child = ctx.manager.spawn(
+  neoChild?: ManagedChild,
+): Promise<NeoReadinessWaitOutcome> => {
+  const startedAt = Date.now();
+  const statusChild = ctx.manager.spawn(
     ctx.nodeExecutable,
     [
       join(ctx.repositoryRoot, NEO_STATUS_LAUNCHER),
@@ -209,8 +260,29 @@ const waitReady = async (
     ],
     { cwd: ctx.repositoryRoot, env: process.env },
   );
-  const exited = await ctx.manager.waitForExit(child, timeoutMs + 5_000);
-  return exited && child.exitCode === 0;
+  const exited = await ctx.manager.waitForExit(statusChild, timeoutMs + 5_000);
+  const elapsedMs = Date.now() - startedAt;
+  const ready = exited && statusChild.exitCode === 0;
+  const reason = parseStatusReason(statusChild.stdout);
+  return {
+    ready,
+    ...(reason === undefined ? {} : { reason }),
+    statusExitCode: statusChild.exitCode,
+    elapsedMs,
+    ...describeNeoChildState(neoChild),
+    statusStdoutSummary: redactNeoGateText(summarizeBounded(statusChild.stdout)),
+    statusStderrSummary: redactNeoGateText(summarizeBounded(statusChild.stderr)),
+  };
+};
+
+const waitReady = async (
+  ctx: NeoScenarioContext,
+  executionRoot: string,
+  timeoutMs: number = DEFAULT_STATUS_WAIT_MS,
+  neoChild?: ManagedChild,
+): Promise<boolean> => {
+  const outcome = await waitNeoReadiness(ctx, executionRoot, timeoutMs, neoChild);
+  return outcome.ready;
 };
 
 const readinessExists = (executionRoot: string): boolean =>
@@ -226,6 +298,7 @@ export type NeoScenarioRunOutcome = {
   readonly childExitCodes: Record<string, number>;
   readonly signalOutcomes: Record<string, string>;
   readonly readinessTransitions: Record<string, string>;
+  readonly readinessWaitOutcomes: Record<string, NeoReadinessWaitOutcome>;
   readonly secondInstanceExitCode: number | null;
   readonly lockReacquired: boolean | null;
 };
@@ -235,6 +308,7 @@ const pass = (extra: Partial<NeoScenarioRunOutcome> = {}): NeoScenarioRunOutcome
   childExitCodes: {},
   signalOutcomes: {},
   readinessTransitions: {},
+  readinessWaitOutcomes: {},
   secondInstanceExitCode: null,
   lockReacquired: null,
   ...extra,
@@ -248,6 +322,7 @@ const fail = (
   childExitCodes: {},
   signalOutcomes: {},
   readinessTransitions: {},
+  readinessWaitOutcomes: {},
   secondInstanceExitCode: null,
   lockReacquired: null,
   ...extra,
@@ -259,8 +334,10 @@ export const runScenarioL1 = async (ctx: NeoScenarioContext): Promise<NeoScenari
   const storageRoot = ctx.createStorageRoot();
   const configs = ctx.writeScenarioConfigs(storageRoot);
   const child = launchNeo(ctx, { executionRoot, ...configs });
-  const ready = await waitReady(ctx, executionRoot);
-  if (!ready) return fail('instance-a-not-ready');
+  const readinessWait = await waitNeoReadiness(ctx, executionRoot, DEFAULT_STATUS_WAIT_MS, child);
+  if (!readinessWait.ready) {
+    return fail('instance-a-not-ready', { readinessWaitOutcomes: { L1: readinessWait } });
+  }
   ctx.manager.sendSignal(child, 'SIGTERM');
   const exited = await ctx.manager.waitForExit(child, DEFAULT_CHILD_TIMEOUT_MS);
   if (!exited || child.exitCode !== 0) {

@@ -7,6 +7,18 @@ import {
 
 export type NeoScenarioVerdict = 'PASS' | 'FAIL' | 'SKIP';
 
+export type NeoReadinessWaitOutcome = {
+  readonly ready: boolean;
+  readonly reason?: string;
+  readonly statusExitCode: number | null;
+  readonly elapsedMs: number;
+  readonly neoChildState: 'alive' | 'exited' | 'unknown';
+  readonly neoChildExitCode: number | null;
+  readonly neoChildSignal: string | null;
+  readonly statusStdoutSummary: string;
+  readonly statusStderrSummary: string;
+};
+
 export type NeoScenarioResult = {
   readonly verdict: NeoScenarioVerdict;
   readonly detail?: string;
@@ -27,6 +39,7 @@ export type NeoRuntimeGateEvidence = {
   readonly childExitCodes: Record<string, number>;
   readonly signalOutcomes: Record<string, string>;
   readonly readinessTransitions: Record<string, string>;
+  readonly readinessWaitOutcomes: Record<string, NeoReadinessWaitOutcome>;
   readonly secondInstanceExitCode: number | null;
   readonly lockReacquired: boolean | null;
   readonly stderrRedacted: boolean;
@@ -68,6 +81,7 @@ export const createInitialNeoRuntimeEvidence = (
   childExitCodes: {},
   signalOutcomes: {},
   readinessTransitions: {},
+  readinessWaitOutcomes: {},
   secondInstanceExitCode: null,
   lockReacquired: null,
   stderrRedacted: true,

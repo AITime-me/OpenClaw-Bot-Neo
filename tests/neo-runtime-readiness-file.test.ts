@@ -1,0 +1,195 @@
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { parseNeoReadinessDocument } from '../src/neo-runtime/cli/parse-neo-readiness-document.js';
+import { readNeoReadinessFile } from '../src/neo-runtime/cli/read-neo-readiness-file.js';
+import {
+  NEO_STATUS_EXIT_INVALID,
+  NEO_STATUS_EXIT_NOT_READY,
+  NEO_STATUS_EXIT_SUCCESS,
+  NEO_STATUS_EXIT_TIMEOUT,
+  readNeoStatus,
+} from '../src/neo-runtime/cli/read-neo-status.js';
+import { createNodeNeoReadinessFileReader } from '../src/neo-runtime/cli/read-neo-readiness-file.js';
+
+const validReadyPayload = () =>
+  JSON.stringify({
+    schemaVersion: '1',
+    pid: 4242,
+    lifecycle: 'running',
+    runtimeReady: true,
+    durableHostOpened: true,
+    startedAtUtc: '2026-08-02T12:00:00.000Z',
+  });
+
+const tempRoots: string[] = [];
+
+const createExecutionRoot = (mode = 0o750): string => {
+  const root = mkdtempSync(join(tmpdir(), 'neo-readiness-'));
+  tempRoots.push(root);
+  chmodSync(root, mode);
+  return root;
+};
+
+afterEach(() => {
+  while (tempRoots.length > 0) {
+    const root = tempRoots.pop();
+    if (root !== undefined) rmSync(root, { recursive: true, force: true });
+  }
+});
+
+describe('neo readiness file reader', () => {
+  it('returns absent when ready.json is missing in a safe execution root', async () => {
+    const executionRoot = createExecutionRoot();
+    const result = await readNeoReadinessFile(executionRoot);
+    expect(result).toEqual({ ok: false, reason: 'absent' });
+  });
+
+  it('returns unreadable when execution root is missing', async () => {
+    const executionRoot = join(tmpdir(), 'neo-readiness-missing-root');
+    const result = await readNeoReadinessFile(executionRoot);
+    expect(result).toEqual({ ok: false, reason: 'unreadable' });
+  });
+
+  it('parses a valid regular readiness file', async () => {
+    const executionRoot = createExecutionRoot();
+    writeFileSync(join(executionRoot, 'ready.json'), validReadyPayload(), { mode: 0o640 });
+    const result = await readNeoReadinessFile(executionRoot);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.schemaVersion).toBe('1');
+    expect(result.document.runtimeReady).toBe(true);
+  });
+
+  it('rejects unknown readiness fields', () => {
+    const parsed = parseNeoReadinessDocument({
+      schemaVersion: '1',
+      pid: 1,
+      lifecycle: 'running',
+      runtimeReady: true,
+      durableHostOpened: true,
+      startedAtUtc: '2026-08-02T12:00:00.000Z',
+      extra: true,
+    });
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('returns invalid for malformed readiness schema', async () => {
+    const executionRoot = createExecutionRoot();
+    writeFileSync(join(executionRoot, 'ready.json'), '{"schemaVersion":"9"}', { mode: 0o640 });
+    const result = await readNeoReadinessFile(executionRoot);
+    expect(result).toEqual({ ok: false, reason: 'invalid' });
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'returns unreadable for readiness leaf symlink',
+    async () => {
+      const executionRoot = createExecutionRoot();
+      const target = join(executionRoot, 'ready-target.json');
+      writeFileSync(target, validReadyPayload(), { mode: 0o640 });
+      symlinkSync(target, join(executionRoot, 'ready.json'));
+      const result = await readNeoReadinessFile(executionRoot);
+      expect(result).toEqual({ ok: false, reason: 'unreadable' });
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'returns unreadable when an ancestor is a symlink',
+    async () => {
+      const parent = createExecutionRoot();
+      const linked = join(parent, 'linked-root');
+      mkdirSync(linked, { mode: 0o750 });
+      symlinkSync(linked, join(parent, 'exec-link'));
+      const executionRoot = join(parent, 'exec-link');
+      const result = await readNeoReadinessFile(executionRoot);
+      expect(result).toEqual({ ok: false, reason: 'unreadable' });
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'does not treat permission errors as absent readiness',
+    async () => {
+      const executionRoot = createExecutionRoot(0o750);
+      writeFileSync(join(executionRoot, 'ready.json'), validReadyPayload(), { mode: 0o640 });
+      chmodSync(executionRoot, 0o000);
+      const result = await readNeoReadinessFile(executionRoot);
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.reason).not.toBe('absent');
+      chmodSync(executionRoot, 0o750);
+    },
+  );
+});
+
+describe('neo status wait-ready with production reader', () => {
+  it('polls through absent readiness and succeeds when ready.json appears', async () => {
+    const executionRoot = createExecutionRoot();
+    let now = 0;
+    const waitPromise = readNeoStatus({
+      argv: ['--execution-root', executionRoot, '--wait-ready', '--timeout-ms', '1000'],
+      reader: createNodeNeoReadinessFileReader(),
+      nowMs: () => now,
+      sleep: async (ms) => {
+        await Promise.resolve();
+        now += ms;
+        if (now >= 200) {
+          writeFileSync(join(executionRoot, 'ready.json'), validReadyPayload(), { mode: 0o640 });
+        }
+      },
+      writeStdout: () => undefined,
+    });
+    const result = await waitPromise;
+    expect(result.exitCode).toBe(NEO_STATUS_EXIT_SUCCESS);
+  });
+
+  it('returns timeout exit 3 when readiness stays absent', async () => {
+    const executionRoot = createExecutionRoot();
+    const sleepCalls: number[] = [];
+    let now = 0;
+    const result = await readNeoStatus({
+      argv: ['--execution-root', executionRoot, '--wait-ready', '--timeout-ms', '250'],
+      reader: createNodeNeoReadinessFileReader(),
+      nowMs: () => {
+        now += 100;
+        return now;
+      },
+      sleep: async (ms) => {
+        await Promise.resolve();
+        sleepCalls.push(ms);
+      },
+      writeStdout: () => undefined,
+    });
+    expect(result.exitCode).toBe(NEO_STATUS_EXIT_TIMEOUT);
+    expect(sleepCalls.length).toBeGreaterThan(0);
+  });
+
+  it('returns invalid exit 2 immediately for invalid readiness schema', async () => {
+    const executionRoot = createExecutionRoot();
+    writeFileSync(join(executionRoot, 'ready.json'), '{"schemaVersion":"9"}', { mode: 0o640 });
+    const result = await readNeoStatus({
+      argv: ['--execution-root', executionRoot, '--wait-ready', '--timeout-ms', '1000'],
+      reader: createNodeNeoReadinessFileReader(),
+      nowMs: () => 0,
+      sleep: async () => {
+        await Promise.resolve();
+      },
+      writeStdout: () => undefined,
+    });
+    expect(result.exitCode).toBe(NEO_STATUS_EXIT_INVALID);
+  });
+
+  it('returns not-ready exit 1 for absent readiness without wait flag', async () => {
+    const executionRoot = createExecutionRoot();
+    const result = await readNeoStatus({
+      argv: ['--execution-root', executionRoot],
+      reader: createNodeNeoReadinessFileReader(),
+      nowMs: () => 0,
+      sleep: async () => {
+        await Promise.resolve();
+      },
+      writeStdout: () => undefined,
+    });
+    expect(result.exitCode).toBe(NEO_STATUS_EXIT_NOT_READY);
+  });
+});

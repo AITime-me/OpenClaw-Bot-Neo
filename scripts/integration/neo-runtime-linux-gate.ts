@@ -70,6 +70,10 @@ export const runNeoRuntimeLinuxGate = async (): Promise<number> => {
           ...evidence.readinessTransitions,
           ...outcome.readinessTransitions,
         },
+        readinessWaitOutcomes: {
+          ...evidence.readinessWaitOutcomes,
+          ...outcome.readinessWaitOutcomes,
+        },
         secondInstanceExitCode: outcome.secondInstanceExitCode ?? evidence.secondInstanceExitCode,
         lockReacquired: outcome.lockReacquired ?? evidence.lockReacquired,
       };

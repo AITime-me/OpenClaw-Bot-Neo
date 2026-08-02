@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { dirname, join, parse, resolve } from 'node:path';
 import { lstat, open } from 'node:fs/promises';
 import { NEO_READINESS_FILENAME } from '../readiness/neo-runtime-readiness-file.js';
 import {
@@ -11,20 +11,34 @@ export const NEO_STATUS_READINESS_MAX_BYTES = 4096 as const;
 const readinessPath = (executionRoot: string): string =>
   join(executionRoot, NEO_READINESS_FILENAME);
 
-const hasSymlinkInPath = async (absolutePath: string): Promise<boolean> => {
-  const segments = absolutePath.replace(/\\/g, '/').split('/').filter(Boolean);
-  let current = absolutePath.startsWith('/') ? '/' : '';
-  for (const segment of segments) {
-    if (current === '/') current = `/${segment}`;
-    else if (/^[A-Za-z]:$/.test(current)) current = `${current}\\${segment}`;
-    else current = join(current, segment);
+const isNodeErrorWithCode = (error: unknown, code: string): boolean =>
+  typeof error === 'object' &&
+  error !== null &&
+  'code' in error &&
+  (error as { code: string }).code === code;
+
+/**
+ * Validates ancestor directories up to and including the readiness parent directory.
+ * Does not inspect the readiness leaf file itself.
+ */
+const isReadinessParentPathUnsafe = async (parentDirectory: string): Promise<boolean> => {
+  let current = resolve(parentDirectory);
+  const { root } = parse(current);
+
+  for (;;) {
     try {
       const stats = await lstat(current);
       if (stats.isSymbolicLink()) return true;
+      if (!stats.isDirectory()) return true;
     } catch {
       return true;
     }
+    if (current === root) break;
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
   }
+
   return false;
 };
 
@@ -37,8 +51,17 @@ export const readNeoReadinessFile = async (
 ): Promise<NeoReadinessFileReadResult> => {
   const target = readinessPath(executionRoot);
   if (target.includes('\0')) return { ok: false, reason: 'unreadable' };
+
+  const parentDirectory = dirname(target);
+  if (await isReadinessParentPathUnsafe(parentDirectory)) {
+    return { ok: false, reason: 'unreadable' };
+  }
+
   try {
-    if (await hasSymlinkInPath(target)) return { ok: false, reason: 'unreadable' };
+    const leafStats = await lstat(target);
+    if (leafStats.isSymbolicLink()) return { ok: false, reason: 'unreadable' };
+    if (!leafStats.isFile()) return { ok: false, reason: 'unreadable' };
+
     const handle = await open(target, 'r');
     try {
       const stats = await handle.stat();
@@ -55,12 +78,7 @@ export const readNeoReadinessFile = async (
       await handle.close();
     }
   } catch (error: unknown) {
-    if (
-      typeof error === 'object' &&
-      error !== null &&
-      'code' in error &&
-      (error as { code: string }).code === 'ENOENT'
-    ) {
+    if (isNodeErrorWithCode(error, 'ENOENT')) {
       return { ok: false, reason: 'absent' };
     }
     return { ok: false, reason: 'unreadable' };

@@ -16,7 +16,9 @@ import {
   shouldPrintNeoPassMarker,
   createInitialNeoRuntimeEvidence,
   finalizeNeoRuntimeEvidence,
+  type NeoReadinessWaitOutcome,
 } from '../scripts/integration/lib/neo-runtime-evidence.ts';
+import { summarizeBoundedReadinessWaitText } from '../scripts/integration/lib/neo-runtime-scenarios.ts';
 import { PASS_MARKER as BUILD_33_PASS_MARKER } from '../scripts/integration/lib/constants.ts';
 
 describe('neo runtime linux gate foundation', () => {
@@ -105,5 +107,27 @@ describe('neo runtime linux gate foundation', () => {
       await import('../scripts/integration/neo-runtime-linux-gate.ts');
     const code = await runNeoRuntimeLinuxGate();
     expect(code).toBe(NEO_GATE_EXIT_ENVIRONMENT);
+  });
+
+  it('readiness wait outcomes are bounded and redacted', () => {
+    const outcome: NeoReadinessWaitOutcome = {
+      ready: false,
+      reason: 'readiness-invalid',
+      statusExitCode: 2,
+      elapsedMs: 98,
+      neoChildState: 'alive',
+      neoChildExitCode: null,
+      neoChildSignal: null,
+      statusStdoutSummary: redactNeoGateText(
+        summarizeBoundedReadinessWaitText(
+          '{"ready":false,"reason":"readiness-invalid","path":"/var/lib/openclaw"}',
+        ),
+      ),
+      statusStderrSummary: '',
+    };
+    expect(outcome.statusStdoutSummary.length).toBeLessThanOrEqual(256);
+    expect(outcome.statusStdoutSummary).not.toContain('/var/lib/openclaw');
+    expect(outcome.reason).toBe('readiness-invalid');
+    expect(outcome.neoChildState).toBe('alive');
   });
 });
