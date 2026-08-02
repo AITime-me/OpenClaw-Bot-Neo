@@ -1,0 +1,53 @@
+# OpenClaw Neo personal assistant runtime — production-oriented systemd unit template.
+# NOT installed or Linux-validated in Build 3.4D. deploymentReady remains false.
+# No production credentials belong in this template.
+# Future secret provider / systemd LoadCredential integration is separate work.
+
+[Unit]
+Description=OpenClaw Neo personal assistant runtime
+After=local-fs.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=openclaw-neo
+Group=openclaw-neo
+WorkingDirectory=/opt/openclaw-neo
+ExecStart=/usr/bin/node /opt/openclaw-neo/scripts/neo/start-neo.mjs --config /etc/openclaw/neo/config.json --storage-binding /etc/openclaw/neo/storage-binding.json --storage-policy /etc/openclaw/neo/storage-policy.json --execution-root /run/openclaw/neo
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=10
+TimeoutStartSec=60
+TimeoutStopSec=45
+KillMode=mixed
+KillSignal=SIGTERM
+FinalKillSignal=SIGKILL
+SendSIGKILL=yes
+RuntimeDirectory=openclaw/neo
+RuntimeDirectoryMode=0750
+StateDirectory=openclaw-neo
+StateDirectoryMode=0750
+ConfigurationDirectory=openclaw/neo
+ConfigurationDirectoryMode=0750
+UMask=0027
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/openclaw-neo /run/openclaw/neo
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -14,7 +14,11 @@
     "tests/child-argv.test.ts",
     "tests/child-stderr.test.ts",
     "tests/ts-source-resolve.test.ts",
-    "tests/ts-source-resolve-subprocess.test.ts"
+    "tests/ts-source-resolve-subprocess.test.ts",
+    "tests/neo-runtime-linux-gate.test.ts",
+    "tests/neo-runtime-status-cli.test.ts",
+    "tests/neo-runtime-systemd-template.test.ts",
+    "tests/validate-neo-systemd-template.test.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

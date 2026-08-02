@@ -19,6 +19,7 @@
     "check:boundaries": "depcruise src --config .dependency-cruiser.cjs && node scripts/verify-boundaries.mjs && node scripts/verify-memory-isolation.mjs && node scripts/verify-integration-boundaries.mjs",
     "check:secrets": "node scripts/check-secret-patterns.mjs",
     "check:hygiene": "node scripts/verify-repo-hygiene.mjs",
+    "check:systemd-template": "node scripts/validate-neo-systemd-template.mjs",
     "check": "node scripts/run-check.mjs",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "test:linux:durable-composition": "node --experimental-strip-types scripts/integration/run-durable-composition-linux-gate.mjs"

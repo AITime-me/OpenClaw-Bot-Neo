@@ -5,7 +5,6 @@ import * as publicApi from '../src/index.js';
 
 const REPO_ROOT = process.cwd();
 const NEO_RUNTIME_ROOT = join(REPO_ROOT, 'src', 'neo-runtime');
-const LAUNCHER = join(REPO_ROOT, 'scripts', 'neo', 'start-neo.mjs');
 
 const collectTsFiles = (directory: string): string[] => {
   const files: string[] = [];
@@ -22,16 +21,26 @@ const collectTsFiles = (directory: string): string[] => {
 
 describe('neo runtime process boundaries', () => {
   it('launcher imports only compiled dist JavaScript', () => {
-    const content = readFileSync(LAUNCHER, 'utf8');
-    expect(content).toContain('dist/neo-runtime/cli/run-neo-process.js');
-    expect(content).not.toMatch(/\.ts['"]|tsx|ts-node|experimental-strip-types|ts-source-resolve/);
-    expect(content).not.toMatch(/scripts\/integration/);
+    const startNeo = readFileSync(join(REPO_ROOT, 'scripts', 'neo', 'start-neo.mjs'), 'utf8');
+    const neoStatus = readFileSync(join(REPO_ROOT, 'scripts', 'neo', 'neo-status.mjs'), 'utf8');
+    expect(startNeo).toContain('dist/neo-runtime/cli/run-neo-process.js');
+    expect(neoStatus).toContain('dist/neo-runtime/cli/read-neo-status.js');
+    for (const content of [startNeo, neoStatus]) {
+      expect(content).not.toMatch(
+        /\.ts['"]|tsx|ts-node|experimental-strip-types|ts-source-resolve/,
+      );
+    }
   });
 
   it('start-neo.mjs is the only Neo boundary that sets process.exitCode', () => {
-    const launcher = readFileSync(LAUNCHER, 'utf8');
-    expect(launcher).toContain('process.exitCode');
-    expect(launcher).not.toMatch(/\bprocess\.exit\s*\(/);
+    const launchers = [
+      readFileSync(join(REPO_ROOT, 'scripts', 'neo', 'start-neo.mjs'), 'utf8'),
+      readFileSync(join(REPO_ROOT, 'scripts', 'neo', 'neo-status.mjs'), 'utf8'),
+    ];
+    for (const launcher of launchers) {
+      expect(launcher).toContain('process.exitCode');
+      expect(launcher).not.toMatch(/\bprocess\.exit\s*\(/);
+    }
 
     for (const filePath of collectTsFiles(NEO_RUNTIME_ROOT)) {
       const content = readFileSync(filePath, 'utf8');

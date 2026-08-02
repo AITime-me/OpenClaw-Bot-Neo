@@ -198,7 +198,7 @@ module.exports = {
       from: {
         path: '^src/neo-runtime',
         pathNot:
-          '^src/neo-runtime/(production/read-production-config-file|readiness/neo-runtime-readiness-file)\\.ts$',
+          '^src/neo-runtime/(production/read-production-config-file|cli/read-neo-readiness-file|readiness/neo-runtime-readiness-file)\\.ts$',
       },
       to: { path: '^(node:)?fs(/promises)?$' },
     },
@@ -209,7 +209,7 @@ module.exports = {
       from: {
         path: '^src/neo-runtime',
         pathNot:
-          '^src/neo-runtime/(adapters/create-node-process-signal-port|cli/run-neo-process)\\.ts$',
+          '^src/neo-runtime/(adapters/create-node-process-signal-port|cli/run-neo-process|cli/read-neo-status)\\.ts$',
       },
       to: { path: '^(node:)?process$' },
     },
