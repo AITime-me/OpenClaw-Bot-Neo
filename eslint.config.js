@@ -50,6 +50,7 @@ export default tseslint.config(
       'tests/durable-composition-linux-gate.test.ts',
       'tests/integration-boundary-enforcement.test.ts',
       'tests/neo-runtime-linux-gate.test.ts',
+      'tests/neo-runtime-linux-gate-bootstrap.test.ts',
       'tests/neo-runtime-status-cli.test.ts',
       'tests/neo-runtime-systemd-template.test.ts',
       'tests/validate-neo-systemd-template.test.ts',

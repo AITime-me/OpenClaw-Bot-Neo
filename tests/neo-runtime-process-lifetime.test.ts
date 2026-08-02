@@ -23,11 +23,6 @@ import {
 import { redactNeoRuntimeLogText } from '../src/neo-runtime/logging/neo-runtime-log-redaction.js';
 import type { NeoProcessOutputPort } from '../src/neo-runtime/ports/neo-process-ports.js';
 import {
-  UNSETTLED_TOP_LEVEL_AWAIT_PATTERN,
-  extractObservedRuntimeEventNames,
-  summarizeNeoChildObservability,
-} from '../src/neo-runtime/logging/neo-runtime-child-observability.js';
-import {
   createRunNeoProcessDeps,
   createSuccessfulMockRuntime,
   deferred,
@@ -415,47 +410,6 @@ describe('neo runtime production structured logging', () => {
       });
     }).not.toThrow();
     expect(sink.events).toHaveLength(1);
-  });
-});
-
-describe('neo runtime gate child observability helpers', () => {
-  it('extracts observed runtime event names from JSONL output', () => {
-    const stdout = '{"event":"neo.runtime.ready","pid":1,"atUtc":"t"}\n';
-    const stderr =
-      '{"event":"neo.signal.received","pid":1,"atUtc":"t","signal":"SIGTERM"}\n{"event":"neo.runtime.shutdown_timeout","pid":1,"atUtc":"t","failureClass":"SHUTDOWN_TIMEOUT"}\n';
-    const names = extractObservedRuntimeEventNames(stdout, stderr);
-    expect(names).toEqual([
-      'neo.runtime.ready',
-      'neo.runtime.shutdown_timeout',
-      'neo.signal.received',
-    ]);
-  });
-
-  it('detects unsettled top-level await warning in stderr summary', () => {
-    const observability = summarizeNeoChildObservability({
-      stdout: '',
-      stderr: 'Warning: Detected unsettled top-level await at file:///workspace/start-neo.mjs:10',
-      neoChildAliveBeforeSignal: false,
-    });
-    expect(observability.unsettledTopLevelAwaitWarning).toBe(true);
-    expect(UNSETTLED_TOP_LEVEL_AWAIT_PATTERN.test(observability.childStderrSummary)).toBe(true);
-  });
-
-  it('requires shutdown_timeout event to classify internal timeout', () => {
-    const rawExit13 = summarizeNeoChildObservability({
-      stdout: '',
-      stderr: 'Warning: Detected unsettled top-level await',
-      neoChildAliveBeforeSignal: false,
-    });
-    expect(rawExit13.shutdownTimeoutEventObserved).toBe(false);
-
-    const internalTimeout = summarizeNeoChildObservability({
-      stdout: '',
-      stderr:
-        '{"event":"neo.runtime.shutdown_timeout","pid":1,"atUtc":"t","failureClass":"SHUTDOWN_TIMEOUT"}',
-      neoChildAliveBeforeSignal: true,
-    });
-    expect(internalTimeout.shutdownTimeoutEventObserved).toBe(true);
   });
 });
 

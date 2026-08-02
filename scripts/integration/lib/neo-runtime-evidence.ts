@@ -9,7 +9,8 @@ import {
   UNSETTLED_TOP_LEVEL_AWAIT_PATTERN,
   extractObservedRuntimeEventNames,
   summarizeNeoChildObservability,
-} from '../../../src/neo-runtime/logging/neo-runtime-child-observability.ts';
+} from './neo-runtime-child-observability.ts';
+import { redactNeoGateText } from './redaction.ts';
 
 export type { NeoChildObservability };
 export {
@@ -149,8 +150,4 @@ export const shouldPrintNeoPassMarker = (evidence: NeoRuntimeGateEvidence): bool
   return Object.values(evidence.scenarios).every((scenario) => scenario.verdict === 'PASS');
 };
 
-export const redactNeoGateText = (text: string): string =>
-  text
-    .replace(/\/(?:var|run|etc|home|opt)[^\s'"]+/g, '<path>')
-    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '<email>')
-    .replace(/\b(token|secret|password|apikey|api_key)\b/gi, '<redacted>');
+export { redactNeoGateText };

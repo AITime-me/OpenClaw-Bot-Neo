@@ -1,4 +1,4 @@
-import { redactNeoRuntimeLogText } from './neo-runtime-log-redaction.js';
+import { redactNeoGateText } from './redaction.ts';
 
 export type NeoChildObservability = {
   readonly childStdoutSummary: string;
@@ -11,6 +11,12 @@ export type NeoChildObservability = {
 
 export const UNSETTLED_TOP_LEVEL_AWAIT_PATTERN = /unsettled top-level await/i;
 
+/** Only verified Neo structured runtime event names are counted as observability evidence. */
+const VERIFIED_NEO_RUNTIME_EVENT_PATTERN = /^neo\.(runtime|signal|config)\.[a-z0-9_]+$/;
+
+const isVerifiedNeoRuntimeEventName = (value: string): boolean =>
+  VERIFIED_NEO_RUNTIME_EVENT_PATTERN.test(value);
+
 export const extractObservedRuntimeEventNames = (
   stdout: string,
   stderr: string,
@@ -22,7 +28,9 @@ export const extractObservedRuntimeEventNames = (
       if (!trimmed.startsWith('{')) continue;
       try {
         const parsed = JSON.parse(trimmed) as { readonly event?: unknown };
-        if (typeof parsed.event === 'string') names.add(parsed.event);
+        if (typeof parsed.event === 'string' && isVerifiedNeoRuntimeEventName(parsed.event)) {
+          names.add(parsed.event);
+        }
       } catch {
         // Ignore non-JSON lines.
       }
@@ -36,8 +44,8 @@ export const summarizeNeoChildObservability = (input: {
   readonly stderr: string;
   readonly neoChildAliveBeforeSignal?: boolean | null;
 }): NeoChildObservability => {
-  const childStdoutSummary = redactNeoRuntimeLogText(input.stdout.trim().slice(-256));
-  const childStderrSummary = redactNeoRuntimeLogText(input.stderr.trim().slice(-256));
+  const childStdoutSummary = redactNeoGateText(input.stdout.trim().slice(-256));
+  const childStderrSummary = redactNeoGateText(input.stderr.trim().slice(-256));
   const observedRuntimeEventNames = extractObservedRuntimeEventNames(input.stdout, input.stderr);
   return Object.freeze({
     childStdoutSummary,

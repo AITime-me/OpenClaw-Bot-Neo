@@ -39,6 +39,13 @@ export const detectRedactionViolations = (
   return [...violations];
 };
 
+/** Bounded redaction for Neo gate text and child observability summaries. */
+export const redactNeoGateText = (text: string): string =>
+  text
+    .replace(/\/(?:var|run|etc|home|opt)[^\s'"]+/g, '<path>')
+    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '<email>')
+    .replace(/\b(token|secret|password|apikey|api_key)\b/gi, '<redacted>');
+
 export const safeSerializeForEvidence = (value: unknown): string => {
   try {
     return JSON.stringify(value);

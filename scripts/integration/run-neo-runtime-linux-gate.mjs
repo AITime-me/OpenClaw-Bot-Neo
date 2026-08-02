@@ -13,15 +13,9 @@ if (!process.execArgv.includes(STRIP_TYPES_FLAG)) {
     stdio: 'inherit',
     shell: false,
   });
-  process.exit(result.status ?? 1);
+  process.exit(result.status ?? 50);
 }
 
+const { bootstrapNeoRuntimeLinuxGate } = await import('./lib/neo-runtime-linux-gate-bootstrap.ts');
 const entry = join(dirname(fileURLToPath(import.meta.url)), 'neo-runtime-linux-gate.ts');
-const mod = await import(pathToFileURL(entry).href);
-if (typeof mod.runNeoRuntimeLinuxGate === 'function') {
-  const code = await mod.runNeoRuntimeLinuxGate();
-  process.exitCode = typeof code === 'number' ? code : 1;
-} else {
-  process.stderr.write('Neo runtime Linux gate entry is missing runNeoRuntimeLinuxGate export.\n');
-  process.exitCode = 1;
-}
+process.exitCode = await bootstrapNeoRuntimeLinuxGate(() => import(pathToFileURL(entry).href));
