@@ -239,7 +239,14 @@ provider: если совместимого мужского голоса нет
   wraps with B3C1 owner, and returns frozen owner only after full startup success. Deterministic
   startup rollback: SQLite → process-lock → storage-root. Shutdown order matches B3C1. Not exported
   via package/host barrels; not connected to Neo startup. B3B3/B3B5 process-lock primitive remains
-  unwired to Neo. Complete B3C4 Linux integration gate pending. systemd, durable approval/audit,
+  unwired to Neo. Build 3.3B3C4-FINAL records authoritative complete durable-composition Linux
+  integration validation (`linuxIntegrationValidatedForCompleteDurableComposition=true`) on
+  validated source `5f3b3862dea078613e0aacba3834efbbbfe9376e` and immutable runtime image
+  `sha256:cc961fff5f5defc144eab8a540500ae43b68cb58ffdbf2d42c3a2b0fd6fbc834` (metadata-only
+  rebind from parent `sha256:fee102a80fd5bf03767ff2052498eddb3ed524d6c1b07f2e2b6192b2baf98ea0`;
+  RootFS 8/8 identical). Authoritative gate scenarios A–K PASS; evidence hashes 19/19 verified;
+  Ubuntu 24.04.4 / linux-amd64 / glibc 2.39 / Node v22.13.0 / npm 10.9.2. Not Neo wiring,
+  not deployment approval. systemd, durable approval/audit,
   secret-provider, encryption, cross-port transactions, Neo second-instance protection, and
   VPS/deployment remain pending/prohibited.
 - **Build 3.3B3C3 durable composition hardening implemented locally, pending adversarial review.**
@@ -247,12 +254,33 @@ provider: если совместимого мужского голоса нет
   failure snapshots, and exact dynamic-import target allowlist for `createPosixDurableLocalHost`.
   Operation gate rejects all new host operations after close starts; synchronous
   `seedLocalApprovalGrant` throws a stable lifecycle rejection in every non-open state (no silent
-  discard). Does not connect factory to Neo startup or inflate readiness diagnostics. B3C4 Linux
-  integration gate still pending.
+  discard). Does not connect factory to Neo startup. Build 3.3B3C4-FINAL records authoritative
+  complete durable-composition Linux integration validation in diagnostics only. Deployment and
+  security approval remain prohibited.
 - Neo second-instance protection activation, durable approval/audit, secret-provider, cross-port
   transaction gap, systemd layer, и VPS/deployment остаются pending.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.
+
+**Build 3.3B3C4-FINAL — authoritative Linux durable composition validation (closeout):**
+Independent evidence review **APPROVE**. Authoritative offline gate
+`BUILD_3_3B3C4_LINUX_COMPOSITION_GATE_PASSED` on validated source
+`5f3b3862dea078613e0aacba3834efbbbfe9376e`, package-lock
+`f8b9ce9fdbf3dd1d69f219df2a997e58b1cd5abcb077312b5151ba729175db54`, immutable runtime image
+`sha256:cc961fff5f5defc144eab8a540500ae43b68cb58ffdbf2d42c3a2b0fd6fbc834` (metadata-only rebind;
+RootFS 8/8 match parent). Scenarios A–K PASS; evidence integrity 19/19; harness runtime cleanup
+PASS. Diagnostics record `linuxIntegrationValidatedForCompleteDurableComposition=true` only.
+`deploymentReady`, `securityApprovalComplete`, systemd/channel/integration readiness, and Neo
+second-instance production claims remain false.
+
+**Non-blocking operational backlog (does not change Linux gate verdict):**
+- MEDIUM: host cleanup wrapper may hang on `docker stop` when a zombie node remains (recovery via
+  `docker kill` + `docker rm -f` succeeded).
+- LOW: command evidence may include local host path metadata in serialized manifests.
+- LOW: recovery audit record was sparse before closeout extraction.
+- INFO: dedicated smoke transcript absent; equivalent environment/native/gate evidence verified.
+Wrapper fix required before treating host cleanup as production-grade deployment tooling; no A–K
+rerun required for these items.
 
 Связанные документы: [расширяемость](extensibility.md), [интеграции](integrations.md),
 [VoiceProfile](voice-profile.md), [каналы](channels.md), [безопасность](security-policy.md),

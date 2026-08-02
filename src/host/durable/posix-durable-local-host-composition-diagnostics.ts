@@ -1,7 +1,8 @@
 /**
  * Trusted B3C2 POSIX durable composition diagnostics.
  * Compile-time / composition evidence only — not caller-controlled, not inherited from
- * primitive diagnostics, and not a claim of Neo/systemd/B3C4 Linux gate completion.
+ * primitive diagnostics. `linuxIntegrationValidatedForCompleteDurableComposition` records
+ * independent authoritative B3C4 Linux gate evidence only; it is not Neo/systemd/deployment approval.
  */
 export interface PosixDurableLocalHostCompositionDiagnostics {
   readonly ownerLifecycleImplemented: true;
@@ -16,7 +17,7 @@ export interface PosixDurableLocalHostCompositionDiagnostics {
   readonly cooperativeSecondInstanceProtectionActiveForDurableHost: true;
   readonly processLockWiredToNeo: false;
   readonly neoSecondInstanceProtectionActive: false;
-  readonly linuxIntegrationValidatedForCompleteDurableComposition: false;
+  readonly linuxIntegrationValidatedForCompleteDurableComposition: true;
   readonly systemdLayerConfigured: false;
   readonly durableApprovalPort: false;
   readonly durableAuditPort: false;
@@ -44,7 +45,7 @@ export const POSIX_DURABLE_LOCAL_HOST_COMPOSITION_DIAGNOSTICS: PosixDurableLocal
     cooperativeSecondInstanceProtectionActiveForDurableHost: true,
     processLockWiredToNeo: false,
     neoSecondInstanceProtectionActive: false,
-    linuxIntegrationValidatedForCompleteDurableComposition: false,
+    linuxIntegrationValidatedForCompleteDurableComposition: true,
     systemdLayerConfigured: false,
     durableApprovalPort: false,
     durableAuditPort: false,

@@ -98,7 +98,7 @@ Windows-testable pure lifecycle only. Deployment prohibited.
 reuses B3C1 owner/controller, and returns frozen `{ host, diagnostics, close }` only after full
 startup success. Startup rollback is deterministic (SQLite → lock → root). Existing
 `createLocalHost()` remains in-memory. Factory is not package/host-exported; not connected to Neo
-startup; complete B3C4 Linux integration gate pending; systemd pending; durable Approval/Audit
+startup; complete B3C4 Linux integration validation recorded (see Build 3.3B3C4-FINAL); systemd pending; durable Approval/Audit
 absent; secret provider/encryption absent. Codex Review №6 pending. Deployment prohibited.
 
 **Build 3.3B3C3:** defensive hardening before B3C4 Linux integration gate — malformed closer/cleanup
@@ -106,6 +106,15 @@ result validation, startup cleanup reentrancy safety, terminal failure freezing,
 target allowlist for the composition factory. Does not wire durable composition to Neo startup;
 process-lock primitive itself remains unwired to Neo (B3B5); `createLocalHost()` remains in-memory.
 Deployment prohibited.
+
+**Build 3.3B3C4-FINAL:** independent evidence review APPROVE. Authoritative offline durable-composition
+Linux gate PASS (`BUILD_3_3B3C4_LINUX_COMPOSITION_GATE_PASSED`) on validated source
+`5f3b3862dea078613e0aacba3834efbbbfe9376e`, immutable runtime image
+`sha256:cc961fff5f5defc144eab8a540500ae43b68cb58ffdbf2d42c3a2b0fd6fbc834`, scenarios A–K PASS,
+evidence hashes 19/19, Ubuntu 24.04.4 / Node 22.13.0 / npm 10.9.2. Records
+`linuxIntegrationValidatedForCompleteDurableComposition=true` in composition diagnostics only.
+`deploymentReady`, security approval, systemd, and channel integration readiness remain false.
+Factory/Neo wiring unchanged. Deployment prohibited.
 
 | Слой | Статус |
 |------|--------|
@@ -126,8 +135,9 @@ Deployment prohibited.
 | Linux CLOEXEC runtime remediation (Build 3.3B3B4-F1) | implemented (Candidate C committed) |
 | Linux process-lock primitive validation (Build 3.3B3B4/B3B5) | recorded (`linuxIntegrationValidatedForPrimitive=true`; primitive unwired to Neo) |
 | Durable owner/controller fake lifecycle (Build 3.3B3C1) | implemented (app-private; fake closures only) |
-| POSIX durable LocalHost composition (Build 3.3B3C2) | implemented (app-private; wires root/lock/SQLite inside factory only; Neo unwired; B3C4 gate pending) |
+| POSIX durable LocalHost composition (Build 3.3B3C2) | implemented (app-private; wires root/lock/SQLite inside factory only; Neo unwired; B3C4 Linux validation recorded) |
 | Durable composition hardening (Build 3.3B3C3) | implemented (malformed-result guards; cleanup reentrancy; exact dynamic-import allowlist) |
+| Complete durable composition Linux validation (Build 3.3B3C4-FINAL) | recorded (`linuxIntegrationValidatedForCompleteDurableComposition=true`; authoritative A–K PASS; not deployment approval) |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
@@ -214,7 +224,7 @@ without real root/lock/SQLite wiring.
 Build 3.3B3C2 adds the app-private Linux-gated POSIX durable composition factory that wires real
 POSIX root → process lock → SQLite MemoryPort into a B3C1 owner (startup rollback
 SQLite → lock → root) **inside the factory only**. Factory remains app-private / Neo-unwired;
-complete composition Linux integration gate pending B3C4. The B3B3/B3B5 process-lock primitive
+complete composition Linux integration validation recorded (Build 3.3B3C4-FINAL). The B3B3/B3B5 process-lock primitive
 itself remains unwired to Neo startup. Build 3.3B3C3 hardens malformed closer/cleanup results,
 startup cleanup reentrancy, terminal failure freezing, and exact dynamic-import targets — without
 changing Neo wiring or readiness diagnostics. systemd layer pending. Existing `createLocalHost()`

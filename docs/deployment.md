@@ -53,8 +53,11 @@ systemd unit/layer pending. Build 3.3B3C1 adds pure durable owner/controller lif
 closures only (non-reentrant ordered close; snapshotted closers). Build 3.3B3C2 wires real POSIX
 root → process lock → SQLite MemoryPort into that owner via an app-private Linux-gated factory
 with deterministic startup rollback **inside the factory only**; factory is not connected to Neo
-startup; B3B3/B3B5 process-lock primitive itself remains unwired to Neo; complete composition
-Linux integration gate pending B3C4. Build 3.3B3C3 adds malformed-result guards, cleanup
+startup; B3B3/B3B5 process-lock primitive itself remains unwired to Neo. Build 3.3B3C4-FINAL records
+authoritative complete durable-composition Linux integration validation on validated source
+`5f3b3862dea078613e0aacba3834efbbbfe9376e` and immutable image
+`sha256:cc961fff5f5defc144eab8a540500ae43b68cb58ffdbf2d42c3a2b0fd6fbc834` (A–K PASS; evidence
+hashes 19/19). Build 3.3B3C3 adds malformed-result guards, cleanup
 reentrancy hardening, terminal failure freezing, and exact dynamic-import allowlist without changing
 Neo wiring. Existing `createLocalHost()` остаётся in-memory;
 process lock не участвует в Neo startup lifecycle; approval/audit ephemeral; cross-port transaction /

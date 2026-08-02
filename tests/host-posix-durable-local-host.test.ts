@@ -485,7 +485,7 @@ describe('POSIX durable LocalHost composition — startup success', () => {
 });
 
 describe('POSIX durable LocalHost composition — diagnostics honesty', () => {
-  it('sets real wiring flags true and keeps Neo/systemd/deployment false', async () => {
+  it('sets real wiring flags true and records B3C4 Linux validation without deployment claims', async () => {
     const result = await createPosixDurableLocalHostWithTestHooks(validInput(), successHooks());
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -498,12 +498,27 @@ describe('POSIX durable LocalHost composition — diagnostics honesty', () => {
     expect(d.cooperativeSecondInstanceProtectionActiveForDurableHost).toBe(true);
     expect(d.processLockWiredToNeo).toBe(false);
     expect(d.neoSecondInstanceProtectionActive).toBe(false);
-    expect(d.linuxIntegrationValidatedForCompleteDurableComposition).toBe(false);
+    expect(d.linuxIntegrationValidatedForCompleteDurableComposition).toBe(true);
     expect(d.systemdLayerConfigured).toBe(false);
     expect(d.durableApprovalPort).toBe(false);
     expect(d.durableAuditPort).toBe(false);
     expect(d.deploymentReady).toBe(false);
     expect(d.securityApprovalComplete).toBe(false);
+  });
+
+  it('keeps deployment and security approval false on the frozen composition diagnostics constant', () => {
+    const d = POSIX_DURABLE_LOCAL_HOST_COMPOSITION_DIAGNOSTICS;
+    expect(d.linuxIntegrationValidatedForCompleteDurableComposition).toBe(true);
+    expect(d.deploymentReady).toBe(false);
+    expect(d.securityApprovalComplete).toBe(false);
+    expect(d.systemdLayerConfigured).toBe(false);
+    expect(d.processLockWiredToNeo).toBe(false);
+    expect(d.neoSecondInstanceProtectionActive).toBe(false);
+    expect(d.durableApprovalPort).toBe(false);
+    expect(d.durableAuditPort).toBe(false);
+    expect(d.secretProviderConfigured).toBe(false);
+    expect(d.encryptionEnabled).toBe(false);
+    expect(d.crossPortTransactions).toBe(false);
   });
 
   it('does not inflate B3C1 fake owner diagnostics', () => {

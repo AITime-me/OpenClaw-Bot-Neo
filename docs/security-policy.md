@@ -347,11 +347,15 @@ Codex Review №6 pending; deployment запрещён.
 wire'ит real POSIX root → exclusive process lock → SQLite MemoryPort **внутри factory only**,
 переиспользует B3C1 owner, выполняет deterministic startup rollback (SQLite → lock → root).
 Existing `createLocalHost()` остаётся in-memory. Factory не package/host-exported; не подключена к
-Neo startup; B3B3/B3B5 process-lock primitive сам по себе остаётся unwired к Neo; complete B3C4
-Linux integration gate pending; systemd pending; durable Approval/Audit absent; secret
+Neo startup; B3B3/B3B5 process-lock primitive сам по себе остаётся unwired к Neo. Build 3.3B3C4-FINAL
+records authoritative complete durable-composition Linux integration validation
+(`linuxIntegrationValidatedForCompleteDurableComposition=true`) on validated source
+`5f3b3862dea078613e0aacba3834efbbbfe9376e` and immutable image
+`sha256:cc961fff5f5defc144eab8a540500ae43b68cb58ffdbf2d42c3a2b0fd6fbc834`; scenarios A–K PASS;
+evidence hashes 19/19. systemd pending; durable Approval/Audit absent; secret
 provider/encryption absent. Codex Review №6 pending; deployment запрещён.
 
 **Build 3.3B3C3:** defensive hardening перед B3C4 — malformed closer/cleanup validation,
 startup cleanup reentrancy safety, frozen terminal failures, exact dynamic-import target allowlist
-для composition factory. Не меняет Neo wiring, diagnostics readiness claims или deployment status.
-Codex Review №6 pending; deployment запрещён.
+для composition factory. Build 3.3B3C4-FINAL records authoritative Linux validation in diagnostics
+only; deployment/security approval unchanged. Codex Review №6 pending; deployment запрещён.
