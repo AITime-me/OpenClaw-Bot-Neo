@@ -113,8 +113,22 @@ Linux gate PASS (`BUILD_3_3B3C4_LINUX_COMPOSITION_GATE_PASSED`) on validated sou
 `sha256:cc961fff5f5defc144eab8a540500ae43b68cb58ffdbf2d42c3a2b0fd6fbc834`, scenarios A–K PASS,
 evidence hashes 19/19, Ubuntu 24.04.4 / Node 22.13.0 / npm 10.9.2. Records
 `linuxIntegrationValidatedForCompleteDurableComposition=true` in composition diagnostics only.
-`deploymentReady`, security approval, systemd, and channel integration readiness remain false.
-Factory/Neo wiring unchanged. Deployment prohibited.
+`deploymentReady` and security approval remain false. Deployment prohibited.
+
+**Build 3.4H (closeout):** independent evidence review
+`BUILD_3_4G_INDEPENDENT_REVIEW_APPROVED_WITH_NOTES_FOR_CLOSEOUT`. Disposable Linux Neo runtime
+L1–L5 (`BUILD_3_4_LINUX_NEO_RUNTIME_GATE_PASSED`, STAB10 manifest 36/36) and disposable systemd
+S1–S7 (`BUILD_3_4F_NEO_SYSTEMD_LINUX_VALIDATION_PASSED`) on validated source
+`4096a87586475aacb01dc27596c1e1dd494f9778`, package-lock
+`f8b9ce9fdbf3dd1d69f219df2a997e58b1cd5abcb077312b5151ba729175db54`, bundle
+`c067aa98c9f4e1fa927ec2dbab9a461d43ccda94c332b67eb734f198cb28a69b`, offline image
+`sha256:cc961fff5f5defc144eab8a540500ae43b68cb58ffdbf2d42c3a2b0fd6fbc834` (image label
+non-authoritative). Records `processLockWiredToNeo=true`,
+`neoSecondInstanceProtectionActive=true`, and `systemdLayerConfigured=true` only. Production
+deployment not performed; VPS not used; connectors/channels/credentials not enabled;
+`deploymentReady`, security approval, secret provider, encryption, and durable Approval/Audit remain
+false. See [Build 3.4 validation record](docs/validation/build-3.4-neo-linux-systemd-validation.md).
+Deployment prohibited.
 
 | Слой | Статус |
 |------|--------|
@@ -138,6 +152,10 @@ Factory/Neo wiring unchanged. Deployment prohibited.
 | POSIX durable LocalHost composition (Build 3.3B3C2) | implemented (app-private; wires root/lock/SQLite inside factory only; Neo unwired; B3C4 Linux validation recorded) |
 | Durable composition hardening (Build 3.3B3C3) | implemented (malformed-result guards; cleanup reentrancy; exact dynamic-import allowlist) |
 | Complete durable composition Linux validation (Build 3.3B3C4-FINAL) | recorded (`linuxIntegrationValidatedForCompleteDurableComposition=true`; authoritative A–K PASS; not deployment approval) |
+| Neo runtime/process foundation (Build 3.4) | implemented (compiled launcher, readiness, signals, production composition) |
+| Disposable Neo Linux runtime validation (Build 3.4E-STAB10) | recorded (L1–L5 PASS; process lock + second-instance wiring evidenced) |
+| Disposable Neo systemd validation (Build 3.4F) | recorded (S1–S7 PASS; `systemdLayerConfigured=true`; not production-installed) |
+| Build 3.4 closeout (Build 3.4H) | recorded (see `docs/validation/build-3.4-neo-linux-systemd-validation.md`) |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |

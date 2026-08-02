@@ -258,7 +258,8 @@ provider: если совместимого мужского голоса нет
   complete durable-composition Linux integration validation in diagnostics only. Deployment and
   security approval remain prohibited.
 - Neo second-instance protection activation, durable approval/audit, secret-provider, cross-port
-  transaction gap, systemd layer, и VPS/deployment остаются pending.
+  transaction gap, and VPS/deployment остаются pending until separate approval. Build 3.4H records
+  disposable Linux runtime L1–L5 and systemd S1–S7 validation plus Neo wiring diagnostics only.
 - Только после security review: sandbox/integration environment.
 - Production и deployment остаются отдельным решением.
 
@@ -270,8 +271,23 @@ Independent evidence review **APPROVE**. Authoritative offline gate
 `sha256:cc961fff5f5defc144eab8a540500ae43b68cb58ffdbf2d42c3a2b0fd6fbc834` (metadata-only rebind;
 RootFS 8/8 match parent). Scenarios A–K PASS; evidence integrity 19/19; harness runtime cleanup
 PASS. Diagnostics record `linuxIntegrationValidatedForCompleteDurableComposition=true` only.
-`deploymentReady`, `securityApprovalComplete`, systemd/channel/integration readiness, and Neo
-second-instance production claims remain false.
+`deploymentReady`, `securityApprovalComplete`, systemd/channel/integration readiness remain false
+for deployment approval. Neo process-lock wiring, second-instance protection, and systemd layer
+configuration are recorded separately in Build 3.4 closeout diagnostics only.
+
+**Build 3.4H — Neo disposable Linux runtime and systemd validation (closeout):**
+Independent evidence review `BUILD_3_4G_INDEPENDENT_REVIEW_APPROVED_WITH_NOTES_FOR_CLOSEOUT`.
+Disposable Linux Neo runtime L1–L5 (`BUILD_3_4_LINUX_NEO_RUNTIME_GATE_PASSED`, STAB10 manifest
+36/36) and disposable systemd S1–S7 (`BUILD_3_4F_NEO_SYSTEMD_LINUX_VALIDATION_PASSED`) on
+validated source `4096a87586475aacb01dc27596c1e1dd494f9778`, package-lock
+`f8b9ce9fdbf3dd1d69f219df2a997e58b1cd5abcb077312b5151ba729175db54`, bundle
+`c067aa98c9f4e1fa927ec2dbab9a461d43ccda94c332b67eb734f198cb28a69b`, offline image
+`sha256:cc961fff5f5defc144eab8a540500ae43b68cb58ffdbf2d42c3a2b0fd6fbc834` (image label
+non-authoritative). Diagnostics record `processLockWiredToNeo=true`,
+`neoSecondInstanceProtectionActive=true`, and `systemdLayerConfigured=true` only.
+`deploymentReady`, `securityApprovalComplete`, secret provider, encryption, durable Approval/Audit,
+channels/connectors, VPS/production deployment, and production boot validation remain false or not
+performed. See [validation record](validation/build-3.4-neo-linux-systemd-validation.md).
 
 **Non-blocking operational backlog (does not change Linux gate verdict):**
 - MEDIUM: host cleanup wrapper may hang on `docker stop` when a zombie node remains (recovery via

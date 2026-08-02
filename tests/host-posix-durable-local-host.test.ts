@@ -496,10 +496,10 @@ describe('POSIX durable LocalHost composition — diagnostics honesty', () => {
     expect(d.durableMemoryActive).toBe(true);
     expect(d.processLockWiredToDurableComposition).toBe(true);
     expect(d.cooperativeSecondInstanceProtectionActiveForDurableHost).toBe(true);
-    expect(d.processLockWiredToNeo).toBe(false);
-    expect(d.neoSecondInstanceProtectionActive).toBe(false);
+    expect(d.processLockWiredToNeo).toBe(true);
+    expect(d.neoSecondInstanceProtectionActive).toBe(true);
     expect(d.linuxIntegrationValidatedForCompleteDurableComposition).toBe(true);
-    expect(d.systemdLayerConfigured).toBe(false);
+    expect(d.systemdLayerConfigured).toBe(true);
     expect(d.durableApprovalPort).toBe(false);
     expect(d.durableAuditPort).toBe(false);
     expect(d.deploymentReady).toBe(false);
@@ -511,9 +511,9 @@ describe('POSIX durable LocalHost composition — diagnostics honesty', () => {
     expect(d.linuxIntegrationValidatedForCompleteDurableComposition).toBe(true);
     expect(d.deploymentReady).toBe(false);
     expect(d.securityApprovalComplete).toBe(false);
-    expect(d.systemdLayerConfigured).toBe(false);
-    expect(d.processLockWiredToNeo).toBe(false);
-    expect(d.neoSecondInstanceProtectionActive).toBe(false);
+    expect(d.systemdLayerConfigured).toBe(true);
+    expect(d.processLockWiredToNeo).toBe(true);
+    expect(d.neoSecondInstanceProtectionActive).toBe(true);
     expect(d.durableApprovalPort).toBe(false);
     expect(d.durableAuditPort).toBe(false);
     expect(d.secretProviderConfigured).toBe(false);
@@ -546,7 +546,7 @@ describe('POSIX durable LocalHost composition — diagnostics honesty', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.diagnostics.deploymentReady).toBe(false);
-    expect(result.value.diagnostics.processLockWiredToNeo).toBe(false);
+    expect(result.value.diagnostics.processLockWiredToNeo).toBe(true);
     expect(result.value.diagnostics).toBe(POSIX_DURABLE_LOCAL_HOST_COMPOSITION_DIAGNOSTICS);
   });
 });

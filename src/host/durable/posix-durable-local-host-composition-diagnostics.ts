@@ -3,6 +3,9 @@
  * Compile-time / composition evidence only — not caller-controlled, not inherited from
  * primitive diagnostics. `linuxIntegrationValidatedForCompleteDurableComposition` records
  * independent authoritative B3C4 Linux gate evidence only; it is not Neo/systemd/deployment approval.
+ * `processLockWiredToNeo`, `neoSecondInstanceProtectionActive`, and `systemdLayerConfigured` record
+ * independently reviewed Build 3.4 disposable Linux runtime and systemd evidence only — not production
+ * deployment, not VPS validation, and not security approval.
  */
 export interface PosixDurableLocalHostCompositionDiagnostics {
   readonly ownerLifecycleImplemented: true;
@@ -15,10 +18,10 @@ export interface PosixDurableLocalHostCompositionDiagnostics {
   readonly durableMemoryActive: true;
   readonly processLockWiredToDurableComposition: true;
   readonly cooperativeSecondInstanceProtectionActiveForDurableHost: true;
-  readonly processLockWiredToNeo: false;
-  readonly neoSecondInstanceProtectionActive: false;
+  readonly processLockWiredToNeo: true;
+  readonly neoSecondInstanceProtectionActive: true;
   readonly linuxIntegrationValidatedForCompleteDurableComposition: true;
-  readonly systemdLayerConfigured: false;
+  readonly systemdLayerConfigured: true;
   readonly durableApprovalPort: false;
   readonly durableAuditPort: false;
   readonly crossPortTransactions: false;
@@ -43,10 +46,10 @@ export const POSIX_DURABLE_LOCAL_HOST_COMPOSITION_DIAGNOSTICS: PosixDurableLocal
     durableMemoryActive: true,
     processLockWiredToDurableComposition: true,
     cooperativeSecondInstanceProtectionActiveForDurableHost: true,
-    processLockWiredToNeo: false,
-    neoSecondInstanceProtectionActive: false,
+    processLockWiredToNeo: true,
+    neoSecondInstanceProtectionActive: true,
     linuxIntegrationValidatedForCompleteDurableComposition: true,
-    systemdLayerConfigured: false,
+    systemdLayerConfigured: true,
     durableApprovalPort: false,
     durableAuditPort: false,
     crossPortTransactions: false,

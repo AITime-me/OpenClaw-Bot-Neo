@@ -1,5 +1,6 @@
 # OpenClaw Neo personal assistant runtime — production-oriented systemd unit template.
-# NOT installed or Linux-validated in Build 3.4D. deploymentReady remains false.
+# Validated in disposable Ubuntu 24.04/systemd during Build 3.4F (see docs/validation/build-3.4-neo-linux-systemd-validation.md).
+# Not production-deployed; deploymentReady remains false; not security-approved.
 # No production credentials belong in this template.
 # Future secret provider / systemd LoadCredential integration is separate work.
 

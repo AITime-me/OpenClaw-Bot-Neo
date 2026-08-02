@@ -35,6 +35,8 @@ describe('neo runtime systemd template', () => {
 
   it('does not claim deployment or credentials readiness', () => {
     expect(content).toContain('deploymentReady remains false');
+    expect(content).toContain('Validated in disposable Ubuntu 24.04/systemd during Build 3.4F');
+    expect(content).not.toContain('NOT installed or Linux-validated in Build 3.4D');
     expect(content).not.toMatch(/EnvironmentFile=|LoadCredential=/i);
     expect(content).not.toContain('network-online.target');
   });

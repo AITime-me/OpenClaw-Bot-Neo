@@ -158,8 +158,11 @@ export const validateNeoSystemdTemplate = (content) => {
   if (!content.includes('deploymentReady remains false')) {
     violations.push('Template comments must state deploymentReady remains false.');
   }
-  if (!content.includes('NOT installed or Linux-validated')) {
-    violations.push('Template comments must state Linux validation is pending.');
+  if (!content.includes('Validated in disposable Ubuntu 24.04/systemd during Build 3.4F')) {
+    violations.push('Template comments must state disposable Build 3.4F systemd validation.');
+  }
+  if (!content.includes('not security-approved')) {
+    violations.push('Template comments must state security approval is absent.');
   }
 
   return violations;

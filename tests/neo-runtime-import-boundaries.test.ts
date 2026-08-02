@@ -89,7 +89,9 @@ describe('neo runtime import boundaries', () => {
     const runtime = createNeoRuntime({
       openDurableHost: () => Promise.resolve({ ok: true, value: { close: () => ({ ok: true }) } }),
     });
-    expect(runtime.diagnostics.processLockWiredToNeo).toBe(false);
+    expect(runtime.diagnostics.processLockWiredToNeo).toBe(true);
+    expect(runtime.diagnostics.neoSecondInstanceProtectionActive).toBe(true);
+    expect(runtime.diagnostics.systemdLayerConfigured).toBe(true);
     expect(runtime.diagnostics.deploymentReady).toBe(false);
   });
 });

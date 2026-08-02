@@ -58,7 +58,10 @@ describe('neo runtime production composition lifecycle', () => {
     expect(health.runtimeReady).toBe(false);
     expect(runtime.diagnostics).toEqual(NEO_RUNTIME_DIAGNOSTICS);
     expect(runtime.diagnostics.neoRuntimeLifecycleFoundationImplemented).toBe(true);
-    expect(runtime.diagnostics.processLockWiredToNeo).toBe(false);
+    expect(runtime.diagnostics.processLockWiredToNeo).toBe(true);
+    expect(runtime.diagnostics.neoSecondInstanceProtectionActive).toBe(true);
+    expect(runtime.diagnostics.systemdLayerConfigured).toBe(true);
+    expect(runtime.diagnostics.deploymentReady).toBe(false);
   });
 
   it('close before start stops without opening durable host', async () => {

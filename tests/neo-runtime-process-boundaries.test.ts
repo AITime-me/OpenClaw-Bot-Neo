@@ -101,12 +101,14 @@ describe('neo runtime process boundaries', () => {
     }
   });
 
-  it('diagnostics remain honest about deployment and systemd', () => {
+  it('diagnostics record disposable Linux validation without deployment claims', () => {
     const diagnostics = readFileSync(join(NEO_RUNTIME_ROOT, 'neo-runtime-diagnostics.ts'), 'utf8');
     expect(diagnostics).toContain('neoCompiledProcessBoundaryImplemented: true');
-    expect(diagnostics).toContain('processLockWiredToNeo: false');
-    expect(diagnostics).toContain('systemdLayerConfigured: false');
+    expect(diagnostics).toContain('processLockWiredToNeo: true');
+    expect(diagnostics).toContain('neoSecondInstanceProtectionActive: true');
+    expect(diagnostics).toContain('systemdLayerConfigured: true');
     expect(diagnostics).toContain('deploymentReady: false');
+    expect(diagnostics).toContain('securityApprovalComplete: false');
   });
 
   it('shutdown timeout exit 13 collides with Node unfinished TLA and requires structured event', () => {
