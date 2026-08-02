@@ -15,7 +15,7 @@ import {
   writeSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, isAbsolute, join, resolve } from 'node:path';
 import { DISPOSABLE_ROOT_PREFIX, MARKER_FILENAME, MARKER_SCHEMA_VERSION } from './constants.ts';
 import { hashCapability } from './fingerprint.ts';
 
@@ -340,6 +340,43 @@ export type ChildRootValidationInput = {
   readonly capability: string;
   readonly repositoryRoot: string;
   readonly expectedUid: number;
+  /** Creation-time canonical disposable parent path; not derived from child TMPDIR. */
+  readonly expectedDisposableParentRealpath: string;
+};
+
+export type DisposableParentResolutionResult =
+  | { readonly ok: true; readonly parentReal: string }
+  | { readonly ok: false; readonly reason: string };
+
+/** Fail-closed resolution of the explicit disposable parent path from child env. */
+export const resolveDisposableParentRealpath = (
+  provided: string,
+): DisposableParentResolutionResult => {
+  if (typeof provided !== 'string' || provided.length === 0 || provided.includes('\0')) {
+    return { ok: false, reason: 'DISPOSABLE_PARENT_INVALID' };
+  }
+  if (!isAbsolute(provided)) return { ok: false, reason: 'DISPOSABLE_PARENT_RELATIVE' };
+  try {
+    const stats = requireLstat(provided);
+    if (stats.isSymlink || !stats.isDir) return { ok: false, reason: 'DISPOSABLE_PARENT_TYPE' };
+    const canonical = realpathSync(provided);
+    if (canonical !== provided) return { ok: false, reason: 'DISPOSABLE_PARENT_REALPATH' };
+    return { ok: true, parentReal: canonical };
+  } catch {
+    return { ok: false, reason: 'DISPOSABLE_PARENT_MISSING' };
+  }
+};
+
+/** Component-boundary check: execution root must be a strict child directory of parent. */
+export const isExecutionRootUnderDisposableParent = (
+  executionReal: string,
+  parentReal: string,
+): boolean => {
+  if (executionReal === parentReal) return false;
+  const prefix = parentReal.endsWith('/') ? parentReal : `${parentReal}/`;
+  if (!executionReal.startsWith(prefix)) return false;
+  const remainder = executionReal.slice(prefix.length);
+  return remainder.length > 0 && !remainder.includes('\0');
 };
 
 /** Serialize inode/device for env transport (number or bigint-safe). */
@@ -376,7 +413,9 @@ const validateExecutionRoot = (
   if (!basename(realRoot).startsWith(DISPOSABLE_ROOT_PREFIX)) {
     return { ok: false, reason: 'EXECUTION_PREFIX' };
   }
-  if (!realRoot.startsWith(`${parentReal}/`)) return { ok: false, reason: 'EXECUTION_PARENT' };
+  if (!isExecutionRootUnderDisposableParent(realRoot, parentReal)) {
+    return { ok: false, reason: 'EXECUTION_PARENT' };
+  }
   if (realRoot === '/' || realRoot === '/tmp' || realRoot === parentReal) {
     return { ok: false, reason: 'EXECUTION_UNSAFE' };
   }
@@ -427,7 +466,11 @@ export const validateChildDisposableRoot = (
   input: ChildRootValidationInput,
 ): ChildRootValidationResult => {
   try {
-    const parentReal = realpathSync(tmpdir());
+    const parentResolution = resolveDisposableParentRealpath(
+      input.expectedDisposableParentRealpath,
+    );
+    if (!parentResolution.ok) return parentResolution;
+    const parentReal = parentResolution.parentReal;
     const repoReal = realpathSync(input.repositoryRoot);
     const executionResult = validateExecutionRoot(input, parentReal, repoReal);
     if (!executionResult.ok) return executionResult;

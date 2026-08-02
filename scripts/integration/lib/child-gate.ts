@@ -146,6 +146,7 @@ export const runChildGate = (
   const markerDev = required(env, 'OPENCLAW_B3C4_MARKER_DEV');
   const markerInode = required(env, 'OPENCLAW_B3C4_MARKER_INODE');
   const expectedUidRaw = required(env, 'OPENCLAW_B3C4_EXPECTED_UID');
+  const disposableParentRealpath = required(env, 'OPENCLAW_B3C4_DISPOSABLE_PARENT_REALPATH');
 
   if (
     storageRoot === null ||
@@ -158,7 +159,8 @@ export const runChildGate = (
     executionInode === null ||
     markerDev === null ||
     markerInode === null ||
-    expectedUidRaw === null
+    expectedUidRaw === null ||
+    disposableParentRealpath === null
   ) {
     return { ok: false, reason: 'MISSING_CHILD_ENV' };
   }
@@ -199,6 +201,7 @@ export const runChildGate = (
     capability,
     repositoryRoot,
     expectedUid,
+    expectedDisposableParentRealpath: disposableParentRealpath,
   });
   if (!rootValidation.ok) return { ok: false, reason: rootValidation.reason };
 

@@ -128,6 +128,7 @@ const buildSessionOptions = (
   markerDevice: ownership.markerDevice,
   homePath: ownership.homePath,
   tmpPath: ownership.tmpPath,
+  disposableParentRealPath: ownership.parentRealPath,
   gateEnv,
   timeoutMs: overrides.timeoutMs ?? CHILD_TIMEOUT_MS,
   parentEnv: process.env,

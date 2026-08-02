@@ -53,6 +53,7 @@ export type ChildSessionOptions = {
   readonly markerDevice: number;
   readonly homePath: string;
   readonly tmpPath: string;
+  readonly disposableParentRealPath: string;
   readonly gateEnv: Readonly<Record<string, string>>;
   readonly timeoutMs: number;
   readonly parentEnv?: NodeJS.ProcessEnv;
@@ -110,6 +111,7 @@ export const spawnChildSession = (options: ChildSessionOptions): ChildSessionHan
       OPENCLAW_B3C4_EXECUTION_REALPATH: options.realExecutionRootPath,
       OPENCLAW_B3C4_EXECUTION_DEV: String(options.executionDevice),
       OPENCLAW_B3C4_EXECUTION_INODE: String(options.executionInode),
+      OPENCLAW_B3C4_DISPOSABLE_PARENT_REALPATH: options.disposableParentRealPath,
       OPENCLAW_B3C4_MARKER_DEV: String(options.markerDevice),
       OPENCLAW_B3C4_MARKER_INODE: String(options.markerInode),
       OPENCLAW_B3C4_PARENT_CAPABILITY: options.capability,

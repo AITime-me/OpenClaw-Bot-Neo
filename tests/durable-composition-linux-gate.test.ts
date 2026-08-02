@@ -1,6 +1,14 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { execSync } from 'node:child_process';
-import { mkdirSync, readFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  readFileSync,
+  chmodSync,
+  rmSync,
+  symlinkSync,
+  lstatSync,
+  realpathSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -10,6 +18,7 @@ import {
   MAX_PROTOCOL_LINE_BYTES,
   PASS_MARKER,
   REQUIRED_SCENARIO_KEYS,
+  CHILD_ENV_ALLOWLIST,
 } from '../scripts/integration/lib/constants.ts';
 import {
   createCleanupController,
@@ -60,6 +69,10 @@ import {
   validateHomeTmpEmpty,
   validateRemovalProof,
   validateStorageRootAllowlist,
+  validateChildDisposableRoot,
+  resolveDisposableParentRealpath,
+  isExecutionRootUnderDisposableParent,
+  type ChildRootValidationInput,
   type DisposableRootOwnership,
 } from '../scripts/integration/lib/disposable-root.ts';
 import {
@@ -220,6 +233,7 @@ const baseChildEnv = (overrides: Record<string, string> = {}): NodeJS.ProcessEnv
   OPENCLAW_B3C4_PARENT_CAPABILITY: generateParentCapability(),
   OPENCLAW_B3C4_REPOSITORY_ROOT: process.cwd(),
   OPENCLAW_B3C4_EXPECTED_UID: '1000',
+  OPENCLAW_B3C4_DISPOSABLE_PARENT_REALPATH: '/tmp/openclaw-b3c4-test-parent',
   ...overrides,
 });
 
@@ -1060,6 +1074,185 @@ describe('disposable root dual-layout safety', () => {
     expect(proof.storageValidated).toBe(true);
     const removal = removeDisposableRoot(ownership, process.cwd());
     expect(removal.removed).toBe(true);
+  });
+});
+
+const validationInputFromOwnership = (
+  ownership: DisposableRootOwnership,
+  overrides: Partial<ChildRootValidationInput> = {},
+): ChildRootValidationInput => ({
+  storageRoot: ownership.storageRootPath,
+  expectedStorageRealpath: ownership.realStorageRootPath,
+  expectedStorageDev: ownership.storageDevice,
+  expectedStorageInode: ownership.storageInode,
+  executionRoot: ownership.executionRootPath,
+  expectedExecutionRealpath: ownership.realExecutionRootPath,
+  expectedExecutionDev: ownership.executionDevice,
+  expectedExecutionInode: ownership.executionInode,
+  expectedMarkerDev: ownership.markerDevice,
+  expectedMarkerInode: ownership.markerInode,
+  expectedRunId: ownership.runId,
+  capability: ownership.capability,
+  repositoryRoot: process.cwd(),
+  expectedUid: ownership.uid,
+  expectedDisposableParentRealpath: ownership.parentRealPath,
+  ...overrides,
+});
+
+describe('child disposable parent validation', () => {
+  const supportsPosixFs = process.platform !== 'win32';
+
+  it('allowlists only the explicit disposable parent env key', () => {
+    expect(CHILD_ENV_ALLOWLIST).toContain('OPENCLAW_B3C4_DISPOSABLE_PARENT_REALPATH');
+    const disposableKeys = (CHILD_ENV_ALLOWLIST as readonly string[]).filter((key) =>
+      key.includes('DISPOSABLE'),
+    );
+    expect(disposableKeys).toEqual(['OPENCLAW_B3C4_DISPOSABLE_PARENT_REALPATH']);
+  });
+
+  it('rejects component-boundary prefix collisions', () => {
+    expect(isExecutionRootUnderDisposableParent('/tmp/base/run', '/tmp/base')).toBe(true);
+    expect(isExecutionRootUnderDisposableParent('/tmp/base-other/run', '/tmp/base')).toBe(false);
+    expect(isExecutionRootUnderDisposableParent('/tmp/base', '/tmp/base')).toBe(false);
+  });
+
+  it('resolves only absolute canonical existing parent directories', () => {
+    expect(resolveDisposableParentRealpath('relative/parent').ok).toBe(false);
+    expect(resolveDisposableParentRealpath('/definitely-missing-openclaw-parent').ok).toBe(false);
+    if (!supportsPosixFs) return;
+    const ownership = createDisposableRoot(
+      typeof process.getuid === 'function' ? process.getuid() : 0,
+      process.cwd(),
+    );
+    const resolved = resolveDisposableParentRealpath(ownership.parentRealPath);
+    expect(resolved.ok).toBe(true);
+    if (resolved.ok) expect(resolved.parentReal).toBe(ownership.parentRealPath);
+    removeDisposableRoot(ownership, process.cwd());
+  });
+
+  it('passes production validation when parent is creation-time path and child TMPDIR is nested', () => {
+    if (!supportsPosixFs) return;
+    const uid = typeof process.getuid === 'function' ? process.getuid() : 0;
+    const ownership = createDisposableRoot(uid, process.cwd());
+    const input = validationInputFromOwnership(ownership);
+    expect(validateChildDisposableRoot(input).ok).toBe(true);
+    expect(input.expectedDisposableParentRealpath).toBe(ownership.parentRealPath);
+    expect(ownership.tmpPath).toBe(join(ownership.executionRootPath, 'tmp'));
+    expect(validateChildDisposableRoot(input).ok).toBe(true);
+    removeDisposableRoot(ownership, process.cwd());
+  });
+
+  it('reproduces EXECUTION_PARENT when disposable parent is child TMPDIR instead of creation parent', () => {
+    if (!supportsPosixFs) return;
+    const uid = typeof process.getuid === 'function' ? process.getuid() : 0;
+    const ownership = createDisposableRoot(uid, process.cwd());
+    const input = validationInputFromOwnership(ownership, {
+      expectedDisposableParentRealpath: ownership.tmpPath,
+    });
+    const result = validateChildDisposableRoot(input);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('EXECUTION_PARENT');
+    removeDisposableRoot(ownership, process.cwd());
+  });
+
+  it('fails closed when explicit parent is missing from child gate env', () => {
+    const env = baseChildEnv();
+    delete env['OPENCLAW_B3C4_DISPOSABLE_PARENT_REALPATH'];
+    const result = runChildGate(env, linuxFacts());
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('MISSING_CHILD_ENV');
+  });
+
+  it('rejects execution roots outside the explicit parent', () => {
+    if (!supportsPosixFs) return;
+    const uid = typeof process.getuid === 'function' ? process.getuid() : 0;
+    const ownership = createDisposableRoot(uid, process.cwd());
+    const outsider = join(tmpdir(), `openclaw-b3c4-outsider-${generateRunId()}`);
+    mkdirSync(outsider, { recursive: true, mode: 0o700 });
+    chmodSync(outsider, 0o700);
+    const outsiderStats = lstatSync(outsider);
+    const result = validateChildDisposableRoot(
+      validationInputFromOwnership(ownership, {
+        executionRoot: outsider,
+        expectedExecutionRealpath: outsider,
+        expectedExecutionDev: outsiderStats.dev,
+        expectedExecutionInode: outsiderStats.ino,
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('EXECUTION_PARENT');
+    rmSync(outsider, { recursive: true, force: true });
+    removeDisposableRoot(ownership, process.cwd());
+  });
+
+  it('rejects execution root equal to parent and preserves uid/mode checks', () => {
+    if (!supportsPosixFs) return;
+    const uid = typeof process.getuid === 'function' ? process.getuid() : 0;
+    const ownership = createDisposableRoot(uid, process.cwd());
+    const parentStats = lstatSync(ownership.parentRealPath);
+    const equalParent = validateChildDisposableRoot(
+      validationInputFromOwnership(ownership, {
+        executionRoot: ownership.parentRealPath,
+        expectedExecutionRealpath: ownership.parentRealPath,
+        expectedExecutionDev: parentStats.dev,
+        expectedExecutionInode: parentStats.ino,
+      }),
+    );
+    expect(equalParent.ok).toBe(false);
+    if (!equalParent.ok) expect(equalParent.reason).toBe('EXECUTION_PREFIX');
+
+    const wrongUid = validateChildDisposableRoot(
+      validationInputFromOwnership(ownership, { expectedUid: ownership.uid + 1 }),
+    );
+    expect(wrongUid.ok).toBe(false);
+    if (!wrongUid.ok) expect(wrongUid.reason).toBe('EXECUTION_UID');
+
+    removeDisposableRoot(ownership, process.cwd());
+  });
+
+  it('rejects parent symlink alias and execution symlink escape', () => {
+    if (!supportsPosixFs) return;
+    const uid = typeof process.getuid === 'function' ? process.getuid() : 0;
+    const ownership = createDisposableRoot(uid, process.cwd());
+    const aliasParent = join(tmpdir(), `openclaw-b3c4-alias-${generateRunId()}`);
+    symlinkSync(ownership.parentRealPath, aliasParent);
+    const aliasResult = validateChildDisposableRoot(
+      validationInputFromOwnership(ownership, {
+        expectedDisposableParentRealpath: aliasParent,
+      }),
+    );
+    expect(aliasResult.ok).toBe(false);
+    if (!aliasResult.ok) expect(aliasResult.reason).toBe('DISPOSABLE_PARENT_REALPATH');
+
+    const escapeLink = join(ownership.executionRootPath, 'escape-link');
+    symlinkSync('/tmp', escapeLink);
+    const escapeResult = validateChildDisposableRoot(
+      validationInputFromOwnership(ownership, {
+        executionRoot: escapeLink,
+        expectedExecutionRealpath: realpathSync(escapeLink),
+      }),
+    );
+    expect(escapeResult.ok).toBe(false);
+    if (!escapeResult.ok) expect(escapeResult.reason).toBe('EXECUTION_SYMLINK');
+
+    rmSync(aliasParent);
+    rmSync(escapeLink);
+    removeDisposableRoot(ownership, process.cwd());
+  });
+
+  it('passes explicit parent through child environment builder', () => {
+    const parent = '/tmp/openclaw-b3c4-test-parent';
+    const childEnv = buildChildEnvironment(
+      {},
+      {
+        OPENCLAW_B3C4_DISPOSABLE_PARENT_REALPATH: parent,
+        OPENCLAW_B3C4_RUN_ID: generateRunId(),
+        OPENCLAW_B3C4_ROLE: 'normal',
+      },
+      { home: '/tmp/home', tmpdir: '/tmp/base/run/tmp' },
+    );
+    expect(childEnv['OPENCLAW_B3C4_DISPOSABLE_PARENT_REALPATH']).toBe(parent);
+    expect(childEnv['TMPDIR']).toBe('/tmp/base/run/tmp');
   });
 });
 
