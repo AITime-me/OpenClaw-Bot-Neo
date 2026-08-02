@@ -16,5 +16,13 @@
     "noEmit": true
   },
   "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/run-check.d.mts", "eslint.config.js"],
-  "exclude": ["node_modules", "dist", "tests/fixtures"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests/fixtures",
+    "tests/durable-composition-linux-gate.test.ts",
+    "tests/integration-boundary-enforcement.test.ts",
+    "tests/protocol-event-stream.test.ts",
+    "scripts/integration"
+  ]
 }

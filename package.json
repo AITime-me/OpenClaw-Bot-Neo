@@ -7,7 +7,8 @@
     "node": ">=22.13.0 <23"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.integration.json",
+    "typecheck:integration": "tsc --noEmit -p tsconfig.integration.json",
     "build": "tsc -p tsconfig.build.json",
     "lint": "eslint .",
     "format": "prettier --write .",
@@ -15,11 +16,12 @@
     "test": "vitest",
     "test:run": "vitest run",
     "check:node": "node scripts/check-node.mjs",
-    "check:boundaries": "depcruise src --config .dependency-cruiser.cjs && node scripts/verify-boundaries.mjs && node scripts/verify-memory-isolation.mjs",
+    "check:boundaries": "depcruise src --config .dependency-cruiser.cjs && node scripts/verify-boundaries.mjs && node scripts/verify-memory-isolation.mjs && node scripts/verify-integration-boundaries.mjs",
     "check:secrets": "node scripts/check-secret-patterns.mjs",
     "check:hygiene": "node scripts/verify-repo-hygiene.mjs",
     "check": "node scripts/run-check.mjs",
-    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\""
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "test:linux:durable-composition": "node --experimental-strip-types scripts/integration/run-durable-composition-linux-gate.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

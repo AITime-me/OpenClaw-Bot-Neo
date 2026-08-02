@@ -2,7 +2,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', 'tests/fixtures/**'] },
+  { ignores: ['dist/**', 'node_modules/**', 'tests/fixtures/**', 'scripts/**/*.d.mts'] },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   {
@@ -39,6 +39,21 @@ export default tseslint.config(
     },
   },
   {
+    files: [
+      'scripts/integration/**/*.ts',
+      'tests/durable-composition-linux-gate.test.ts',
+      'tests/integration-boundary-enforcement.test.ts',
+      'tests/protocol-event-stream.test.ts',
+    ],
+    languageOptions: {
+      parserOptions: {
+        projectService: false,
+        project: ['./tsconfig.integration.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+  {
     files: ['scripts/**/*.mjs', '*.config.js', '*.config.cjs', '.*.cjs'],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {
@@ -47,6 +62,7 @@ export default tseslint.config(
         process: 'readonly',
         module: 'readonly',
         require: 'readonly',
+        URL: 'readonly',
       },
       parserOptions: { projectService: false },
     },
