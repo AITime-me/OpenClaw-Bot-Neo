@@ -146,6 +146,58 @@ module.exports = {
       },
     },
     {
+      name: 'posix-durable-composition-factory-importers-only',
+      severity: 'error',
+      comment:
+        'POSIX durable composition factory is app-private; only the exact factory module and the exact production Neo runtime wrapper may be imported.',
+      from: {
+        pathNot:
+          '^src/host/durable/create-posix-durable-local-host\\.ts$|^src/neo-runtime/production/create-production-neo-runtime\\.ts$',
+      },
+      to: {
+        path: '^src/host/durable/create-posix-durable-local-host\\.ts$',
+      },
+    },
+    {
+      name: 'host-does-not-depend-on-neo-runtime',
+      severity: 'error',
+      comment: 'Host composition must not import the Neo runtime layer.',
+      from: { path: '^src/host' },
+      to: { path: '^src/neo-runtime' },
+    },
+    {
+      name: 'core-does-not-depend-on-neo-runtime',
+      severity: 'error',
+      comment: 'Core must not import the Neo runtime layer.',
+      from: { path: '^src/core' },
+      to: { path: '^src/neo-runtime' },
+    },
+    {
+      name: 'neo-runtime-no-host-except-production',
+      severity: 'error',
+      comment:
+        'Neo runtime modules may import host only from the exact production composition wrapper.',
+      from: {
+        path: '^src/neo-runtime',
+        pathNot: '^src/neo-runtime/production/create-production-neo-runtime\\.ts$',
+      },
+      to: { path: '^src/host' },
+    },
+    {
+      name: 'neo-runtime-no-network-or-child-process',
+      severity: 'error',
+      comment: 'Neo runtime must not import network or child_process builtins.',
+      from: { path: '^src/neo-runtime' },
+      to: { path: '^(node:)?(http|https|net|tls|child_process)$' },
+    },
+    {
+      name: 'neo-runtime-no-integration-scripts',
+      severity: 'error',
+      comment: 'Neo runtime must not import integration harness scripts.',
+      from: { path: '^src/neo-runtime' },
+      to: { path: '^scripts/integration' },
+    },
+    {
       name: 'process-lock-modules-unwired',
       severity: 'error',
       comment:

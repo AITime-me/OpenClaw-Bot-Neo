@@ -34,6 +34,12 @@ export const CORE_LAYER_RULES = {
    * Must not import core internals, tests, scripts, or future channel/adapters trees.
    */
   host: ['core/domain', 'core/ports', 'core/policy', 'core/application', 'core/config', 'host'],
+  /**
+   * App-private Neo runtime lifecycle (Build 3.4B). May depend on core/domain only.
+   * Production composition wrapper is a separate sub-layer.
+   */
+  'neo-runtime/production': ['core/domain', 'host', 'neo-runtime', 'neo-runtime/production'],
+  'neo-runtime': ['core/domain', 'neo-runtime', 'neo-runtime/production'],
   root: [
     'core/domain',
     'core/ports',
