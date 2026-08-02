@@ -44,6 +44,10 @@ export default tseslint.config(
       'tests/durable-composition-linux-gate.test.ts',
       'tests/integration-boundary-enforcement.test.ts',
       'tests/protocol-event-stream.test.ts',
+      'tests/child-argv.test.ts',
+      'tests/child-stderr.test.ts',
+      'tests/ts-source-resolve.test.ts',
+      'tests/ts-source-resolve-subprocess.test.ts',
     ],
     languageOptions: {
       parserOptions: {

@@ -7,6 +7,7 @@ import {
   analyzeIntegrationBoundaries,
   evaluateImport,
   extractImportSpecifiers,
+  HARNESS_MJS_ALLOWLIST,
   isForbiddenTarget,
   normalizeSpecifier,
   resolveRepoRelativeImport,
@@ -43,6 +44,14 @@ const hasRuntimeFactoryImport = (content: string): boolean => {
 };
 
 describe('integration boundary enforcement', () => {
+  it('allowlists exact harness resolve mjs modules', () => {
+    expect(HARNESS_MJS_ALLOWLIST).toContain(
+      'scripts/integration/lib/ts-source-resolve-register.mjs',
+    );
+    expect(HARNESS_MJS_ALLOWLIST).toContain('scripts/integration/lib/ts-source-resolve-hook.mjs');
+    expect(HARNESS_MJS_ALLOWLIST).toContain('scripts/integration/lib/ts-source-resolve-policy.mjs');
+  });
+
   it('verify-integration-boundaries.mjs exits 0 on current tree', () => {
     const result = spawnSync(process.execPath, [VERIFY_SCRIPT], {
       cwd: REPO_ROOT,
@@ -155,5 +164,33 @@ describe('integration boundary enforcement', () => {
   it('current repository tree has no integration boundary violations', () => {
     const violations = analyzeIntegrationBoundaries({ rootDir: REPO_ROOT });
     expect(violations).toEqual([]);
+  });
+
+  it('scans allowlisted harness mjs and rejects src imports', () => {
+    const violations = analyzeIntegrationBoundaries({
+      rootDir: REPO_ROOT,
+      filesContent: {
+        'scripts/integration/lib/lazy-production.ts': `
+          export const load = () => import('../../../src/host/durable/create-posix-durable-local-host.ts');
+        `,
+        'scripts/integration/lib/ts-source-resolve-register.mjs': `
+          import something from '../../../src/core/domain/index.ts';
+        `,
+      },
+    });
+    expect(violations.some((v) => v.includes('must not import production src'))).toBe(true);
+  });
+
+  it('rejects non-allowlisted harness mjs', () => {
+    const violations = analyzeIntegrationBoundaries({
+      rootDir: REPO_ROOT,
+      filesContent: {
+        'scripts/integration/lib/lazy-production.ts': `
+          export const load = () => import('../../../src/host/durable/create-posix-durable-local-host.ts');
+        `,
+        'scripts/integration/lib/evil.mjs': 'export {};\n',
+      },
+    });
+    expect(violations.some((v) => v.includes('not allowlisted'))).toBe(true);
   });
 });

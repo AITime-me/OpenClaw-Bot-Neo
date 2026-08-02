@@ -156,7 +156,19 @@ import {
   type ScenarioGColdRootDeps,
 } from '../scripts/integration/lib/scenario-g-cold-root.ts';
 import type { ChildSessionHandle } from '../scripts/integration/lib/child-runner.ts';
+import type { ChildStartupDiagnostics } from '../scripts/integration/lib/child-stderr.ts';
 import { toPosix } from '../scripts/lib/boundary-checker.mjs';
+
+const fakeStartupDiagnostics = (
+  exitCode: number | null = 0,
+  protocolEventCount = 0,
+): ChildStartupDiagnostics => ({
+  diagnosticClass: 'CHILD_LIFECYCLE',
+  exitCode,
+  protocolEventCount,
+  stderrTruncated: false,
+  stderrSummary: '',
+});
 
 const gateFixture = () => ({
   gitHead: 'abc',
@@ -1932,6 +1944,7 @@ describe('H1/M1 Scenario B faithful event consumption', () => {
             messages,
             protocolError: options.protocolError ?? null,
             timedOut: options.timedOut === true,
+            startupDiagnostics: fakeStartupDiagnostics(),
             registryId: 'x',
           });
         },
@@ -2034,6 +2047,7 @@ describe('H1/M1 Scenario B faithful event consumption', () => {
           messages: [msg('READY')],
           protocolError: null,
           timedOut: false,
+          startupDiagnostics: fakeStartupDiagnostics(),
           registryId: 'x',
         }),
       isAlive: () => !stream.isClosed(),
@@ -2140,6 +2154,7 @@ describe('H1/M1 Scenario B faithful event consumption', () => {
           messages: [msg('READY')],
           protocolError: null,
           timedOut: true,
+          startupDiagnostics: fakeStartupDiagnostics(),
           registryId: 'x',
         }),
       isAlive: () => true,
@@ -2178,6 +2193,7 @@ describe('H1/M1 Scenario B faithful event consumption', () => {
           messages: [msg('READY')],
           protocolError: null,
           timedOut: false,
+          startupDiagnostics: fakeStartupDiagnostics(),
           registryId: 'x',
         }),
       isAlive: () => true,
@@ -2423,6 +2439,7 @@ describe('gate-level stop-on-first-failure', () => {
             messages: [],
             protocolError: null,
             timedOut: false,
+            startupDiagnostics: fakeStartupDiagnostics(),
             registryId: `fake-${String(pid)}`,
           });
         }
@@ -2467,6 +2484,7 @@ describe('gate-level stop-on-first-failure', () => {
           messages,
           protocolError: null,
           timedOut: false,
+          startupDiagnostics: fakeStartupDiagnostics(),
           registryId: `fake-${String(pid)}`,
         });
       },
@@ -2965,6 +2983,7 @@ describe('Scenario G cold-root lifecycle', () => {
           messages: role === 'contender' ? contenderMessages : normalMessages,
           protocolError: null,
           timedOut: false,
+          startupDiagnostics: fakeStartupDiagnostics(),
           registryId: `g-fake-${role}`,
         }),
       waitForEvent: (event) =>
@@ -3276,6 +3295,7 @@ describe('abort tracked-session survival', () => {
             : [],
         protocolError: null,
         timedOut: false,
+        startupDiagnostics: fakeStartupDiagnostics(),
         registryId: 'abort-fake',
       }),
     waitForEvent: (event) =>

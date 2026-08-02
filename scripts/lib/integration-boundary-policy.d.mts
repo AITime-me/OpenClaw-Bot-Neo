@@ -34,6 +34,14 @@ export declare function analyzeFileContent(
 
 export declare function collectTsFiles(directory: string): readonly string[];
 
+export declare const HARNESS_MJS_ALLOWLIST: readonly string[];
+
+export declare function analyzeHarnessMjsContent(
+  importerRelPath: string,
+  content: string,
+  rootDir: string,
+): readonly string[];
+
 export declare function analyzeIntegrationBoundaries(options: {
   rootDir: string;
   filesContent?: Readonly<Record<string, string>>;

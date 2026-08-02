@@ -182,6 +182,61 @@ export const collectTsFiles = (directory) => {
   return files;
 };
 
+/** Exact allowlisted harness `.mjs` modules under scripts/integration (not a global .mjs permit). */
+export const HARNESS_MJS_ALLOWLIST = Object.freeze([
+  'scripts/integration/lib/ts-source-resolve-register.mjs',
+  'scripts/integration/lib/ts-source-resolve-hook.mjs',
+  'scripts/integration/lib/ts-source-resolve-policy.mjs',
+]);
+
+const FORBIDDEN_MJS_IMPORT_FRAGMENTS = [
+  'node:net',
+  'node:http',
+  'node:https',
+  'node:dns',
+  'node:dgram',
+  'undici',
+  'child_process',
+];
+
+/**
+ * @param {string} importerRelPath
+ * @param {string} content
+ * @param {string} rootDir
+ */
+export const analyzeHarnessMjsContent = (importerRelPath, content, rootDir) => {
+  const violations = [];
+  if (!HARNESS_MJS_ALLOWLIST.includes(importerRelPath)) {
+    violations.push(`${importerRelPath}: harness .mjs is not allowlisted`);
+    return violations;
+  }
+  for (const fragment of FORBIDDEN_MJS_IMPORT_FRAGMENTS) {
+    if (content.includes(fragment)) {
+      violations.push(`${importerRelPath}: forbidden import fragment "${fragment}"`);
+    }
+  }
+  if (hasRuntimeFactoryImport(content)) {
+    violations.push(`${importerRelPath}: forbidden runtime factory import`);
+  }
+  for (const specifierEntry of extractImportSpecifiers(content)) {
+    if (specifierEntry.kind === 'dynamic-non-literal') {
+      violations.push(`${importerRelPath}: non-literal dynamic import is forbidden`);
+      continue;
+    }
+    const specifier = specifierEntry.value;
+    if (specifier.includes('src/') || /(?:^|\/)src\//.test(specifier)) {
+      violations.push(`${importerRelPath}: must not import production src ("${specifier}")`);
+    }
+    if (specifier.startsWith('.') && !specifier.endsWith('.mjs')) {
+      const resolved = resolveRepoRelativeImport(importerRelPath, specifier, rootDir);
+      if (resolved.startsWith('src/')) {
+        violations.push(`${importerRelPath}: relative import resolves into src ("${resolved}")`);
+      }
+    }
+  }
+  return violations;
+};
+
 /**
  * Analyze integration boundary policy for a file tree or injected fixture content.
  * @param {{ rootDir: string, filesContent?: Record<string, string> }} options
@@ -192,6 +247,10 @@ export const analyzeIntegrationBoundaries = ({ rootDir, filesContent }) => {
 
   if (filesContent !== undefined) {
     for (const [relPath, content] of Object.entries(filesContent)) {
+      if (relPath.endsWith('.mjs')) {
+        violations.push(...analyzeHarnessMjsContent(relPath, content, rootDir));
+        continue;
+      }
       violations.push(...analyzeFileContent(relPath, content, rootDir));
     }
     const lazyContent = filesContent[lazyProductionRel];
@@ -206,6 +265,18 @@ export const analyzeIntegrationBoundaries = ({ rootDir, filesContent }) => {
     const rel = toPosixPath(relative(rootDir, filePath));
     const content = readFileSync(filePath, 'utf8');
     violations.push(...analyzeFileContent(rel, content, rootDir));
+  }
+
+  for (const rel of HARNESS_MJS_ALLOWLIST) {
+    const absolute = join(rootDir, rel);
+    let content;
+    try {
+      content = readFileSync(absolute, 'utf8');
+    } catch {
+      violations.push(`${rel}: allowlisted harness .mjs is missing`);
+      continue;
+    }
+    violations.push(...analyzeHarnessMjsContent(rel, content, rootDir));
   }
 
   const lazyProduction = join(rootDir, lazyProductionRel);

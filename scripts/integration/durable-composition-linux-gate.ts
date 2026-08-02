@@ -57,6 +57,7 @@ import {
   runScenarioBOrchestration,
 } from './lib/scenario-b-orchestration.ts';
 import { globalProcessRegistry } from './lib/process-registry.ts';
+import { serializeChildStartupFailureDetail } from './lib/child-startup-evidence.ts';
 import {
   detectRedactionViolations,
   safeSerializeForEvidence,
@@ -257,7 +258,12 @@ export const buildGateScenarioSteps = (ctx: GateScenarioBuildContext): ScenarioS
           ...ctx.auxiliary.childExitCodes,
           A: result.exitCode ?? -1,
         };
-        return { verdict: pass ? 'PASS' : 'FAIL' };
+        return {
+          verdict: pass ? 'PASS' : 'FAIL',
+          ...(pass
+            ? {}
+            : { detail: serializeChildStartupFailureDetail(result.startupDiagnostics) }),
+        };
       },
     },
     {

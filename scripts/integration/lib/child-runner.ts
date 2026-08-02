@@ -3,7 +3,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ChildRole, ProtocolEvent } from './constants.ts';
 import { GATE_PROTOCOL_VERSION } from './constants.ts';
+import { buildLinuxGateChildArgv } from './child-argv.ts';
 import { buildChildEnvironment } from './child-env.ts';
+import {
+  buildChildStartupDiagnostics,
+  createChildStderrCollector,
+  type ChildStartupDiagnostics,
+} from './child-stderr.ts';
 import { EXIT_PROTOCOL_FAILURE, mapEventToExpectedExit } from './exit-codes.ts';
 import { globalProcessRegistry } from './process-registry.ts';
 import { createProtocolEventStream, type ProtocolEventStream } from './protocol-event-stream.ts';
@@ -24,6 +30,10 @@ export const FLOCK_HOLDER_SCRIPT_PATH = join(
 );
 
 const MAX_STDOUT_BYTES = 1_048_576;
+
+/** Production-used argv for the durable-composition TypeScript child entry. */
+export const buildDurableCompositionChildArgv = (): readonly string[] =>
+  buildLinuxGateChildArgv(CHILD_SCRIPT_PATH);
 
 export type ChildSessionOptions = {
   readonly runId: string;
@@ -61,6 +71,8 @@ export type ChildSessionResult = {
   readonly protocolError: string | null;
   readonly timedOut: boolean;
   readonly registryId: string;
+  /** Always computed; attach to scenario evidence only on failure. */
+  readonly startupDiagnostics: ChildStartupDiagnostics;
 };
 
 export type ChildSessionHandle = {
@@ -111,13 +123,15 @@ export const spawnChildSession = (options: ChildSessionOptions): ChildSessionHan
     { home: options.homePath, tmpdir: options.tmpPath },
   );
 
-  const child = spawn(process.execPath, ['--experimental-strip-types', CHILD_SCRIPT_PATH], {
+  const childArgv = buildDurableCompositionChildArgv();
+  const child = spawn(process.execPath, [...childArgv], {
     env: childEnv,
     stdio: ['pipe', 'pipe', 'pipe'],
     detached: process.platform === 'linux',
   });
 
   const registryId = globalProcessRegistry.register(child);
+  const stderrCollector = createChildStderrCollector();
 
   const messages: ProtocolMessage[] = [];
   const tracker = new ProtocolStateTracker();
@@ -212,18 +226,41 @@ export const spawnChildSession = (options: ChildSessionOptions): ChildSessionHan
     }
   });
 
+  child.stderr.on('data', (chunk: Buffer | string) => {
+    stderrCollector.ingest(chunk);
+  });
+  child.stderr.on('error', (error: Error) => {
+    stderrCollector.markStreamError(error.name);
+  });
+
   const sendCommand = (command: ParentCommand): void => {
     child.stdin.write(serializeParentCommand(command));
   };
 
-  const buildResult = (): ChildSessionResult => ({
-    exitCode,
-    signal,
-    messages,
-    protocolError,
-    timedOut,
-    registryId,
-  });
+  const buildResult = (): ChildSessionResult => {
+    const startupDiagnostics = buildChildStartupDiagnostics({
+      exitCode,
+      messages,
+      collector: stderrCollector,
+      paths: {
+        repositoryRoot: options.repositoryRoot,
+        homePath: options.homePath,
+        tmpPath: options.tmpPath,
+        storageRoot: options.storageRoot,
+        executionRoot: options.executionRoot,
+      },
+      secretValues: [options.capability],
+    });
+    return {
+      exitCode,
+      signal,
+      messages,
+      protocolError,
+      timedOut,
+      registryId,
+      startupDiagnostics,
+    };
+  };
 
   const settleCompletion = (): void => {
     if (completionSettled) return;
