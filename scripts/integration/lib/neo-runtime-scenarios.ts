@@ -8,8 +8,12 @@ import {
   NEO_STATUS_LAUNCHER,
   type NeoRuntimeScenarioKey,
 } from './neo-runtime-gate-constants.ts';
-import type { NeoScenarioResult, NeoReadinessWaitOutcome } from './neo-runtime-evidence.ts';
-import { redactNeoGateText } from './neo-runtime-evidence.ts';
+import type {
+  NeoChildObservability,
+  NeoReadinessWaitOutcome,
+  NeoScenarioResult,
+} from './neo-runtime-evidence.ts';
+import { redactNeoGateText, summarizeNeoChildObservability } from './neo-runtime-evidence.ts';
 import type { NeoRuntimeProcessManager, ManagedChild } from './neo-runtime-process-manager.ts';
 
 const NEO_READINESS_FILENAME = 'ready.json' as const;
@@ -299,6 +303,7 @@ export type NeoScenarioRunOutcome = {
   readonly signalOutcomes: Record<string, string>;
   readonly readinessTransitions: Record<string, string>;
   readonly readinessWaitOutcomes: Record<string, NeoReadinessWaitOutcome>;
+  readonly childObservability: Record<string, NeoChildObservability>;
   readonly secondInstanceExitCode: number | null;
   readonly lockReacquired: boolean | null;
 };
@@ -309,6 +314,7 @@ const pass = (extra: Partial<NeoScenarioRunOutcome> = {}): NeoScenarioRunOutcome
   signalOutcomes: {},
   readinessTransitions: {},
   readinessWaitOutcomes: {},
+  childObservability: {},
   secondInstanceExitCode: null,
   lockReacquired: null,
   ...extra,
@@ -323,6 +329,7 @@ const fail = (
   signalOutcomes: {},
   readinessTransitions: {},
   readinessWaitOutcomes: {},
+  childObservability: {},
   secondInstanceExitCode: null,
   lockReacquired: null,
   ...extra,
@@ -336,18 +343,51 @@ export const runScenarioL1 = async (ctx: NeoScenarioContext): Promise<NeoScenari
   const child = launchNeo(ctx, { executionRoot, ...configs });
   const readinessWait = await waitNeoReadiness(ctx, executionRoot, DEFAULT_STATUS_WAIT_MS, child);
   if (!readinessWait.ready) {
-    return fail('instance-a-not-ready', { readinessWaitOutcomes: { L1: readinessWait } });
+    const observability = summarizeNeoChildObservability({
+      stdout: child.stdout,
+      stderr: child.stderr,
+      neoChildAliveBeforeSignal: child.exited ? false : true,
+    });
+    return fail('instance-a-not-ready', {
+      readinessWaitOutcomes: { L1: readinessWait },
+      childObservability: { L1: observability },
+    });
+  }
+  if (child.exited) {
+    const observability = summarizeNeoChildObservability({
+      stdout: child.stdout,
+      stderr: child.stderr,
+      neoChildAliveBeforeSignal: false,
+    });
+    return fail('instance-a-exited-before-sigterm', {
+      readinessWaitOutcomes: { L1: readinessWait },
+      childObservability: { L1: observability },
+      childExitCodes: { L1: child.exitCode ?? -1 },
+    });
   }
   ctx.manager.sendSignal(child, 'SIGTERM');
   const exited = await ctx.manager.waitForExit(child, DEFAULT_CHILD_TIMEOUT_MS);
+  const observability = summarizeNeoChildObservability({
+    stdout: child.stdout,
+    stderr: child.stderr,
+    neoChildAliveBeforeSignal: true,
+  });
   if (!exited || child.exitCode !== 0) {
-    return fail('sigterm-clean-exit-expected', { childExitCodes: { L1: child.exitCode ?? -1 } });
+    return fail('sigterm-clean-exit-expected', {
+      childExitCodes: { L1: child.exitCode ?? -1 },
+      childObservability: { L1: observability },
+    });
   }
-  if (readinessExists(executionRoot)) return fail('readiness-not-removed');
+  if (observability.unsettledTopLevelAwaitWarning) {
+    return fail('unsettled-top-level-await-warning', { childObservability: { L1: observability } });
+  }
+  if (readinessExists(executionRoot))
+    return fail('readiness-not-removed', { childObservability: { L1: observability } });
   return pass({
     childExitCodes: { L1: 0 },
     signalOutcomes: { L1: 'SIGTERM' },
     readinessTransitions: { L1: 'ready-then-absent' },
+    childObservability: { L1: observability },
   });
 };
 

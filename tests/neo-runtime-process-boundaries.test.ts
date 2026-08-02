@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import * as publicApi from '../src/index.js';
 
@@ -20,6 +20,34 @@ const collectTsFiles = (directory: string): string[] => {
 };
 
 describe('neo runtime process boundaries', () => {
+  it('start-neo.mjs does not use process.stdin lifetime hack', () => {
+    const startNeo = readFileSync(join(REPO_ROOT, 'scripts', 'neo', 'start-neo.mjs'), 'utf8');
+    expect(startNeo).not.toMatch(/process\.stdin\.resume\s*\(/);
+    expect(startNeo).not.toMatch(/\bprocess\.exit\s*\(/);
+    expect(startNeo).toContain('process.exitCode');
+    expect(startNeo).toContain('dist/neo-runtime/cli/run-neo-process.js');
+  });
+
+  it('keep-alive adapter uses a ref interval without unref', () => {
+    const keepAliveAdapter = readFileSync(
+      join(NEO_RUNTIME_ROOT, 'adapters', 'create-node-process-keep-alive-port.ts'),
+      'utf8',
+    );
+    expect(keepAliveAdapter).toContain('NEO_PROCESS_KEEP_ALIVE_INTERVAL_MS');
+    expect(keepAliveAdapter).toContain('setInterval');
+    expect(keepAliveAdapter).not.toContain('.unref()');
+  });
+
+  it('production output adapter writes bounded JSON lines', () => {
+    const outputAdapter = readFileSync(
+      join(NEO_RUNTIME_ROOT, 'adapters', 'create-node-process-output-port.ts'),
+      'utf8',
+    );
+    expect(outputAdapter).toContain('writeStdoutLine');
+    expect(outputAdapter).toContain('writeStderrLine');
+    expect(outputAdapter).not.toContain('JSON.stringify');
+  });
+
   it('launcher imports only compiled dist JavaScript', () => {
     const startNeo = readFileSync(join(REPO_ROOT, 'scripts', 'neo', 'start-neo.mjs'), 'utf8');
     const neoStatus = readFileSync(join(REPO_ROOT, 'scripts', 'neo', 'neo-status.mjs'), 'utf8');
@@ -81,8 +109,16 @@ describe('neo runtime process boundaries', () => {
     expect(diagnostics).toContain('deploymentReady: false');
   });
 
-  it('lists neo-runtime source files for boundary coverage', () => {
-    const relativePaths = collectTsFiles(NEO_RUNTIME_ROOT).map((file) => relative(REPO_ROOT, file));
-    expect(relativePaths.length).toBeGreaterThan(10);
+  it('shutdown timeout exit 13 collides with Node unfinished TLA and requires structured event', () => {
+    const exitCodes = readFileSync(join(NEO_RUNTIME_ROOT, 'neo-runtime-exit-codes.ts'), 'utf8');
+    expect(exitCodes).toContain('NEO_RUNTIME_EXIT_SHUTDOWN_TIMEOUT = 13');
+    expect(exitCodes).toContain('unfinished top-level await');
+  });
+
+  it('run-neo-process wires production keep-alive and structured logging', () => {
+    const content = readFileSync(join(NEO_RUNTIME_ROOT, 'cli', 'run-neo-process.ts'), 'utf8');
+    expect(content).toContain('createNodeProcessKeepAlivePort');
+    expect(content).toContain('createProductionNeoRuntimeLogSink');
+    expect(content).toContain('keepAliveLease.release()');
   });
 });

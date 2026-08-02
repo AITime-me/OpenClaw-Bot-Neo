@@ -17,6 +17,9 @@ import {
   createInitialNeoRuntimeEvidence,
   finalizeNeoRuntimeEvidence,
   type NeoReadinessWaitOutcome,
+  extractObservedRuntimeEventNames,
+  summarizeNeoChildObservability,
+  UNSETTLED_TOP_LEVEL_AWAIT_PATTERN,
 } from '../scripts/integration/lib/neo-runtime-evidence.ts';
 import { summarizeBoundedReadinessWaitText } from '../scripts/integration/lib/neo-runtime-scenarios.ts';
 import { PASS_MARKER as BUILD_33_PASS_MARKER } from '../scripts/integration/lib/constants.ts';
@@ -129,5 +132,34 @@ describe('neo runtime linux gate foundation', () => {
     expect(outcome.statusStdoutSummary).not.toContain('/var/lib/openclaw');
     expect(outcome.reason).toBe('readiness-invalid');
     expect(outcome.neoChildState).toBe('alive');
+  });
+
+  it('child observability captures runtime events and unsettled TLA warning', () => {
+    const observability = summarizeNeoChildObservability({
+      stdout:
+        '{"event":"neo.runtime.ready","pid":1,"atUtc":"t"}\n{"event":"neo.runtime.stopped","pid":1,"atUtc":"t"}',
+      stderr:
+        '{"event":"neo.signal.received","pid":1,"atUtc":"t","signal":"SIGTERM"}\nWarning: Detected unsettled top-level await at file:///tmp/start-neo.mjs:10',
+      neoChildAliveBeforeSignal: true,
+    });
+    expect(observability.observedRuntimeEventNames).toEqual([
+      'neo.runtime.ready',
+      'neo.runtime.stopped',
+      'neo.signal.received',
+    ]);
+    expect(observability.unsettledTopLevelAwaitWarning).toBe(true);
+    expect(UNSETTLED_TOP_LEVEL_AWAIT_PATTERN.test(observability.childStderrSummary)).toBe(true);
+  });
+
+  it('does not infer shutdown timeout from raw exit 13 without structured event', () => {
+    const observability = summarizeNeoChildObservability({
+      stdout: '',
+      stderr: 'Warning: Detected unsettled top-level await',
+      neoChildAliveBeforeSignal: false,
+    });
+    expect(observability.shutdownTimeoutEventObserved).toBe(false);
+    expect(
+      extractObservedRuntimeEventNames('', '{"event":"neo.runtime.shutdown_timeout","pid":1}'),
+    ).toEqual(['neo.runtime.shutdown_timeout']);
   });
 });

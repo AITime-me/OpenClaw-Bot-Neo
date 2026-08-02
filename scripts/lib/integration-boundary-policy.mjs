@@ -39,6 +39,10 @@ const ALLOWED_SRC_IMPORTS = new Map([
       'src/core/domain/memory-access.internal.ts',
     ]),
   ],
+  [
+    'scripts/integration/lib/neo-runtime-evidence.ts',
+    new Set(['src/neo-runtime/logging/neo-runtime-child-observability.ts']),
+  ],
 ]);
 
 export const toPosixPath = (value) => value.replace(/\\/g, '/');

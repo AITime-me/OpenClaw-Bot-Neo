@@ -209,7 +209,7 @@ module.exports = {
       from: {
         path: '^src/neo-runtime',
         pathNot:
-          '^src/neo-runtime/(adapters/create-node-process-signal-port|cli/run-neo-process|cli/read-neo-status)\\.ts$',
+          '^src/neo-runtime/(adapters/create-node-process-signal-port|adapters/create-node-process-keep-alive-port|adapters/create-node-process-output-port|cli/run-neo-process|cli/read-neo-status)\\.ts$',
       },
       to: { path: '^(node:)?process$' },
     },

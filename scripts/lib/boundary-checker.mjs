@@ -126,6 +126,8 @@ export const NEO_RUNTIME_PATH_BUILTIN_ALLOWLIST = Object.freeze({
     'node:path',
   ]),
   'neo-runtime/adapters/create-node-process-signal-port.ts': Object.freeze(['node:process']),
+  'neo-runtime/adapters/create-node-process-keep-alive-port.ts': Object.freeze(['node:timers']),
+  'neo-runtime/adapters/create-node-process-output-port.ts': Object.freeze(['node:process']),
   'neo-runtime/cli/run-neo-process.ts': Object.freeze(['node:process']),
   'neo-runtime/cli/read-neo-status.ts': Object.freeze(['node:process']),
 });

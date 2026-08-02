@@ -6,6 +6,11 @@ export const NEO_RUNTIME_EXIT_UNSUPPORTED_RUNTIME = 3 as const;
 export const NEO_RUNTIME_EXIT_PROCESS_LOCK_HELD = 10 as const;
 export const NEO_RUNTIME_EXIT_STARTUP_FAILURE = 11 as const;
 export const NEO_RUNTIME_EXIT_RUNTIME_FATAL = 12 as const;
+/**
+ * Neo shutdown-timeout exit code. Collides numerically with Node.js exit code 13
+ * (unfinished top-level await). Gate evidence must require structured
+ * `neo.runtime.shutdown_timeout` before classifying raw child exit 13 as internal shutdown timeout.
+ */
 export const NEO_RUNTIME_EXIT_SHUTDOWN_TIMEOUT = 13 as const;
 export const NEO_RUNTIME_EXIT_SECURITY_INVARIANT = 14 as const;
 

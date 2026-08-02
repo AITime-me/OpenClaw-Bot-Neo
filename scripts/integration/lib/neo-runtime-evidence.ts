@@ -4,6 +4,19 @@ import {
   REQUIRED_SCENARIO_KEYS,
   type NeoRuntimeScenarioKey,
 } from './neo-runtime-gate-constants.ts';
+import {
+  type NeoChildObservability,
+  UNSETTLED_TOP_LEVEL_AWAIT_PATTERN,
+  extractObservedRuntimeEventNames,
+  summarizeNeoChildObservability,
+} from '../../../src/neo-runtime/logging/neo-runtime-child-observability.ts';
+
+export type { NeoChildObservability };
+export {
+  UNSETTLED_TOP_LEVEL_AWAIT_PATTERN,
+  extractObservedRuntimeEventNames,
+  summarizeNeoChildObservability,
+};
 
 export type NeoScenarioVerdict = 'PASS' | 'FAIL' | 'SKIP';
 
@@ -40,6 +53,7 @@ export type NeoRuntimeGateEvidence = {
   readonly signalOutcomes: Record<string, string>;
   readonly readinessTransitions: Record<string, string>;
   readonly readinessWaitOutcomes: Record<string, NeoReadinessWaitOutcome>;
+  readonly childObservability: Record<string, NeoChildObservability>;
   readonly secondInstanceExitCode: number | null;
   readonly lockReacquired: boolean | null;
   readonly stderrRedacted: boolean;
@@ -82,6 +96,7 @@ export const createInitialNeoRuntimeEvidence = (
   signalOutcomes: {},
   readinessTransitions: {},
   readinessWaitOutcomes: {},
+  childObservability: {},
   secondInstanceExitCode: null,
   lockReacquired: null,
   stderrRedacted: true,

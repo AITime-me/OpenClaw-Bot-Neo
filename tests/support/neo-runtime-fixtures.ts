@@ -1,6 +1,7 @@
 import type { NeoRuntime } from '../../src/neo-runtime/neo-runtime.types.js';
 import type {
   NeoProcessFatalHandler,
+  NeoProcessKeepAlivePort,
   NeoProcessSignal,
   NeoProcessSignalHandler,
   NeoProcessSignalPort,
@@ -14,6 +15,8 @@ import {
 import { createInMemoryProductionConfigFileReader } from '../../src/neo-runtime/production/read-production-config-file.js';
 import { createInMemoryNeoRuntimeReadinessPort } from '../../src/neo-runtime/readiness/neo-runtime-readiness-file.js';
 import { createNeoRuntimeLogSink } from '../../src/neo-runtime/logging/neo-runtime-log.js';
+import { createTrackingNeoProcessKeepAlivePort } from '../../src/neo-runtime/coordination/neo-process-keep-alive.js';
+import type { TrackingNeoProcessKeepAlivePort } from '../../src/neo-runtime/coordination/neo-process-keep-alive.js';
 import type { RunNeoProcessDeps } from '../../src/neo-runtime/cli/run-neo-process.js';
 
 const isWindows = process.platform === 'win32';
@@ -242,6 +245,7 @@ export const createRunNeoProcessDeps = (
   readonly signals: ReturnType<typeof createFakeNeoSignalPort>;
   readonly readiness: ReturnType<typeof createInMemoryNeoRuntimeReadinessPort>;
   readonly log: ReturnType<typeof createNeoRuntimeLogSink>;
+  readonly keepAlive: TrackingNeoProcessKeepAlivePort;
 } => {
   const identity = fixedIdentity();
   const log = createNeoRuntimeLogSink(identity.pid, identity.nowUtcIso);
@@ -249,6 +253,10 @@ export const createRunNeoProcessDeps = (
   const readiness = createInMemoryNeoRuntimeReadinessPort();
   const configFiles = overrides.configFiles ?? validConfigFiles();
   const sleepCalls: number[] = [];
+  const isTrackingKeepAlive = (
+    port: NeoProcessKeepAlivePort,
+  ): port is TrackingNeoProcessKeepAlivePort => 'isActive' in port;
+  const keepAlive = overrides.keepAlive ?? createTrackingNeoProcessKeepAlivePort();
 
   const deps: RunNeoProcessDeps = {
     argv: validRunArgv(),
@@ -264,9 +272,14 @@ export const createRunNeoProcessDeps = (
     readiness,
     log,
     ...overrides,
+    keepAlive,
   };
 
-  return { deps, signals, readiness, log };
+  const trackingKeepAlive = isTrackingKeepAlive(keepAlive)
+    ? keepAlive
+    : createTrackingNeoProcessKeepAlivePort();
+
+  return { deps, signals, readiness, log, keepAlive: trackingKeepAlive };
 };
 
 export const deferred = <T = void>() => {

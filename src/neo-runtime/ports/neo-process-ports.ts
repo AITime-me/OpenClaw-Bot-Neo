@@ -45,3 +45,22 @@ export type NeoProcessReadinessPort = {
   ) => Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }>;
   readonly remove: (executionRoot: string) => Promise<void>;
 };
+
+/** Idempotent release for a single process-lifetime keep-alive lease. */
+export type NeoProcessKeepAliveLease = {
+  readonly release: () => void;
+};
+
+/**
+ * Keeps the Node event loop ref'd while Neo coordinates startup, readiness, and shutdown.
+ * Production uses a ref'd timer; tests inject a fake port.
+ */
+export type NeoProcessKeepAlivePort = {
+  readonly acquire: () => NeoProcessKeepAliveLease;
+};
+
+/** Narrow production log output — one bounded JSON line per call. */
+export type NeoProcessOutputPort = {
+  readonly writeStdoutLine: (line: string) => void;
+  readonly writeStderrLine: (line: string) => void;
+};
