@@ -208,6 +208,14 @@ export const runNeoProcess = async (deps: RunNeoProcessDeps): Promise<RunNeoProc
       return { exitCode: exit.snapshot().exitCode };
     }
 
+    if (lifetime.isRequested()) {
+      await deps.readiness.remove(cli.executionRoot);
+      await lifetime.wait();
+      await shutdownCloseInFlight;
+      signals.uninstall();
+      return { exitCode: exit.snapshot().exitCode };
+    }
+
     emitRuntimeLog(deps.log, deps.identity.pid, deps.identity.nowUtcIso, 'neo.runtime.ready');
     await lifetime.wait();
     await shutdownCloseInFlight;

@@ -2,9 +2,11 @@ import type { NeoRuntime } from '../../src/neo-runtime/neo-runtime.types.js';
 import type {
   NeoProcessFatalHandler,
   NeoProcessKeepAlivePort,
+  NeoProcessReadinessPort,
   NeoProcessSignal,
   NeoProcessSignalHandler,
   NeoProcessSignalPort,
+  NeoRuntimeReadinessSnapshot,
 } from '../../src/neo-runtime/ports/neo-process-ports.js';
 import { NEO_RUNTIME_DIAGNOSTICS } from '../../src/neo-runtime/neo-runtime-diagnostics.js';
 import {
@@ -206,7 +208,7 @@ export const fixedIdentity = () =>
 
 export const createSuccessfulMockRuntime = (
   input: {
-    readonly startGate?: ReturnType<typeof deferred>;
+    readonly startGate?: { readonly promise: Promise<void>; readonly resolve: () => void };
     readonly closeBehavior?: () => NeoRuntimeCloseResult;
   } = {},
 ) => {
@@ -288,4 +290,80 @@ export const deferred = <T = void>() => {
     resolve = res;
   });
   return { promise, resolve };
+};
+
+export type DeferredNeoRuntimeReadinessState = {
+  publishEntered: number;
+  published: NeoRuntimeReadinessSnapshot | null;
+  committed: boolean;
+  removed: number;
+};
+
+export type DeferredNeoRuntimeReadinessPort = NeoProcessReadinessPort & {
+  readonly state: DeferredNeoRuntimeReadinessState;
+  readonly admitPublish: () => void;
+  readonly releasePublish: () => void;
+  readonly setPublishResult: (
+    result: { readonly ok: true } | { readonly ok: false; readonly reason: string },
+  ) => void;
+};
+
+/** Stage-gated readiness port for deterministic shutdown/publication race tests. */
+export const createDeferredNeoRuntimeReadinessPort = (): DeferredNeoRuntimeReadinessPort => {
+  const state: DeferredNeoRuntimeReadinessState = {
+    publishEntered: 0,
+    published: null,
+    committed: false,
+    removed: 0,
+  };
+  let enterGate = deferred();
+  let releaseGate = deferred();
+  let publishResultOverride:
+    { readonly ok: true } | { readonly ok: false; readonly reason: string } | undefined;
+
+  const resetGates = (): void => {
+    enterGate = deferred();
+    releaseGate = deferred();
+  };
+
+  return {
+    state,
+    admitPublish: () => {
+      enterGate.resolve();
+    },
+    releasePublish: () => {
+      releaseGate.resolve();
+    },
+    setPublishResult: (result) => {
+      publishResultOverride = result;
+    },
+    removeStale: (executionRoot: string) => {
+      void executionRoot;
+      state.removed += 1;
+      state.published = null;
+      state.committed = false;
+      return Promise.resolve();
+    },
+    publish: async (executionRoot, snapshot) => {
+      void executionRoot;
+      state.publishEntered += 1;
+      await enterGate.promise;
+      if (publishResultOverride !== undefined) {
+        resetGates();
+        return publishResultOverride;
+      }
+      state.committed = true;
+      state.published = Object.freeze({ ...snapshot });
+      await releaseGate.promise;
+      resetGates();
+      return { ok: true as const };
+    },
+    remove: (executionRoot: string) => {
+      void executionRoot;
+      state.removed += 1;
+      state.published = null;
+      state.committed = false;
+      return Promise.resolve();
+    },
+  };
 };
