@@ -8,6 +8,12 @@ const REPO_ROOT = process.cwd();
 const NEO_RUNTIME_ROOT = join(REPO_ROOT, 'src', 'neo-runtime');
 const FACTORY_IMPORT = 'create-posix-durable-local-host';
 const PRODUCTION_WRAPPER = join(NEO_RUNTIME_ROOT, 'production', 'create-production-neo-runtime.ts');
+const PRODUCTION_CONFIG_BOOTSTRAP = join(
+  NEO_RUNTIME_ROOT,
+  'production',
+  'production-config-bootstrap.ts',
+);
+const PRODUCTION_HOST_IMPORTERS = new Set([PRODUCTION_WRAPPER, PRODUCTION_CONFIG_BOOTSTRAP]);
 
 const collectTsFiles = (directory: string): string[] => {
   const files: string[] = [];
@@ -46,11 +52,11 @@ describe('neo runtime import boundaries', () => {
     }
   });
 
-  it('allows only production wrapper to import durable composition factory', () => {
+  it('allows only production modules to import durable composition factory', () => {
     const offenders: string[] = [];
     for (const filePath of collectTsFiles(NEO_RUNTIME_ROOT)) {
       const content = readFileSync(filePath, 'utf8');
-      if (hasRuntimeFactoryImport(content) && filePath !== PRODUCTION_WRAPPER) {
+      if (hasRuntimeFactoryImport(content) && !PRODUCTION_HOST_IMPORTERS.has(filePath)) {
         offenders.push(relative(REPO_ROOT, filePath));
       }
     }
@@ -64,10 +70,10 @@ describe('neo runtime import boundaries', () => {
     expect(content).not.toMatch(/scripts\/integration/);
   });
 
-  it('neo runtime modules do not import host except production wrapper', () => {
+  it('neo runtime modules do not import host except production wrapper and config bootstrap', () => {
     const offenders: string[] = [];
     for (const filePath of collectTsFiles(NEO_RUNTIME_ROOT)) {
-      if (filePath === PRODUCTION_WRAPPER) continue;
+      if (PRODUCTION_HOST_IMPORTERS.has(filePath)) continue;
       const content = readFileSync(filePath, 'utf8');
       if (
         /\bfrom\s+['"][^'"]*\/host\//.test(content) ||

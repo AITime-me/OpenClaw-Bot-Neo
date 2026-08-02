@@ -1,0 +1,209 @@
+import process from 'node:process';
+import type { NeoRuntime } from '../neo-runtime.types.js';
+import type { NeoRuntimeExitCode } from '../neo-runtime-exit-codes.js';
+import { NEO_RUNTIME_EXIT_SUCCESS } from '../neo-runtime-exit-codes.js';
+import { createNeoExitDisposition } from '../coordination/exit-disposition.js';
+import { createProcessLifetimeBarrier } from '../coordination/process-lifetime-coordinator.js';
+import { closeRuntimeWithRetry } from '../coordination/shutdown-close-retry.js';
+import { createSignalCoordinator } from '../coordination/signal-coordinator.js';
+import { parseNeoCliArguments } from './parse-neo-cli-arguments.js';
+import { emitRuntimeLog } from '../logging/neo-runtime-log.js';
+import { bootstrapProductionConfig } from '../production/production-config-bootstrap.js';
+import {
+  createProductionNeoRuntime,
+  type ProductionNeoRuntimeConfig,
+} from '../production/create-production-neo-runtime.js';
+import type {
+  NeoProcessConfigFileReaderPort,
+  NeoProcessIdentityPort,
+  NeoProcessReadinessPort,
+  NeoProcessSignalPort,
+  NeoProcessSleepPort,
+} from '../ports/neo-process-ports.js';
+import type { NeoRuntimeLogSink } from '../logging/neo-runtime-log.js';
+import { NEO_READINESS_SCHEMA_VERSION } from '../readiness/neo-runtime-readiness-file.js';
+import {
+  createNodeProcessSignalPort,
+  readNeoProcessArgv,
+} from '../adapters/create-node-process-signal-port.js';
+import { createNodeProductionConfigFileReader } from '../production/read-production-config-file.js';
+import { createNodeNeoRuntimeReadinessPort } from '../readiness/neo-runtime-readiness-file.js';
+import { createNeoRuntimeLogSink } from '../logging/neo-runtime-log.js';
+
+export type RunNeoProcessResult = {
+  readonly exitCode: NeoRuntimeExitCode;
+};
+
+export type RunNeoProcessDeps = {
+  readonly argv: readonly string[];
+  readonly signals: NeoProcessSignalPort;
+  readonly identity: NeoProcessIdentityPort;
+  readonly sleep: NeoProcessSleepPort;
+  readonly configReader: NeoProcessConfigFileReaderPort;
+  readonly readiness: NeoProcessReadinessPort;
+  readonly log: NeoRuntimeLogSink;
+  readonly createRuntime?: (config: ProductionNeoRuntimeConfig) => NeoRuntime;
+};
+
+const defaultClock = (identity: NeoProcessIdentityPort) => ({
+  now: () => new Date(identity.nowUtcIso()),
+});
+
+export const runNeoProcess = async (deps: RunNeoProcessDeps): Promise<RunNeoProcessResult> => {
+  const exit = createNeoExitDisposition();
+  const parsed = parseNeoCliArguments(deps.argv);
+  if (!parsed.ok) {
+    exit.recordFailure('CONFIGURATION');
+    emitRuntimeLog(deps.log, deps.identity.pid, deps.identity.nowUtcIso, 'neo.config.invalid', {
+      failureClass: 'CONFIGURATION',
+    });
+    return { exitCode: exit.snapshot().exitCode };
+  }
+  if (parsed.value.kind === 'help') {
+    return { exitCode: NEO_RUNTIME_EXIT_SUCCESS };
+  }
+
+  const cli = parsed.value;
+  const bootstrap = await bootstrapProductionConfig(deps.configReader, {
+    configPath: cli.configPath,
+    storageBindingPath: cli.storageBindingPath,
+    storagePolicyPath: cli.storagePolicyPath,
+    clock: defaultClock(deps.identity),
+  });
+  if (!bootstrap.ok) {
+    exit.recordFailure('CONFIGURATION');
+    emitRuntimeLog(deps.log, deps.identity.pid, deps.identity.nowUtcIso, 'neo.config.invalid', {
+      failureClass: 'CONFIGURATION',
+    });
+    return { exitCode: exit.snapshot().exitCode };
+  }
+
+  const runtime = (deps.createRuntime ?? createProductionNeoRuntime)({
+    compositionInput: bootstrap.compositionInput,
+  });
+  const lifetime = createProcessLifetimeBarrier();
+  let fatalLatched = false;
+  let shutdownCloseInFlight: Promise<void> | undefined;
+
+  const performShutdown = async (): Promise<void> => {
+    emitRuntimeLog(deps.log, deps.identity.pid, deps.identity.nowUtcIso, 'neo.runtime.stopping');
+    await deps.readiness.remove(cli.executionRoot);
+    const closeResult = await closeRuntimeWithRetry({
+      close: () => runtime.close(fatalLatched ? 'fatal' : 'shutdown'),
+      sleep: deps.sleep.sleep,
+    });
+    if (!closeResult.ok) {
+      exit.recordFailure('SHUTDOWN_TIMEOUT');
+      emitRuntimeLog(
+        deps.log,
+        deps.identity.pid,
+        deps.identity.nowUtcIso,
+        'neo.runtime.shutdown_timeout',
+        { failureClass: 'SHUTDOWN_TIMEOUT' },
+      );
+    } else {
+      emitRuntimeLog(deps.log, deps.identity.pid, deps.identity.nowUtcIso, 'neo.runtime.stopped');
+    }
+  };
+
+  const requestShutdown = (fatal: boolean): void => {
+    if (fatal) {
+      if (!fatalLatched) {
+        fatalLatched = true;
+        exit.recordFailure('RUNTIME_FATAL');
+        emitRuntimeLog(deps.log, deps.identity.pid, deps.identity.nowUtcIso, 'neo.runtime.failed', {
+          failureClass: 'RUNTIME_FATAL',
+        });
+      }
+    } else {
+      exit.recordGracefulStop();
+    }
+    lifetime.requestShutdown();
+    shutdownCloseInFlight ??= performShutdown();
+  };
+
+  const signals = createSignalCoordinator({
+    signals: deps.signals,
+    log: deps.log,
+    pid: deps.identity.pid,
+    nowUtcIso: deps.identity.nowUtcIso,
+  });
+
+  signals.install({
+    onGracefulShutdown: () => {
+      requestShutdown(false);
+    },
+    onFatal: () => {
+      requestShutdown(true);
+    },
+  });
+
+  await deps.readiness.removeStale(cli.executionRoot);
+  emitRuntimeLog(deps.log, deps.identity.pid, deps.identity.nowUtcIso, 'neo.runtime.starting');
+
+  const startResult = await runtime.start();
+  if (!startResult.ok) {
+    if (!lifetime.isRequested()) {
+      exit.recordFailure(startResult.error.failureClass);
+      emitRuntimeLog(deps.log, deps.identity.pid, deps.identity.nowUtcIso, 'neo.runtime.failed', {
+        failureClass: startResult.error.failureClass,
+      });
+    }
+    await deps.readiness.remove(cli.executionRoot);
+    await shutdownCloseInFlight;
+    signals.uninstall();
+    return { exitCode: exit.snapshot().exitCode };
+  }
+
+  if (signals.isShutdownRequested() || lifetime.isRequested()) {
+    await shutdownCloseInFlight;
+    signals.uninstall();
+    return { exitCode: exit.snapshot().exitCode };
+  }
+
+  const health = runtime.getHealth();
+  if (!health.runtimeReady) {
+    exit.recordFailure('STARTUP');
+    await deps.readiness.remove(cli.executionRoot);
+    signals.uninstall();
+    return { exitCode: exit.snapshot().exitCode };
+  }
+
+  const publish = await deps.readiness.publish(cli.executionRoot, {
+    schemaVersion: NEO_READINESS_SCHEMA_VERSION,
+    pid: deps.identity.pid,
+    lifecycle: 'running',
+    runtimeReady: true,
+    durableHostOpened: true,
+    startedAtUtc: deps.identity.nowUtcIso(),
+  });
+  if (!publish.ok) {
+    exit.recordFailure('STARTUP');
+    await runtime.close('shutdown');
+    signals.uninstall();
+    return { exitCode: exit.snapshot().exitCode };
+  }
+
+  emitRuntimeLog(deps.log, deps.identity.pid, deps.identity.nowUtcIso, 'neo.runtime.ready');
+  await lifetime.wait();
+  await shutdownCloseInFlight;
+  signals.uninstall();
+  return { exitCode: exit.snapshot().exitCode };
+};
+
+export const runNeoProcessFromNode = async (): Promise<RunNeoProcessResult> => {
+  const identity = {
+    pid: process.pid,
+    nowUtcIso: () => new Date().toISOString(),
+  };
+  const log = createNeoRuntimeLogSink(identity.pid, identity.nowUtcIso);
+  return runNeoProcess({
+    argv: readNeoProcessArgv(),
+    signals: createNodeProcessSignalPort(),
+    identity,
+    sleep: { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)) },
+    configReader: createNodeProductionConfigFileReader(),
+    readiness: createNodeNeoRuntimeReadinessPort(),
+    log,
+  });
+};

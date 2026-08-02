@@ -39,6 +39,12 @@ export default tseslint.config(
     },
   },
   {
+    files: ['src/neo-runtime/cli/**/*.ts'],
+    rules: {
+      'no-restricted-imports': 'off',
+    },
+  },
+  {
     files: [
       'scripts/integration/**/*.ts',
       'tests/durable-composition-linux-gate.test.ts',

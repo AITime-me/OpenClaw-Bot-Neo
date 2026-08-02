@@ -1,9 +1,10 @@
 /**
- * Honest Neo runtime diagnostics for Build 3.4B lifecycle foundation only.
- * Does not claim deployment, systemd, Neo second-instance, or channel readiness.
+ * Honest Neo runtime diagnostics. Does not claim deployment, systemd, or channel readiness.
  */
 export interface NeoRuntimeDiagnostics {
   readonly neoRuntimeLifecycleFoundationImplemented: true;
+  readonly neoCompiledProcessBoundaryImplemented: true;
+  readonly neoSignalConfigReadinessFoundationImplemented: true;
   readonly processLockWiredToNeo: false;
   readonly neoSecondInstanceProtectionActive: false;
   readonly systemdLayerConfigured: false;
@@ -17,6 +18,8 @@ export interface NeoRuntimeDiagnostics {
 
 export const NEO_RUNTIME_DIAGNOSTICS: NeoRuntimeDiagnostics = Object.freeze({
   neoRuntimeLifecycleFoundationImplemented: true,
+  neoCompiledProcessBoundaryImplemented: true,
+  neoSignalConfigReadinessFoundationImplemented: true,
   processLockWiredToNeo: false,
   neoSecondInstanceProtectionActive: false,
   systemdLayerConfigured: false,

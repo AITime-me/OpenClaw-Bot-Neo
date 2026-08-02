@@ -152,7 +152,7 @@ module.exports = {
         'POSIX durable composition factory is app-private; only the exact factory module and the exact production Neo runtime wrapper may be imported.',
       from: {
         pathNot:
-          '^src/host/durable/create-posix-durable-local-host\\.ts$|^src/neo-runtime/production/create-production-neo-runtime\\.ts$',
+          '^src/host/durable/create-posix-durable-local-host\\.ts$|^src/neo-runtime/production/(create-production-neo-runtime|production-config-bootstrap)\\.ts$',
       },
       to: {
         path: '^src/host/durable/create-posix-durable-local-host\\.ts$',
@@ -179,7 +179,8 @@ module.exports = {
         'Neo runtime modules may import host only from the exact production composition wrapper.',
       from: {
         path: '^src/neo-runtime',
-        pathNot: '^src/neo-runtime/production/create-production-neo-runtime\\.ts$',
+        pathNot:
+          '^src/neo-runtime/production/(create-production-neo-runtime|production-config-bootstrap)\\.ts$',
       },
       to: { path: '^src/host' },
     },
@@ -189,6 +190,28 @@ module.exports = {
       comment: 'Neo runtime must not import network or child_process builtins.',
       from: { path: '^src/neo-runtime' },
       to: { path: '^(node:)?(http|https|net|tls|child_process)$' },
+    },
+    {
+      name: 'neo-runtime-no-fs-except-config-and-readiness',
+      severity: 'error',
+      comment: 'Neo runtime may import fs only from config reader and readiness modules.',
+      from: {
+        path: '^src/neo-runtime',
+        pathNot:
+          '^src/neo-runtime/(production/read-production-config-file|readiness/neo-runtime-readiness-file)\\.ts$',
+      },
+      to: { path: '^(node:)?fs(/promises)?$' },
+    },
+    {
+      name: 'neo-runtime-no-process-except-adapters-and-cli',
+      severity: 'error',
+      comment: 'Neo runtime may import node:process only from adapters and CLI entry.',
+      from: {
+        path: '^src/neo-runtime',
+        pathNot:
+          '^src/neo-runtime/(adapters/create-node-process-signal-port|cli/run-neo-process)\\.ts$',
+      },
+      to: { path: '^(node:)?process$' },
     },
     {
       name: 'neo-runtime-no-integration-scripts',

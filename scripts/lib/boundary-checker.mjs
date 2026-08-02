@@ -35,10 +35,44 @@ export const CORE_LAYER_RULES = {
    */
   host: ['core/domain', 'core/ports', 'core/policy', 'core/application', 'core/config', 'host'],
   /**
-   * App-private Neo runtime lifecycle (Build 3.4B). May depend on core/domain only.
-   * Production composition wrapper is a separate sub-layer.
+   * App-private Neo runtime lifecycle (Build 3.4B+). Sub-layers are listed longest-path first.
    */
-  'neo-runtime/production': ['core/domain', 'host', 'neo-runtime', 'neo-runtime/production'],
+  'neo-runtime/production': [
+    'core/domain',
+    'core/ports',
+    'host',
+    'neo-runtime',
+    'neo-runtime/production',
+    'neo-runtime/ports',
+  ],
+  'neo-runtime/cli': [
+    'core/domain',
+    'host',
+    'neo-runtime',
+    'neo-runtime/adapters',
+    'neo-runtime/cli',
+    'neo-runtime/coordination',
+    'neo-runtime/logging',
+    'neo-runtime/production',
+    'neo-runtime/readiness',
+    'neo-runtime/ports',
+  ],
+  'neo-runtime/adapters': ['neo-runtime/adapters', 'neo-runtime/ports'],
+  'neo-runtime/coordination': [
+    'core/domain',
+    'neo-runtime',
+    'neo-runtime/coordination',
+    'neo-runtime/logging',
+    'neo-runtime/ports',
+  ],
+  'neo-runtime/readiness': [
+    'core/domain',
+    'neo-runtime',
+    'neo-runtime/readiness',
+    'neo-runtime/ports',
+  ],
+  'neo-runtime/logging': ['core/domain', 'neo-runtime', 'neo-runtime/logging', 'neo-runtime/ports'],
+  'neo-runtime/ports': ['core/domain', 'neo-runtime', 'neo-runtime/ports'],
   'neo-runtime': ['core/domain', 'neo-runtime', 'neo-runtime/production'],
   root: [
     'core/domain',
@@ -79,6 +113,19 @@ export const HOST_PATH_BUILTIN_ALLOWLIST = Object.freeze({
   ]),
   'host/storage/sqlite/better-sqlite3-driver.ts': Object.freeze(['node:module']),
   'host/storage/runtime/posix-process-lock-driver.ts': Object.freeze(['node:fs', 'node:module']),
+});
+
+export const NEO_RUNTIME_PATH_BUILTIN_ALLOWLIST = Object.freeze({
+  'neo-runtime/production/read-production-config-file.ts': Object.freeze([
+    'node:fs/promises',
+    'node:path',
+  ]),
+  'neo-runtime/readiness/neo-runtime-readiness-file.ts': Object.freeze([
+    'node:fs/promises',
+    'node:path',
+  ]),
+  'neo-runtime/adapters/create-node-process-signal-port.ts': Object.freeze(['node:process']),
+  'neo-runtime/cli/run-neo-process.ts': Object.freeze(['node:process']),
 });
 
 /**
@@ -375,13 +422,20 @@ export function analyzeBoundaries(options = {}) {
         }
       }
       if (isBuiltin(reference.specifier)) {
+        const specifier = reference.specifier.startsWith('node:')
+          ? reference.specifier
+          : `node:${reference.specifier}`;
         if (fromLayer === 'host') {
-          const specifier = reference.specifier.startsWith('node:')
-            ? reference.specifier
-            : `node:${reference.specifier}`;
           const pathAllow = HOST_PATH_BUILTIN_ALLOWLIST[fileRelative];
           const allowlist = pathAllow ?? HOST_BUILTIN_ALLOWLIST;
           if (!allowlist.includes(specifier))
+            violations.push({
+              code: 'FORBIDDEN_DEPENDENCY',
+              message: `${where} may not import builtin ${reference.specifier}.`,
+            });
+        } else if (fromLayer.startsWith('neo-runtime')) {
+          const pathAllow = NEO_RUNTIME_PATH_BUILTIN_ALLOWLIST[fileRelative];
+          if (pathAllow === undefined || !pathAllow.includes(specifier))
             violations.push({
               code: 'FORBIDDEN_DEPENDENCY',
               message: `${where} may not import builtin ${reference.specifier}.`,
