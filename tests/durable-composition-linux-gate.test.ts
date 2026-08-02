@@ -71,6 +71,14 @@ import {
   UNRUN_AFTER_PRIOR_FAILURE_DETAIL,
 } from '../scripts/integration/lib/evidence.ts';
 import { runEnvironmentGate } from '../scripts/integration/lib/environment-gate.ts';
+import {
+  detectFilesystemFromMounts,
+  isPathWithinMount,
+  isRejectedFilesystemType,
+  normalizeMountPoint,
+  parseProcMounts,
+  unescapeProcMountsPath,
+} from '../scripts/integration/lib/filesystem-detection.ts';
 import { finalizeHarnessOutput } from '../scripts/integration/lib/stdout-exit.ts';
 import {
   EXIT_ASSERTION_FAILURE,
@@ -637,6 +645,127 @@ describe('environment gate classifications', () => {
       process.cwd(),
     );
     expect(result.classification).toBe('UNSUPPORTED_PLATFORM');
+  });
+});
+
+describe('filesystem detection from /proc/mounts', () => {
+  const overlayRootOnly = 'overlay / overlay rw,relatime 0 0\n';
+  const layeredMounts = [
+    'overlay / overlay rw,relatime 0 0',
+    'tmpfs /tmp tmpfs rw,nosuid,nodev 0 0',
+    'ext4 /tmp/specific ext4 rw,relatime 0 0',
+  ].join('\n');
+
+  it('matches root overlay for authoritative Docker tmpdir regression', () => {
+    const result = detectFilesystemFromMounts('/tmp/openclaw-b3c4c', overlayRootOnly);
+    expect(result.matchedMountPoint).toBe('/');
+    expect(result.type).toBe('overlay');
+    expect(result.localVerified).toBe(true);
+    expect(result.overlayFilesystem).toBe(true);
+    expect(result.type).not.toBe('unknown');
+  });
+
+  it('would fail root regression with legacy startsWith("//") matching', () => {
+    const candidate = '/tmp/openclaw-b3c4c';
+    const legacyRootMatch = (path: string, mountPoint: string): boolean =>
+      path === mountPoint || path.startsWith(`${mountPoint}/`);
+    expect(legacyRootMatch(candidate, '/')).toBe(false);
+    expect(isPathWithinMount(candidate, '/')).toBe(true);
+  });
+
+  it('matches exact root path to overlay', () => {
+    const result = detectFilesystemFromMounts('/', overlayRootOnly);
+    expect(result.matchedMountPoint).toBe('/');
+    expect(result.type).toBe('overlay');
+    expect(result.localVerified).toBe(true);
+  });
+
+  it('selects longest matching mount prefix', () => {
+    expect(detectFilesystemFromMounts('/var/data', layeredMounts)).toEqual({
+      type: 'overlay',
+      localVerified: true,
+      overlayFilesystem: true,
+      matchedMountPoint: '/',
+    });
+    expect(detectFilesystemFromMounts('/tmp/file', layeredMounts)).toEqual({
+      type: 'tmpfs',
+      localVerified: true,
+      overlayFilesystem: false,
+      matchedMountPoint: '/tmp',
+    });
+    expect(detectFilesystemFromMounts('/tmp/specific/file', layeredMounts)).toEqual({
+      type: 'ext4',
+      localVerified: true,
+      overlayFilesystem: false,
+      matchedMountPoint: '/tmp/specific',
+    });
+  });
+
+  it('enforces path-component boundaries', () => {
+    expect(isPathWithinMount('/tmp-other', '/tmp')).toBe(false);
+    expect(isPathWithinMount('/var/tmp/a', '/tmp')).toBe(false);
+    expect(detectFilesystemFromMounts('/tmp-other', layeredMounts).matchedMountPoint).toBe('/');
+    expect(isPathWithinMount('/tmp/a', '/tmp')).toBe(true);
+    expect(isPathWithinMount('/tmp', '/tmp')).toBe(true);
+  });
+
+  it('normalizes trailing slashes on mount points', () => {
+    expect(normalizeMountPoint('/tmp/')).toBe('/tmp');
+    expect(normalizeMountPoint('/')).toBe('/');
+    const mounts = 'tmpfs /tmp/ tmpfs rw,nosuid,nodev 0 0\n';
+    expect(detectFilesystemFromMounts('/tmp/a', mounts).matchedMountPoint).toBe('/tmp');
+  });
+
+  it('decodes escaped mount paths from /proc/mounts', () => {
+    const encoded = '/path\\040with\\040space';
+    expect(unescapeProcMountsPath(encoded)).toBe('/path with space');
+    const mounts = 'ext4 /path\\040with\\040space ext4 rw,relatime 0 0\n';
+    expect(detectFilesystemFromMounts('/path with space/file', mounts)).toEqual({
+      type: 'ext4',
+      localVerified: true,
+      overlayFilesystem: false,
+      matchedMountPoint: '/path with space',
+    });
+  });
+
+  it('fails closed for relative, empty, and malformed inputs', () => {
+    expect(isPathWithinMount('tmp/a', '/')).toBe(false);
+    expect(detectFilesystemFromMounts('tmp/a', overlayRootOnly).type).toBe('unknown');
+    expect(detectFilesystemFromMounts('', overlayRootOnly).type).toBe('unknown');
+    expect(parseProcMounts('not-a-mount-line')).toEqual([]);
+    expect(detectFilesystemFromMounts('/tmp', 'bad line\n')).toEqual({
+      type: 'unknown',
+      localVerified: false,
+      overlayFilesystem: false,
+      matchedMountPoint: null,
+    });
+  });
+
+  it('applies production local-filesystem policy for overlay and rejected types', () => {
+    const overlay = detectFilesystemFromMounts('/tmp/x', overlayRootOnly);
+    expect(overlay.localVerified).toBe(true);
+    expect(isRejectedFilesystemType(overlay.type)).toBe(false);
+
+    const nfsMounts = 'nfs4 / nfs4 rw,relatime 0 0\n';
+    const nfs = detectFilesystemFromMounts('/var', nfsMounts);
+    expect(nfs.type).toBe('nfs4');
+    expect(nfs.localVerified).toBe(false);
+    expect(isRejectedFilesystemType(nfs.type)).toBe(true);
+  });
+
+  it('rejects mutation-prone matching strategies', () => {
+    const candidate = '/tmp/openclaw-b3c4c';
+    const rootOnly = '/';
+    expect(candidate.startsWith(`${rootOnly}/`)).toBe(false);
+    expect(isPathWithinMount(candidate, rootOnly)).toBe(true);
+    expect(isPathWithinMount('/tmp-other', '/tmp')).toBe(false);
+    expect(normalizeMountPoint('/')).toBe('/');
+    expect(normalizeMountPoint('')).toBeNull();
+    const firstMatch = parseProcMounts(layeredMounts)[0];
+    expect(firstMatch?.mountPoint).toBe('/');
+    expect(
+      detectFilesystemFromMounts('/tmp/specific/file', layeredMounts).matchedMountPoint,
+    ).not.toBe(firstMatch?.mountPoint);
   });
 });
 

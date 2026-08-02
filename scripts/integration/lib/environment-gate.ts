@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import {
   GATE_EXPECTED_HEAD_ENV,
   GATE_EXPECTED_LOCK_SHA256_ENV,
@@ -11,6 +11,7 @@ import {
   REQUIRED_NPM_VERSION,
   REQUIRED_NODE_VERSION,
 } from './constants.ts';
+import { detectFilesystemFromMounts } from './filesystem-detection.ts';
 import { hashPackageLock } from './fingerprint.ts';
 
 export type EnvironmentGateClassification =
@@ -133,32 +134,15 @@ const detectGlibc = (): GlibcParseResult => {
   }
 };
 
-const REJECTED_FS_TYPES = new Set(['nfs', 'nfs4', 'cifs', 'smb', 'fuse']);
-
 const detectFilesystem = (
   targetPath: string,
 ): { type: string; localVerified: boolean; overlayFilesystem: boolean } => {
-  if (!existsSync('/proc/mounts'))
+  if (!existsSync('/proc/mounts')) {
     return { type: 'unknown', localVerified: false, overlayFilesystem: false };
-  const mounts = readFileSync('/proc/mounts', 'utf8');
-  const resolved = resolve(targetPath);
-  let bestLen = 0;
-  let fsType = 'unknown';
-  for (const line of mounts.split('\n')) {
-    const parts = line.split(' ');
-    const mountPoint = parts[1];
-    const type = parts[2];
-    if (mountPoint === undefined || type === undefined) continue;
-    if (resolved === mountPoint || resolved.startsWith(`${mountPoint}/`)) {
-      if (mountPoint.length >= bestLen) {
-        bestLen = mountPoint.length;
-        fsType = type;
-      }
-    }
   }
-  const localVerified = fsType !== 'unknown' && !REJECTED_FS_TYPES.has(fsType);
-  const overlayFilesystem = fsType === 'overlay' || fsType === 'overlayfs';
-  return { type: fsType, localVerified, overlayFilesystem };
+  const mounts = readFileSync('/proc/mounts', 'utf8');
+  const { type, localVerified, overlayFilesystem } = detectFilesystemFromMounts(targetPath, mounts);
+  return { type, localVerified, overlayFilesystem };
 };
 
 export const verifyNetworkIsolationFromProc = (sources: {
