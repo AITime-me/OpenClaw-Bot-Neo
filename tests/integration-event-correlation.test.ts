@@ -5,7 +5,7 @@ import {
   assertMatchingContentConfirmations,
   assertNoCorrelatedEvent,
   findCorrelatedEvent,
-} from '../scripts/integration/lib/scenario-orchestration.js';
+} from '../scripts/integration/lib/scenario-orchestration.ts';
 import type { ProtocolMessage } from '../scripts/integration/lib/protocol.ts';
 
 const msg = (
