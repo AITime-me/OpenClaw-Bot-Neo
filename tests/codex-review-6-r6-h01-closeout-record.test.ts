@@ -55,11 +55,13 @@ describe('Codex Review 6 R6-H01 closeout record', () => {
     expect(record).not.toMatch(/VPS deployment (was|is) (complete|approved|performed)/i);
   });
 
-  it('lists remaining findings with R6-H02 first', () => {
-    const h02Index = record.indexOf('R6-H02');
+  it('lists remaining findings with R6-M01 first after R6-H02 closure', () => {
+    const m01Index = record.indexOf('R6-M01');
     const h01CloseIndex = record.indexOf('## Open findings');
-    expect(h02Index).toBeGreaterThan(h01CloseIndex);
-    for (const id of ['R6-M01', 'R6-M02', 'R6-M03', 'R6-L01', 'R6-L02', 'R6-L03', 'R6-L04']) {
+    expect(m01Index).toBeGreaterThan(h01CloseIndex);
+    expect(record).toContain('R6-H02');
+    expect(record).toContain('CLOSED');
+    for (const id of ['R6-M02', 'R6-M03', 'R6-L01', 'R6-L02', 'R6-L03', 'R6-L04']) {
       expect(record).toContain(id);
     }
   });

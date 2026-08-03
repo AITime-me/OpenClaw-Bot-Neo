@@ -308,16 +308,19 @@ manifest 31/31) on implementation commit `6b89e7a2d3be072328828bb465b66a937a4834
 `sha256:cc961fff5f5defc144eab8a540500ae43b68cb58ffdbf2d42c3a2b0fd6fbc834` (image label
 non-authoritative). **R6-H01 is closed for cooperative shutdown/readiness-publication ordering.**
 
-**Codex Review №6 — R6-H02 durable-memory secret boundary (in progress):**
-Local implementation exists on `e385d66` (non-overrideable secret-class boundary, opaque
-`SecretData`, mandatory clearance, sink guards). First independent review blocked closure on
-clearance binding/reuse, sink import authority, and native SQLite pre-transaction evidence.
-Corrective remediation binds clearance to a single verified write, narrows sink imports to a
-read-only guard facade, and adds SQLite rejection tests. **R6-H02 remains pending independent
-re-review; not closed.** `securityApprovalComplete`, `deploymentReady`, secret provider,
-encryption, durable Approval/Audit, channels/connectors, VPS/production deployment remain false or
-not performed. No diagnostics changed.
-See [R6-H01 closeout record](validation/codex-review-6-r6-h01-readiness-race-closeout.md).
+**Codex Review №6 — R6-H02 durable-memory secret boundary (closeout):**
+Remediation commits `e385d66af93b889f2b9424a4ed85d326c875c4e4` and corrective
+`21a637fd619fd1c1e3de496e508ce9a4b673b9ff` enforce a non-overrideable secret-class/provenance
+boundary, bound single-use clearance, narrow sink verifier, and native SQLite pre-transaction
+rejection. Independent re-review:
+`R6_H02_INDEPENDENT_REREVIEW_APPROVED_FOR_SECURITY_FINDING_CLOSEOUT`; P1–P18 PASS;
+**NO_LINUX_RERUN_REQUIRED**. **R6-H02 is closed for the bounded secret-provenance guarantee.**
+Scanner remains defense-in-depth; universal free-text secret detection is not claimed. Codex Review
+№6 overall remains blocked; next finding **R6-M01**. `securityApprovalComplete`, `deploymentReady`,
+secret provider, encryption, durable Approval/Audit, channels/connectors, VPS/production deployment
+remain false or not performed. No diagnostics changed.
+See [R6-H02 closeout record](validation/codex-review-6-r6-h02-durable-memory-secret-boundary-closeout.md)
+and [R6-H01 closeout record](validation/codex-review-6-r6-h01-readiness-race-closeout.md).
 
 Связанные документы: [расширяемость](extensibility.md), [интеграции](integrations.md),
 [VoiceProfile](voice-profile.md), [каналы](channels.md), [безопасность](security-policy.md),

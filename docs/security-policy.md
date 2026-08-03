@@ -370,10 +370,16 @@ only; deployment/security approval unchanged. Codex Review №6 pending; deploym
   (`R6_H01_INDEPENDENT_REVIEW_APPROVED_WITH_NOTES_FOR_LINUX_REGRESSION`), and non-authoritative
   disposable Linux L1–L5 regression (manifest 31/31). See
   [closeout record](validation/codex-review-6-r6-h01-readiness-race-closeout.md).
-- **R6-H02 (HIGH): LOCAL REMEDIATION IMPLEMENTED — pending independent review** — mandatory
-  non-overrideable secret-class/provenance boundary blocks durable memory persistence regardless of
-  injected product allow-policy. Scanner remains defense-in-depth; arbitrary untyped free-text secret
-  detection is not guaranteed. Secret Provider and encryption remain absent.
+- **R6-H02 (HIGH, memory → durable persistence): CLOSED.** Scanner-unknown secret-class material
+  could reach durable memory when an injected product allow-policy returned allow. Remediation
+  commits `e385d66af93b889f2b9424a4ed85d326c875c4e4` and corrective
+  `21a637fd619fd1c1e3de496e508ce9a4b673b9ff` enforce non-overrideable secret-class/provenance
+  boundary, bound single-use clearance, narrow sink verifier, and native SQLite pre-transaction
+  rejection. Closure evidence: independent re-review
+  (`R6_H02_INDEPENDENT_REREVIEW_APPROVED_FOR_SECURITY_FINDING_CLOSEOUT`), P1–P18 PASS,
+  **1519 passed** / 3 skipped, aggregate check PASS. Scanner remains defense-in-depth; universal
+  free-text secret detection is not claimed. See
+  [closeout record](validation/codex-review-6-r6-h02-durable-memory-secret-boundary-closeout.md).
 - **R6-M01, R6-M02, R6-M03; R6-L01—R6-L04; deferred systemd hardening; online dependency/provenance
   review:** OPEN.
 

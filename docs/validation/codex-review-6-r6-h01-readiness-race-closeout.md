@@ -166,8 +166,9 @@ Still false:
 
 R6-H01 does **not** close:
 
-1. **R6-H02** — raw secrets may reach durable memory through an injected allow-policy (**next highest priority**)
-2. **R6-M01** — fatal close failure may lose retryable owner cleanup state
+1. **R6-H02** — raw secrets may reach durable memory through an injected allow-policy — **CLOSED**
+   (see [R6-H02 closeout](codex-review-6-r6-h02-durable-memory-secret-boundary-closeout.md))
+2. **R6-M01** — fatal close failure may lose retryable owner cleanup state (**next highest priority**)
 3. **R6-M02** — production Node gate is not connected to launcher
 4. **R6-M03** — status/readiness is not bound to live process identity
 5. **R6-L01** — config lstat/open TOCTOU
@@ -178,4 +179,4 @@ R6-H01 does **not** close:
 10. online dependency/provenance review
 
 Codex Review №6 as a whole remains **blocked** pending remediation of remaining findings,
-starting with **R6-H02**.
+starting with **R6-M01**.

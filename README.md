@@ -157,19 +157,29 @@ Deployment prohibited.
 | Disposable Neo systemd validation (Build 3.4F) | recorded (S1–S7 PASS; `systemdLayerConfigured=true`; not production-installed) |
 | Build 3.4 closeout (Build 3.4H) | recorded (see `docs/validation/build-3.4-neo-linux-systemd-validation.md`) |
 | Codex Review №6 R6-H01 readiness race (closeout) | closed for cooperative shutdown/readiness ordering (see `docs/validation/codex-review-6-r6-h01-readiness-race-closeout.md`) |
+| Codex Review №6 R6-H02 secret boundary (closeout) | closed for bounded secret-provenance durable-memory guarantee (see `docs/validation/codex-review-6-r6-h02-durable-memory-secret-boundary-closeout.md`) |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
-| Security approval | absent pending independent Codex Review №6 (R6-H01 closed; R6-H02 next) |
+| Security approval | absent pending independent Codex Review №6 (R6-H01 and R6-H02 closed; R6-M01 next) |
 
 **Codex Review №6 R6-H01 (closeout):** readiness shutdown/publication race remediated at
 `6b89e7a2d3be072328828bb465b66a937a48349e`. Closure evidence: deterministic race suite (20 passed),
 independent source review (`R6_H01_INDEPENDENT_REVIEW_APPROVED_WITH_NOTES_FOR_LINUX_REGRESSION`),
 and non-authoritative disposable Linux L1–L5 regression (`BUILD_3_4_LINUX_NEO_RUNTIME_GATE_PASSED`,
 manifest 31/31). **R6-H01 is closed for cooperative shutdown/readiness-publication ordering.**
-Codex Review №6 overall remains blocked; next finding is **R6-H02**. `deploymentReady` and
+
+**Codex Review №6 R6-H02 (closeout):** durable-memory secret boundary remediated at
+`e385d66af93b889f2b9424a4ed85d326c875c4e4` with corrective `21a637fd619fd1c1e3de496e508ce9a4b673b9ff`.
+Closure evidence: independent re-review
+(`R6_H02_INDEPENDENT_REREVIEW_APPROVED_FOR_SECURITY_FINDING_CLOSEOUT`), P1–P18 PASS, **1519 passed**
+/ 3 skipped, aggregate check PASS, **NO_LINUX_RERUN_REQUIRED**. **R6-H02 is closed for the bounded
+secret-provenance guarantee.** Scanner remains defense-in-depth; universal free-text secret detection
+is not claimed.
+
+Codex Review №6 overall remains blocked; next finding is **R6-M01**. `deploymentReady` and
 `securityApprovalComplete` remain false. See
-[closeout record](docs/validation/codex-review-6-r6-h01-readiness-race-closeout.md).
+[closeout record](docs/validation/codex-review-6-r6-h02-durable-memory-secret-boundary-closeout.md).
 
 Build 2.1B добавляет versioned declarative manifests, default-deny permission composition,
 provider-independent registry/webhook contracts, отключённые examples для call-analysis и external
