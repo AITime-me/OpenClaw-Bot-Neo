@@ -77,8 +77,9 @@ export const createNeoRuntime = (input: CreateNeoRuntimeInput): NeoRuntime => {
   const markFailed = (nextFailureClass: NeoRuntimeFailureClass): void => {
     lifecycle = 'failed';
     failureClass = nextFailureClass;
-    durableHostOpened = false;
-    owner = undefined;
+    if (owner === undefined) {
+      durableHostOpened = false;
+    }
   };
 
   const closeOwnerIfPresent = (): NeoRuntimeCloseResult => {
@@ -102,7 +103,10 @@ export const createNeoRuntime = (input: CreateNeoRuntimeInput): NeoRuntime => {
 
   const runClose = async (reason: NeoRuntimeCloseReason): Promise<NeoRuntimeCloseResult> => {
     if (lifecycle === 'stopped') return okNeoRuntimeClose();
-    if (lifecycle === 'failed') return okNeoRuntimeClose();
+
+    if (lifecycle === 'failed') {
+      return closeOwnerIfPresent();
+    }
 
     if (lifecycle === 'new') {
       lifecycle = 'stopped';
@@ -117,8 +121,11 @@ export const createNeoRuntime = (input: CreateNeoRuntimeInput): NeoRuntime => {
     }
 
     const lifecycleAfterStart = readLifecycle();
-    if (lifecycleAfterStart === 'stopped' || lifecycleAfterStart === 'failed') {
+    if (lifecycleAfterStart === 'stopped') {
       return okNeoRuntimeClose();
+    }
+    if (lifecycleAfterStart === 'failed') {
+      return closeOwnerIfPresent();
     }
 
     if (lifecycleAfterStart === 'running') {
@@ -147,7 +154,11 @@ export const createNeoRuntime = (input: CreateNeoRuntimeInput): NeoRuntime => {
       return ownerClose;
     }
 
-    lifecycle = 'stopped';
+    if (reason === 'fatal') {
+      markFailed('RUNTIME_FATAL');
+    } else {
+      lifecycle = 'stopped';
+    }
     return okNeoRuntimeClose();
   };
 

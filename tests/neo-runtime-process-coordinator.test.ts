@@ -3,6 +3,11 @@ import { runNeoProcess } from '../src/neo-runtime/cli/run-neo-process.js';
 import { createNeoExitDisposition } from '../src/neo-runtime/coordination/exit-disposition.js';
 import { closeRuntimeWithRetry } from '../src/neo-runtime/coordination/shutdown-close-retry.js';
 import {
+  createNeoRuntime,
+  type NeoRuntimeDurableOwner,
+  type NeoRuntimeOwnerCloseResult,
+} from '../src/neo-runtime/create-neo-runtime.js';
+import {
   NEO_RUNTIME_EXIT_CONFIG_FAILURE,
   NEO_RUNTIME_EXIT_PROCESS_LOCK_HELD,
   NEO_RUNTIME_EXIT_RUNTIME_FATAL,
@@ -283,5 +288,73 @@ describe('neo runtime process coordinator', () => {
       '--execution-root',
       NEO_TEST_PATHS.executionRoot,
     ]);
+  });
+
+  describe('R6-M01 fatal close retry at process level', () => {
+    const fatalOwnerRuntime = (
+      resolve: (attempt: number) => NeoRuntimeOwnerCloseResult,
+    ): { readonly owner: NeoRuntimeDurableOwner; readonly getAttempts: () => number } => {
+      let attempts = 0;
+      const owner: NeoRuntimeDurableOwner = {
+        close: () => {
+          attempts += 1;
+          return resolve(attempts);
+        },
+      };
+      return { owner, getAttempts: () => attempts };
+    };
+
+    it('fatal first close incomplete then success emits stopped and exit 12', async () => {
+      const { owner, getAttempts } = fatalOwnerRuntime((attempt) => {
+        if (attempt === 1) {
+          return {
+            ok: false as const,
+            error: { code: 'DURABLE_HOST_CLOSE_FAILED', reason: 'incomplete' },
+          };
+        }
+        return { ok: true as const };
+      });
+      const runtime = createNeoRuntime({
+        openDurableHost: () => Promise.resolve({ ok: true as const, value: owner }),
+      });
+      const createRuntime = vi.fn(() => runtime);
+      const { deps, readiness, signals, log } = createRunNeoProcessDeps({ createRuntime });
+      const runPromise = runNeoProcess(deps);
+      await vi.waitFor(() => {
+        expect(readiness.state.published).not.toBeNull();
+      });
+      signals.emitFatal('uncaughtException');
+      const result = await runPromise;
+      expect(result.exitCode).toBe(NEO_RUNTIME_EXIT_RUNTIME_FATAL);
+      expect(getAttempts()).toBe(2);
+      expect(log.events.some((event) => event.event === 'neo.runtime.failed')).toBe(true);
+      expect(log.events.some((event) => event.event === 'neo.runtime.stopped')).toBe(true);
+      expect(log.events.some((event) => event.event === 'neo.runtime.shutdown_timeout')).toBe(
+        false,
+      );
+    });
+
+    it('fatal retry exhaustion emits shutdown_timeout without stopped and exit 12', async () => {
+      const { owner, getAttempts } = fatalOwnerRuntime(() => ({
+        ok: false as const,
+        error: { code: 'DURABLE_HOST_CLOSE_FAILED', reason: 'still incomplete' },
+      }));
+      const runtime = createNeoRuntime({
+        openDurableHost: () => Promise.resolve({ ok: true as const, value: owner }),
+      });
+      const { deps, readiness, signals, log } = createRunNeoProcessDeps({
+        createRuntime: () => runtime,
+      });
+      const runPromise = runNeoProcess(deps);
+      await vi.waitFor(() => {
+        expect(readiness.state.published).not.toBeNull();
+      });
+      signals.emitFatal('uncaughtException');
+      const result = await runPromise;
+      expect(result.exitCode).toBe(NEO_RUNTIME_EXIT_RUNTIME_FATAL);
+      expect(getAttempts()).toBe(3);
+      expect(log.events.some((event) => event.event === 'neo.runtime.shutdown_timeout')).toBe(true);
+      expect(log.events.some((event) => event.event === 'neo.runtime.stopped')).toBe(false);
+    });
   });
 });

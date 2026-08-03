@@ -380,7 +380,13 @@ only; deployment/security approval unchanged. Codex Review №6 pending; deploym
   **1519 passed** / 3 skipped, aggregate check PASS. Scanner remains defense-in-depth; universal
   free-text secret detection is not claimed. See
   [closeout record](validation/codex-review-6-r6-h02-durable-memory-secret-boundary-closeout.md).
-- **R6-M01, R6-M02, R6-M03; R6-L01—R6-L04; deferred systemd hardening; online dependency/provenance
+- **R6-M01 (MEDIUM, lifecycle → durable owner cleanup): IMPLEMENTED LOCALLY, NOT CLOSED.**
+  Fatal close failure previously discarded the retryable durable owner via `markFailed()`.
+  Local remediation retains the unresolved owner while lifecycle remains terminally `failed`,
+  allowing `closeRuntimeWithRetry` to close the same owner; ownership clears only after
+  confirmed cleanup success. Pending independent review; **R6-M02** remains next only after
+  R6-M01 closure.
+- **R6-M02, R6-M03; R6-L01—R6-L04; deferred systemd hardening; online dependency/provenance
   review:** OPEN.
 
 Codex Review №6 as a whole remains **blocked**. `securityApprovalComplete` and `deploymentReady`

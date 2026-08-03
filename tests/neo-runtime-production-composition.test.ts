@@ -312,4 +312,191 @@ describe('neo runtime production composition lifecycle', () => {
     expect(restart.ok).toBe(false);
     if (!restart.ok) expect(restart.error.failureClass).toBe('TERMINAL_STATE');
   });
+
+  describe('R6-M01 fatal close owner retention', () => {
+    it('retains exact owner across fatal incomplete then successful retry', async () => {
+      const track = { count: 0 };
+      let attempts = 0;
+      const ownerRef = successOwner(() => {
+        attempts += 1;
+        if (attempts === 1) {
+          return {
+            ok: false as const,
+            error: { code: 'DURABLE_HOST_CLOSE_FAILED', reason: 'incomplete', stage: 'memory' },
+          };
+        }
+        return { ok: true as const };
+      });
+      const runtime = makeRuntime(() => Promise.resolve({ ok: true as const, value: ownerRef }), {
+        trackOpenCount: track,
+      });
+      await runtime.start();
+      const first = await runtime.close('fatal');
+      expect(first.ok).toBe(false);
+      const healthAfterFirst = runtime.getHealth();
+      expect(healthAfterFirst.lifecycle).toBe('failed');
+      expect(healthAfterFirst.failed).toBe(true);
+      expect(healthAfterFirst.failureClass).toBe('RUNTIME_FATAL');
+      expect(healthAfterFirst.durableHostOpened).toBe(true);
+      expect(healthAfterFirst.runtimeReady).toBe(false);
+
+      const second = await runtime.close('fatal');
+      expect(second.ok).toBe(true);
+      const healthAfterSecond = runtime.getHealth();
+      expect(healthAfterSecond.lifecycle).toBe('failed');
+      expect(healthAfterSecond.failureClass).toBe('RUNTIME_FATAL');
+      expect(healthAfterSecond.durableHostOpened).toBe(false);
+      expect(attempts).toBe(2);
+      expect(track.count).toBe(1);
+    });
+
+    it('retries the exact same owner object reference', async () => {
+      const seenOwners: NeoRuntimeDurableOwner[] = [];
+      let attempts = 0;
+      const ownerRef = successOwner(() => {
+        attempts += 1;
+        if (attempts === 1) {
+          return {
+            ok: false as const,
+            error: { code: 'DURABLE_HOST_CLOSE_FAILED', reason: 'incomplete' },
+          };
+        }
+        return { ok: true as const };
+      });
+      const runtime = makeRuntime(() => {
+        seenOwners.push(ownerRef);
+        return Promise.resolve({ ok: true as const, value: ownerRef });
+      });
+      await runtime.start();
+      await runtime.close('fatal');
+      await runtime.close('fatal');
+      expect(seenOwners).toHaveLength(1);
+      expect(attempts).toBe(2);
+    });
+
+    it('does not report false success or stopped after first incomplete fatal close', async () => {
+      const runtime = makeRuntime(() =>
+        Promise.resolve({
+          ok: true as const,
+          value: successOwner(() => ({
+            ok: false as const,
+            error: { code: 'DURABLE_HOST_CLOSE_FAILED', reason: 'incomplete' },
+          })),
+        }),
+      );
+      await runtime.start();
+      const first = await runtime.close('fatal');
+      expect(first.ok).toBe(false);
+      if (!first.ok) {
+        expect(first.error.code).toBe('NEO_RUNTIME_CLOSE_INCOMPLETE');
+      }
+      const health = runtime.getHealth();
+      expect(health.lifecycle).not.toBe('stopped');
+      expect(health.durableHostOpened).toBe(true);
+    });
+
+    it('exhausts fatal retries with owner unresolved and no false success', async () => {
+      const closeSpy = vi.fn(() => ({
+        ok: false as const,
+        error: { code: 'DURABLE_HOST_CLOSE_FAILED', reason: 'still incomplete' },
+      }));
+      const runtime = makeRuntime(() =>
+        Promise.resolve({ ok: true as const, value: successOwner(closeSpy) }),
+      );
+      await runtime.start();
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const result = await runtime.close('fatal');
+        expect(result.ok).toBe(false);
+      }
+      expect(closeSpy).toHaveBeenCalledTimes(3);
+      expect(runtime.getHealth().lifecycle).toBe('failed');
+      expect(runtime.getHealth().durableHostOpened).toBe(true);
+    });
+
+    it('shares one in-flight owner.close for concurrent fatal close', async () => {
+      let closeCalls = 0;
+      const closeSpy = vi.fn(() => {
+        closeCalls += 1;
+        if (closeCalls === 1) {
+          return {
+            ok: false as const,
+            error: { code: 'BUSY', reason: 'busy', stage: 'operations' },
+          };
+        }
+        return { ok: true as const };
+      });
+      const runtime = makeRuntime(() =>
+        Promise.resolve({ ok: true, value: successOwner(closeSpy) }),
+      );
+      await runtime.start();
+      const first = runtime.close('fatal');
+      const second = runtime.close('fatal');
+      await Promise.all([first, second]);
+      expect(closeSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
+      const third = await runtime.close('fatal');
+      expect(third.ok).toBe(true);
+      expect(closeSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not call owner again after confirmed fatal cleanup success', async () => {
+      const closeSpy = vi.fn(() => ({ ok: true as const }));
+      const runtime = makeRuntime(() =>
+        Promise.resolve({ ok: true, value: successOwner(closeSpy) }),
+      );
+      await runtime.start();
+      const first = await runtime.close('fatal');
+      expect(first.ok).toBe(true);
+      expect(runtime.getHealth().lifecycle).toBe('failed');
+      expect(runtime.getHealth().failureClass).toBe('RUNTIME_FATAL');
+      const second = await runtime.close('fatal');
+      expect(second.ok).toBe(true);
+      expect(closeSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects restart after fatal failure even when owner cleanup succeeded', async () => {
+      const runtime = makeRuntime(() => Promise.resolve({ ok: true, value: successOwner() }));
+      await runtime.start();
+      await runtime.close('fatal');
+      const restart = await runtime.start();
+      expect(restart.ok).toBe(false);
+      if (!restart.ok) expect(restart.error.failureClass).toBe('TERMINAL_STATE');
+    });
+
+    it('startup rollback incomplete retains owner for same-owner retry', async () => {
+      const gate = deferred<undefined>();
+      let attempts = 0;
+      const closeSpy = vi.fn(() => {
+        attempts += 1;
+        if (attempts < 3) {
+          return {
+            ok: false as const,
+            error: { code: 'DURABLE_HOST_CLOSE_FAILED', reason: 'rollback incomplete' },
+          };
+        }
+        return { ok: true as const };
+      });
+      const track = { count: 0 };
+      const runtime = makeRuntime(
+        () =>
+          gate.promise.then(() => ({
+            ok: true as const,
+            value: successOwner(closeSpy),
+          })),
+        { trackOpenCount: track },
+      );
+      const startPromise = runtime.start();
+      const closePromise = runtime.close('startup-abort');
+      gate.resolve(undefined);
+      const [startResult, closeResult] = await Promise.all([startPromise, closePromise]);
+      expect(startResult.ok).toBe(false);
+      expect(closeResult.ok).toBe(false);
+      expect(runtime.getHealth().lifecycle).toBe('stopping');
+      expect(runtime.getHealth().durableHostOpened).toBe(true);
+      const retry = await runtime.close('startup-abort');
+      expect(retry.ok).toBe(true);
+      expect(runtime.getHealth().lifecycle).toBe('stopped');
+      expect(closeSpy).toHaveBeenCalledTimes(3);
+      expect(track.count).toBe(1);
+    });
+  });
 });
