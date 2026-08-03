@@ -156,10 +156,20 @@ Deployment prohibited.
 | Disposable Neo Linux runtime validation (Build 3.4E-STAB10) | recorded (L1–L5 PASS; process lock + second-instance wiring evidenced) |
 | Disposable Neo systemd validation (Build 3.4F) | recorded (S1–S7 PASS; `systemdLayerConfigured=true`; not production-installed) |
 | Build 3.4 closeout (Build 3.4H) | recorded (see `docs/validation/build-3.4-neo-linux-systemd-validation.md`) |
+| Codex Review №6 R6-H01 readiness race (closeout) | closed for cooperative shutdown/readiness ordering (see `docs/validation/codex-review-6-r6-h01-readiness-race-closeout.md`) |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
-| Security approval | absent pending independent Codex Review №6 |
+| Security approval | absent pending independent Codex Review №6 (R6-H01 closed; R6-H02 next) |
+
+**Codex Review №6 R6-H01 (closeout):** readiness shutdown/publication race remediated at
+`6b89e7a2d3be072328828bb465b66a937a48349e`. Closure evidence: deterministic race suite (20 passed),
+independent source review (`R6_H01_INDEPENDENT_REVIEW_APPROVED_WITH_NOTES_FOR_LINUX_REGRESSION`),
+and non-authoritative disposable Linux L1–L5 regression (`BUILD_3_4_LINUX_NEO_RUNTIME_GATE_PASSED`,
+manifest 31/31). **R6-H01 is closed for cooperative shutdown/readiness-publication ordering.**
+Codex Review №6 overall remains blocked; next finding is **R6-H02**. `deploymentReady` and
+`securityApprovalComplete` remain false. See
+[closeout record](docs/validation/codex-review-6-r6-h01-readiness-race-closeout.md).
 
 Build 2.1B добавляет versioned declarative manifests, default-deny permission composition,
 provider-independent registry/webhook contracts, отключённые examples для call-analysis и external

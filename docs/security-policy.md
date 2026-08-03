@@ -359,3 +359,21 @@ provider/encryption absent. Codex Review №6 pending; deployment запрещё
 startup cleanup reentrancy safety, frozen terminal failures, exact dynamic-import target allowlist
 для composition factory. Build 3.3B3C4-FINAL records authoritative Linux validation in diagnostics
 only; deployment/security approval unchanged. Codex Review №6 pending; deployment запрещён.
+
+**Codex Review №6 — finding registry (partial):**
+
+- **R6-H01 (HIGH, lifecycle → readiness/status): CLOSED.** Cooperative shutdown could recreate
+  readiness after shutdown latch during in-flight publication. Remediation commit
+  `6b89e7a2d3be072328828bb465b66a937a48349e` adds post-publication `lifetime.isRequested()`
+  recheck, suppresses `neo.runtime.ready`, and reconciles readiness without duplicate shutdown.
+  Closure evidence: deterministic race suite (20 passed), independent source review
+  (`R6_H01_INDEPENDENT_REVIEW_APPROVED_WITH_NOTES_FOR_LINUX_REGRESSION`), and non-authoritative
+  disposable Linux L1–L5 regression (manifest 31/31). See
+  [closeout record](validation/codex-review-6-r6-h01-readiness-race-closeout.md).
+- **R6-H02 (HIGH): OPEN** — raw secrets may reach durable memory through an injected allow-policy.
+  **Next highest-priority remediation.**
+- **R6-M01, R6-M02, R6-M03; R6-L01—R6-L04; deferred systemd hardening; online dependency/provenance
+  review:** OPEN.
+
+Codex Review №6 as a whole remains **blocked**. `securityApprovalComplete` and `deploymentReady`
+remain false. Production/VPS/connectors remain prohibited.

@@ -298,6 +298,20 @@ performed. See [validation record](validation/build-3.4-neo-linux-systemd-valida
 Wrapper fix required before treating host cleanup as production-grade deployment tooling; no A–K
 rerun required for these items.
 
+**Codex Review №6 — R6-H01 readiness shutdown/publication race (closeout):**
+Independent source review `R6_H01_INDEPENDENT_REVIEW_APPROVED_WITH_NOTES_FOR_LINUX_REGRESSION`.
+Deterministic race suite (`tests/neo-runtime-readiness-shutdown-race.test.ts`, 20 passed) plus
+non-authoritative disposable Linux Neo runtime L1–L5 regression (`BUILD_3_4_LINUX_NEO_RUNTIME_GATE_PASSED`,
+manifest 31/31) on implementation commit `6b89e7a2d3be072328828bb465b66a937a48349e`, package-lock
+`f8b9ce9fdbf3dd1d69f219df2a997e58b1cd5abcb077312b5151ba729175db54`, bundle
+`add467465d7dea7d7c165110fc215781fcf9dd224a252da5251c97a8f6602304`, offline image
+`sha256:cc961fff5f5defc144eab8a540500ae43b68cb58ffdbf2d42c3a2b0fd6fbc834` (image label
+non-authoritative). **R6-H01 is closed for cooperative shutdown/readiness-publication ordering.**
+Codex Review №6 as a whole remains blocked; next security remediation is **R6-H02**.
+`deploymentReady`, `securityApprovalComplete`, secret provider, encryption, durable Approval/Audit,
+channels/connectors, VPS/production deployment remain false or not performed. No diagnostics changed.
+See [R6-H01 closeout record](validation/codex-review-6-r6-h01-readiness-race-closeout.md).
+
 Связанные документы: [расширяемость](extensibility.md), [интеграции](integrations.md),
 [VoiceProfile](voice-profile.md), [каналы](channels.md), [безопасность](security-policy.md),
 [deployment](deployment.md), [ADR runtime](adr/0001-openclaw-as-runtime.md).
