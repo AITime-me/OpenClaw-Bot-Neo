@@ -117,19 +117,30 @@ describe('neo runtime config descriptor-safe read (R6-L01)', () => {
     const fillerLength = NEO_CONFIG_MAX_FILE_BYTES - `{"p":""}`.length;
     const maxJson = `{"p":"${'a'.repeat(fillerLength)}"}`;
     expect(maxJson.length).toBe(NEO_CONFIG_MAX_FILE_BYTES);
-    const { reader } = createFakeDriver({
-      open: async () => ({
-        stat: async () => ({ isFile: () => true, size: maxJson.length }),
-        read: async (buffer, offset, length, position) => {
-          const slice = maxJson.slice(position, position + length);
-          buffer.write(slice, offset, slice.length, 'utf8');
-          return { bytesRead: slice.length };
-        },
-        close: async () => undefined,
-      }),
+    const root = await mkdtemp(join(tmpdir(), 'neo-config-max-'));
+    const configPath = join(root, 'max.json');
+    await writeFile(configPath, '{}', 'utf8');
+    let maxCloseCount = 0;
+    const { reader, openCalls } = createFakeDriver({
+      open: async (path) => {
+        expect(path).toBe(configPath);
+        return {
+          stat: async () => ({ isFile: () => true, size: maxJson.length }),
+          read: async (buffer, offset, length, position) => {
+            const slice = maxJson.slice(position, position + length);
+            buffer.write(slice, offset, slice.length, 'utf8');
+            return { bytesRead: slice.length };
+          },
+          close: async () => {
+            maxCloseCount += 1;
+          },
+        };
+      },
     });
-    const result = await reader.readJsonFile(join(tmpdir(), 'max.json'));
+    const result = await reader.readJsonFile(configPath);
     expect(result.ok).toBe(true);
+    expect(openCalls).toEqual([configPath]);
+    expect(maxCloseCount).toBe(1);
   });
 
   it('rejects oversized files from descriptor fstat', async () => {
@@ -160,22 +171,52 @@ describe('neo runtime config descriptor-safe read (R6-L01)', () => {
   });
 
   it('closes descriptor after success and validation failure', async () => {
-    const { reader: okReader, closeCalls: okClose } = createFakeDriver();
-    await okReader.readJsonFile(join(tmpdir(), 'ok.json'));
+    const root = await mkdtemp(join(tmpdir(), 'neo-config-close-'));
+    const okPath = join(root, 'ok.json');
+    const badPath = join(root, 'bad.json');
+    await writeFile(okPath, '{}', 'utf8');
+    await writeFile(badPath, '{}', 'utf8');
+
+    const { reader: okReader, closeCalls: okClose, openCalls: okOpen } = createFakeDriver();
+    await okReader.readJsonFile(okPath);
+    expect(okOpen).toEqual([okPath]);
     expect(okClose.length).toBe(1);
 
     let validationCloseCalls = 0;
-    const { reader: badReader } = createFakeDriver({
-      open: async () => ({
-        stat: async () => ({ isFile: () => false, size: 0 }),
-        read: async () => ({ bytesRead: 0 }),
-        close: async () => {
-          validationCloseCalls += 1;
+    const { reader: badReader, openCalls: badOpen } = createFakeDriver({
+      open: async (path) => {
+        expect(path).toBe(badPath);
+        return {
+          stat: async () => ({ isFile: () => false, size: 0 }),
+          read: async () => ({ bytesRead: 0 }),
+          close: async () => {
+            validationCloseCalls += 1;
+          },
+        };
+      },
+    });
+    await badReader.readJsonFile(badPath);
+    expect(badOpen).toEqual([badPath]);
+    expect(validationCloseCalls).toBe(1);
+  });
+
+  it('rejects missing pathname before open without reaching injected driver', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'neo-config-missing-'));
+    const missingPath = join(root, 'missing', 'config.json');
+    let openCalled = false;
+    const reader = createNodeProductionConfigFileReaderWithOpenDriver(
+      createNodeConfigFileOpenDriverWithPrimitives({
+        platform: 'linux',
+        constants: BASE_CONSTANTS,
+        open: async () => {
+          openCalled = true;
+          throw new Error('open should not run');
         },
       }),
-    });
-    await badReader.readJsonFile(join(tmpdir(), 'bad.json'));
-    expect(validationCloseCalls).toBe(1);
+    );
+    const result = await reader.readJsonFile(missingPath);
+    expect(result.ok).toBe(false);
+    expect(openCalled).toBe(false);
   });
 
   it('fails closed when Linux no-follow flags are unavailable', async () => {
