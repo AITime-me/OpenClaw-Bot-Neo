@@ -6,7 +6,7 @@ import type {
 } from '../ports/neo-process-ports.js';
 
 export const NEO_READINESS_FILENAME = 'ready.json' as const;
-export const NEO_READINESS_SCHEMA_VERSION = '1' as const;
+export const NEO_READINESS_SCHEMA_VERSION = '2' as const;
 
 const readinessPath = (executionRoot: string): string =>
   join(executionRoot, NEO_READINESS_FILENAME);
@@ -22,6 +22,8 @@ const boundedSnapshot = (snapshot: NeoRuntimeReadinessSnapshot): string =>
     runtimeReady: snapshot.runtimeReady,
     durableHostOpened: snapshot.durableHostOpened,
     startedAtUtc: snapshot.startedAtUtc,
+    bootId: snapshot.bootId,
+    startTimeTicks: snapshot.startTimeTicks,
   });
 
 export const createNodeNeoRuntimeReadinessPort = (): NeoProcessReadinessPort => ({

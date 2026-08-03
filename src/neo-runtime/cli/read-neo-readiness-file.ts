@@ -44,7 +44,10 @@ const isReadinessParentPathUnsafe = async (parentDirectory: string): Promise<boo
 
 export type NeoReadinessFileReadResult =
   | { readonly ok: true; readonly document: NeoReadinessStatusDocument }
-  | { readonly ok: false; readonly reason: 'absent' | 'invalid' | 'unreadable' };
+  | {
+      readonly ok: false;
+      readonly reason: 'absent' | 'invalid' | 'unreadable' | 'legacy-unbound';
+    };
 
 export const readNeoReadinessFile = async (
   executionRoot: string,
@@ -72,7 +75,12 @@ export const readNeoReadinessFile = async (
       const text = buffer.toString('utf8');
       const json: unknown = JSON.parse(text);
       const parsed = parseNeoReadinessDocument(json);
-      if (!parsed.ok) return { ok: false, reason: 'invalid' };
+      if (!parsed.ok) {
+        if (parsed.reason === 'legacy-unbound') {
+          return { ok: false, reason: 'legacy-unbound' };
+        }
+        return { ok: false, reason: 'invalid' };
+      }
       return { ok: true, document: parsed.value };
     } finally {
       await handle.close();

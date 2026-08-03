@@ -22,6 +22,7 @@ import type {
   NeoProcessSignalPort,
   NeoProcessSleepPort,
 } from '../ports/neo-process-ports.js';
+import type { ProcessInstanceIdentityProvider } from '../process-identity/process-instance-identity-provider.port.js';
 import type { NeoRuntimeLogSink } from '../logging/neo-runtime-log.js';
 import { NEO_READINESS_SCHEMA_VERSION } from '../readiness/neo-runtime-readiness-file.js';
 import {
@@ -32,6 +33,7 @@ import { createNodeProcessKeepAlivePort } from '../adapters/create-node-process-
 import { createNodeProcessOutputPort } from '../adapters/create-node-process-output-port.js';
 import { createNodeProductionConfigFileReader } from '../production/read-production-config-file.js';
 import { createNodeNeoRuntimeReadinessPort } from '../readiness/neo-runtime-readiness-file.js';
+import { createNodeProcessInstanceProvider } from '../process-identity/create-node-process-instance-provider.js';
 import { createProductionNeoRuntimeLogSink } from '../logging/neo-runtime-log.js';
 
 export type RunNeoProcessResult = {
@@ -45,6 +47,7 @@ export type RunNeoProcessDeps = {
   readonly sleep: NeoProcessSleepPort;
   readonly configReader: NeoProcessConfigFileReaderPort;
   readonly readiness: NeoProcessReadinessPort;
+  readonly processInstance: ProcessInstanceIdentityProvider;
   readonly log: NeoRuntimeLogSink;
   readonly keepAlive?: NeoProcessKeepAlivePort;
   readonly createRuntime?: (config: ProductionNeoRuntimeConfig) => NeoRuntime;
@@ -193,6 +196,15 @@ export const runNeoProcess = async (deps: RunNeoProcessDeps): Promise<RunNeoProc
       return { exitCode: exit.snapshot().exitCode };
     }
 
+    const capturedIdentity = await deps.processInstance.captureSelf();
+    if (!capturedIdentity.ok || capturedIdentity.value.pid !== deps.identity.pid) {
+      exit.recordFailure('STARTUP');
+      await deps.readiness.remove(cli.executionRoot);
+      await runtime.close('shutdown');
+      signals.uninstall();
+      return { exitCode: exit.snapshot().exitCode };
+    }
+
     const publish = await deps.readiness.publish(cli.executionRoot, {
       schemaVersion: NEO_READINESS_SCHEMA_VERSION,
       pid: deps.identity.pid,
@@ -200,6 +212,8 @@ export const runNeoProcess = async (deps: RunNeoProcessDeps): Promise<RunNeoProc
       runtimeReady: true,
       durableHostOpened: true,
       startedAtUtc: deps.identity.nowUtcIso(),
+      bootId: capturedIdentity.value.bootId,
+      startTimeTicks: capturedIdentity.value.startTimeTicks,
     });
     if (!publish.ok) {
       exit.recordFailure('STARTUP');
@@ -240,6 +254,7 @@ export const runNeoProcessFromNode = async (): Promise<RunNeoProcessResult> => {
     sleep: { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)) },
     configReader: createNodeProductionConfigFileReader(),
     readiness: createNodeNeoRuntimeReadinessPort(),
+    processInstance: createNodeProcessInstanceProvider(),
     keepAlive: createNodeProcessKeepAlivePort(),
     log,
   });

@@ -29,12 +29,14 @@ export type NeoProcessConfigFileReaderPort = {
 };
 
 export type NeoRuntimeReadinessSnapshot = {
-  readonly schemaVersion: '1';
+  readonly schemaVersion: '2';
   readonly pid: number;
   readonly lifecycle: 'running';
   readonly runtimeReady: true;
   readonly durableHostOpened: true;
   readonly startedAtUtc: string;
+  readonly bootId: string;
+  readonly startTimeTicks: string;
 };
 
 export type NeoProcessReadinessPort = {

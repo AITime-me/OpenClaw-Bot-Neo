@@ -12,15 +12,23 @@ import {
   readNeoStatus,
 } from '../src/neo-runtime/cli/read-neo-status.js';
 import { createNodeNeoReadinessFileReader } from '../src/neo-runtime/cli/read-neo-readiness-file.js';
+import {
+  createMatchingProcessInstanceProvider,
+  fixedIdentity,
+  NEO_TEST_BOOT_ID,
+  NEO_TEST_START_TIME_TICKS,
+} from './support/neo-runtime-fixtures.js';
 
 const validReadyPayload = () =>
   JSON.stringify({
-    schemaVersion: '1',
+    schemaVersion: '2',
     pid: 4242,
     lifecycle: 'running',
     runtimeReady: true,
     durableHostOpened: true,
     startedAtUtc: '2026-08-02T12:00:00.000Z',
+    bootId: NEO_TEST_BOOT_ID,
+    startTimeTicks: NEO_TEST_START_TIME_TICKS,
   });
 
 const tempRoots: string[] = [];
@@ -58,21 +66,42 @@ describe('neo readiness file reader', () => {
     const result = await readNeoReadinessFile(executionRoot);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.document.schemaVersion).toBe('1');
+    expect(result.document.schemaVersion).toBe('2');
     expect(result.document.runtimeReady).toBe(true);
+    expect(result.document.bootId).toBe(NEO_TEST_BOOT_ID);
   });
 
   it('rejects unknown readiness fields', () => {
     const parsed = parseNeoReadinessDocument({
-      schemaVersion: '1',
+      schemaVersion: '2',
       pid: 1,
       lifecycle: 'running',
       runtimeReady: true,
       durableHostOpened: true,
       startedAtUtc: '2026-08-02T12:00:00.000Z',
+      bootId: NEO_TEST_BOOT_ID,
+      startTimeTicks: NEO_TEST_START_TIME_TICKS,
       extra: true,
     });
     expect(parsed.ok).toBe(false);
+  });
+
+  it('returns legacy-unbound for schema v1', async () => {
+    const executionRoot = createExecutionRoot();
+    writeFileSync(
+      join(executionRoot, 'ready.json'),
+      JSON.stringify({
+        schemaVersion: '1',
+        pid: 4242,
+        lifecycle: 'running',
+        runtimeReady: true,
+        durableHostOpened: true,
+        startedAtUtc: '2026-08-02T12:00:00.000Z',
+      }),
+      { mode: 0o640 },
+    );
+    const result = await readNeoReadinessFile(executionRoot);
+    expect(result).toEqual({ ok: false, reason: 'legacy-unbound' });
   });
 
   it('returns invalid for malformed readiness schema', async () => {
@@ -129,6 +158,7 @@ describe('neo status wait-ready with production reader', () => {
     const waitPromise = readNeoStatus({
       argv: ['--execution-root', executionRoot, '--wait-ready', '--timeout-ms', '1000'],
       reader: createNodeNeoReadinessFileReader(),
+      processInstance: createMatchingProcessInstanceProvider(fixedIdentity()),
       nowMs: () => now,
       sleep: async (ms) => {
         await Promise.resolve();
@@ -150,6 +180,7 @@ describe('neo status wait-ready with production reader', () => {
     const result = await readNeoStatus({
       argv: ['--execution-root', executionRoot, '--wait-ready', '--timeout-ms', '250'],
       reader: createNodeNeoReadinessFileReader(),
+      processInstance: createMatchingProcessInstanceProvider(fixedIdentity()),
       nowMs: () => {
         now += 100;
         return now;
@@ -170,6 +201,7 @@ describe('neo status wait-ready with production reader', () => {
     const result = await readNeoStatus({
       argv: ['--execution-root', executionRoot, '--wait-ready', '--timeout-ms', '1000'],
       reader: createNodeNeoReadinessFileReader(),
+      processInstance: createMatchingProcessInstanceProvider(fixedIdentity()),
       nowMs: () => 0,
       sleep: async () => {
         await Promise.resolve();
@@ -184,6 +216,7 @@ describe('neo status wait-ready with production reader', () => {
     const result = await readNeoStatus({
       argv: ['--execution-root', executionRoot],
       reader: createNodeNeoReadinessFileReader(),
+      processInstance: createMatchingProcessInstanceProvider(fixedIdentity()),
       nowMs: () => 0,
       sleep: async () => {
         await Promise.resolve();

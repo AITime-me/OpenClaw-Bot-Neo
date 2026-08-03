@@ -317,6 +317,15 @@ rejection. Independent re-review:
 **NO_LINUX_RERUN_REQUIRED**. **R6-H02 is closed for the bounded secret-provenance guarantee.**
 Scanner remains defense-in-depth; universal free-text secret detection is not claimed.
 
+**Codex Review №6 — R6-M03 live process identity (implementation, not closed):**
+Readiness schema **v2** publishes Linux `bootId` and `startTimeTicks` with PID; `neo-status` verifies
+boot ID, live `/proc/<pid>/stat` start ticks, and non-zombie state before reporting `ready:true`.
+Schema v1 and unbound readiness are rejected (`readiness-legacy-unbound`). Status is read-only;
+operators must not trust raw `ready.json`. **R6-M03 is implemented locally** pending independent
+review and focused Linux readiness-identity regression. `securityApprovalComplete`,
+`deploymentReady` remain false. Next after R6-M03 closure: **R6-L01**. See
+[security policy](security-policy.md).
+
 **Codex Review №6 — R6-M02 production Node launcher gate (closeout):**
 Remediation commit `6427a34b07ef9a4b031cafa9737d660a2fc265b4` enforces `>=22.13.0 <23` in
 `scripts/neo/start-neo.mjs` before dynamic import of compiled Neo runtime; shares

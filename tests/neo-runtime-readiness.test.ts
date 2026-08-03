@@ -1,30 +1,41 @@
 import { describe, expect, it } from 'vitest';
 import { createInMemoryNeoRuntimeReadinessPort } from '../src/neo-runtime/readiness/neo-runtime-readiness-file.js';
-import { NEO_TEST_PATHS, fixedIdentity } from './support/neo-runtime-fixtures.js';
+import {
+  fixedIdentity,
+  NEO_TEST_BOOT_ID,
+  NEO_TEST_PATHS,
+  NEO_TEST_START_TIME_TICKS,
+} from './support/neo-runtime-fixtures.js';
 
 describe('neo runtime readiness file', () => {
   it('publishes bounded readiness snapshot without secrets or config', async () => {
     const port = createInMemoryNeoRuntimeReadinessPort();
     const identity = fixedIdentity();
     await port.publish(NEO_TEST_PATHS.executionRoot, {
-      schemaVersion: '1',
+      schemaVersion: '2',
       pid: identity.pid,
       lifecycle: 'running',
       runtimeReady: true,
       durableHostOpened: true,
       startedAtUtc: identity.nowUtcIso(),
+      bootId: NEO_TEST_BOOT_ID,
+      startTimeTicks: NEO_TEST_START_TIME_TICKS,
     });
     expect(port.state.published).not.toBeNull();
     const serialized = port.state.tempWrites[0] ?? '';
-    expect(serialized).toContain('"schemaVersion":"1"');
+    expect(serialized).toContain('"schemaVersion":"2"');
+    expect(serialized).toContain('"bootId"');
+    expect(serialized).toContain('"startTimeTicks"');
     expect(serialized).not.toMatch(/password|token|secret|storageRoot|\/var\//i);
     expect(JSON.parse(serialized)).toEqual({
-      schemaVersion: '1',
+      schemaVersion: '2',
       pid: identity.pid,
       lifecycle: 'running',
       runtimeReady: true,
       durableHostOpened: true,
       startedAtUtc: identity.nowUtcIso(),
+      bootId: NEO_TEST_BOOT_ID,
+      startTimeTicks: NEO_TEST_START_TIME_TICKS,
     });
   });
 

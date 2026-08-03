@@ -9,18 +9,25 @@ import {
   readNeoStatus,
 } from '../src/neo-runtime/cli/read-neo-status.js';
 import { createInMemoryNeoReadinessFileReader } from '../src/neo-runtime/cli/read-neo-readiness-file.js';
+import {
+  createMatchingProcessInstanceProvider,
+  NEO_TEST_BOOT_ID,
+  NEO_TEST_START_TIME_TICKS,
+} from './support/neo-runtime-fixtures.js';
 
 const isWindows = process.platform === 'win32';
 const EXEC_ROOT = isWindows ? 'C:\\neo-status\\exec' : '/neo-status/exec';
 
 const validDocument = () =>
   Object.freeze({
-    schemaVersion: '1' as const,
+    schemaVersion: '2' as const,
     pid: 4242,
     lifecycle: 'running' as const,
     runtimeReady: true as const,
     durableHostOpened: true as const,
     startedAtUtc: '2026-08-02T12:00:00.000Z',
+    bootId: NEO_TEST_BOOT_ID,
+    startTimeTicks: NEO_TEST_START_TIME_TICKS,
   });
 
 describe('neo runtime status CLI', () => {
@@ -32,6 +39,7 @@ describe('neo runtime status CLI', () => {
     const result = await readNeoStatus({
       argv: ['--help'],
       reader,
+      processInstance: createMatchingProcessInstanceProvider(),
       nowMs: () => 0,
       sleep: async () => {
         await Promise.resolve();
@@ -47,6 +55,7 @@ describe('neo runtime status CLI', () => {
     const result = await readNeoStatus({
       argv: ['--execution-root', EXEC_ROOT],
       reader: createInMemoryNeoReadinessFileReader({ [EXEC_ROOT]: validDocument() }),
+      processInstance: createMatchingProcessInstanceProvider(),
       nowMs: () => 0,
       sleep: async () => {
         await Promise.resolve();
@@ -62,6 +71,7 @@ describe('neo runtime status CLI', () => {
     const result = await readNeoStatus({
       argv: ['--execution-root', EXEC_ROOT],
       reader: createInMemoryNeoReadinessFileReader({}),
+      processInstance: createMatchingProcessInstanceProvider(),
       nowMs: () => 0,
       sleep: async () => {
         await Promise.resolve();
@@ -75,6 +85,7 @@ describe('neo runtime status CLI', () => {
     const result = await readNeoStatus({
       argv: ['--execution-root', 'relative'],
       reader: createInMemoryNeoReadinessFileReader({}),
+      processInstance: createMatchingProcessInstanceProvider(),
       nowMs: () => 0,
       sleep: async () => {
         await Promise.resolve();
@@ -92,6 +103,7 @@ describe('neo runtime status CLI', () => {
       reader: {
         read: () => Promise.resolve({ ok: false as const, reason: 'invalid' as const }),
       },
+      processInstance: createMatchingProcessInstanceProvider(),
       nowMs: () => 0,
       sleep: async () => {
         await Promise.resolve();
@@ -107,6 +119,7 @@ describe('neo runtime status CLI', () => {
     const result = await readNeoStatus({
       argv: ['--execution-root', EXEC_ROOT, '--wait-ready', '--timeout-ms', '250'],
       reader: createInMemoryNeoReadinessFileReader({}),
+      processInstance: createMatchingProcessInstanceProvider(),
       nowMs: () => {
         now += 100;
         return now;

@@ -16,6 +16,11 @@ import {
 } from '../../src/neo-runtime/neo-runtime-failures.js';
 import { createInMemoryProductionConfigFileReader } from '../../src/neo-runtime/production/read-production-config-file.js';
 import { createInMemoryNeoRuntimeReadinessPort } from '../../src/neo-runtime/readiness/neo-runtime-readiness-file.js';
+import {
+  createFakeProcessInstanceProvider,
+  type FakeProcessInstanceProviderState,
+} from '../../src/neo-runtime/process-identity/fake-process-instance-provider.js';
+import type { ProcessInstanceIdentityProvider } from '../../src/neo-runtime/process-identity/process-instance-identity-provider.port.js';
 import { createNeoRuntimeLogSink } from '../../src/neo-runtime/logging/neo-runtime-log.js';
 import { createTrackingNeoProcessKeepAlivePort } from '../../src/neo-runtime/coordination/neo-process-keep-alive.js';
 import type { TrackingNeoProcessKeepAlivePort } from '../../src/neo-runtime/coordination/neo-process-keep-alive.js';
@@ -206,6 +211,38 @@ export const fixedIdentity = () =>
     nowUtcIso: () => '2026-08-02T12:00:00.000Z',
   });
 
+export const NEO_TEST_BOOT_ID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' as const;
+export const NEO_TEST_START_TIME_TICKS = '1234567890123' as const;
+
+export const validReadinessIdentity = (identity = fixedIdentity()) =>
+  Object.freeze({
+    pid: identity.pid,
+    bootId: NEO_TEST_BOOT_ID,
+    startTimeTicks: NEO_TEST_START_TIME_TICKS,
+  });
+
+export const createMatchingProcessInstanceProvider = (
+  identity = fixedIdentity(),
+  overrides: Partial<FakeProcessInstanceProviderState> = {},
+): ProcessInstanceIdentityProvider => {
+  const bound = validReadinessIdentity(identity);
+  return createFakeProcessInstanceProvider({
+    bootId: bound.bootId,
+    self: bound,
+    observedByPid: new Map([
+      [
+        bound.pid,
+        Object.freeze({
+          ...bound,
+          state: 'R',
+        }),
+      ],
+    ]),
+    platformSupported: true,
+    ...overrides,
+  });
+};
+
 export const createSuccessfulMockRuntime = (
   input: {
     readonly startGate?: { readonly promise: Promise<void>; readonly resolve: () => void };
@@ -272,6 +309,7 @@ export const createRunNeoProcessDeps = (
     },
     configReader: createInMemoryProductionConfigFileReader(configFiles),
     readiness,
+    processInstance: overrides.processInstance ?? createMatchingProcessInstanceProvider(identity),
     log,
     ...overrides,
     keepAlive,
