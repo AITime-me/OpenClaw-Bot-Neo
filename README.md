@@ -160,10 +160,11 @@ Deployment prohibited.
 | Codex Review №6 R6-H02 secret boundary (closeout) | closed for bounded secret-provenance durable-memory guarantee (see `docs/validation/codex-review-6-r6-h02-durable-memory-secret-boundary-closeout.md`) |
 | Codex Review №6 R6-M01 durable owner (closeout) | closed for retryable durable-owner preservation after fatal close failure (see `docs/validation/codex-review-6-r6-m01-retryable-durable-owner-closeout.md`) |
 | Codex Review №6 R6-M02 Node gate (closeout) | closed for mandatory pre-import Node gate and systemd exit-3 non-restart proof (see `docs/validation/codex-review-6-r6-m02-production-node-gate-systemd-closeout.md`) |
+| Codex Review №6 R6-M03 live process identity (closeout) | closed for live process identity-bound readiness on supported Linux procfs (see `docs/validation/codex-review-6-r6-m03-live-process-identity-closeout.md`) |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
-| Security approval | absent pending independent Codex Review №6 (R6-H01, R6-H02, R6-M01, R6-M02 closed; R6-M03 next) |
+| Security approval | absent pending independent Codex Review №6 (R6-H01, R6-H02, R6-M01, R6-M02, R6-M03 closed; R6-L01 next) |
 
 **Codex Review №6 R6-H01 (closeout):** readiness shutdown/publication race remediated at
 `6b89e7a2d3be072328828bb465b66a937a48349e`. Closure evidence: deterministic race suite (20 passed),
@@ -193,9 +194,17 @@ PASS, focused disposable systemd regression (supported PASS; unsupported exit **
 PASS), **FULL_LINUX_L1_L5_NOT_REQUIRED**. **R6-M02 is closed for mandatory pre-import Node gate and
 systemd exit-3 non-restart proof.** Disposable systemd proof is non-authoritative broad validation.
 
-Codex Review №6 overall remains blocked; next finding is **R6-M03**. `deploymentReady` and
+**Codex Review №6 R6-M03 (closeout):** live process identity-bound readiness remediated at
+`eee734a2e4d4a5e0689c2e039dfa04d18e4d8880` with corrective `7a1fbbd52b3ad4145955139c469c2e31fa4660f5`.
+Closure evidence: initial source review blocked (`R6_M03_INDEPENDENT_SOURCE_REVIEW_BLOCKED`);
+corrective re-review (`R6_M03_CORRECTIVE_SOURCE_REREVIEW_APPROVED_WITH_NOTES_FOR_FOCUSED_LINUX_REGRESSION`);
+P1–P18 PASS; focused disposable Linux procfs regression PASS (manifest 93/93);
+**FULL_LINUX_L1_L5_NOT_REQUIRED**. **R6-M03 is closed for live process identity-bound readiness.**
+Disposable Linux proof is non-authoritative broad validation.
+
+Codex Review №6 overall remains blocked; next finding is **R6-L01**. `deploymentReady` and
 `securityApprovalComplete` remain false. See
-[R6-M02 closeout record](docs/validation/codex-review-6-r6-m02-production-node-gate-systemd-closeout.md).
+[R6-M03 closeout record](docs/validation/codex-review-6-r6-m03-live-process-identity-closeout.md).
 
 Build 2.1B добавляет versioned declarative manifests, default-deny permission composition,
 provider-independent registry/webhook contracts, отключённые examples для call-analysis и external

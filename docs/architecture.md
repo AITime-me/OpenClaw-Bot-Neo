@@ -317,16 +317,18 @@ rejection. Independent re-review:
 **NO_LINUX_RERUN_REQUIRED**. **R6-H02 is closed for the bounded secret-provenance guarantee.**
 Scanner remains defense-in-depth; universal free-text secret detection is not claimed.
 
-**Codex Review №6 — R6-M03 live process identity (corrective implementation, not closed):**
-Readiness schema **v2** publishes Linux `bootId` and `startTimeTicks` with PID; `neo-status` verifies
-boot ID, live `/proc/<pid>/stat` start ticks, and non-zombie state before reporting `ready:true`.
-Schema v1 and unbound readiness are rejected (`readiness-legacy-unbound`). Status is read-only;
-operators must not trust raw `ready.json`. Independent source review **blocked** the initial
-implementation (`R6_M03_INDEPENDENT_SOURCE_REVIEW_BLOCKED`); procfs bounded-read and verified
-status-snapshot defects were corrected locally. **R6-M03 remains not closed** — pending
-independent re-review and focused Linux readiness-identity regression. `securityApprovalComplete`,
-`deploymentReady` remain false. Next after R6-M03 closure: **R6-L01**. See
-[security policy](security-policy.md).
+**Codex Review №6 — R6-M03 live process identity (closeout):**
+Primary remediation `eee734a2e4d4a5e0689c2e039dfa04d18e4d8880` and corrective
+`7a1fbbd52b3ad4145955139c469c2e31fa4660f5` bind readiness schema **v2** to Linux `bootId`,
+`startTimeTicks`, and PID; `neo-status` verifies the exact live process instance via one verified
+snapshot and rejects stale, legacy schema v1, reused-PID, boot-mismatched, and zombie records.
+Status is read-only. Initial independent source review blocked the implementation
+(`R6_M03_INDEPENDENT_SOURCE_REVIEW_BLOCKED`); corrective re-review:
+`R6_M03_CORRECTIVE_SOURCE_REREVIEW_APPROVED_WITH_NOTES_FOR_FOCUSED_LINUX_REGRESSION`; P1–P18 PASS;
+focused disposable Linux procfs regression PASS (manifest 93/93). **R6-M03 is closed for live
+process identity-bound readiness.** Codex Review №6 overall remains blocked; next finding:
+**R6-L01**. See
+[R6-M03 closeout record](validation/codex-review-6-r6-m03-live-process-identity-closeout.md).
 
 **Codex Review №6 — R6-M02 production Node launcher gate (closeout):**
 Remediation commit `6427a34b07ef9a4b031cafa9737d660a2fc265b4` enforces `>=22.13.0 <23` in
@@ -337,7 +339,7 @@ systemd `RestartPreventExitStatus=10 3`; status CLI ungated. Independent source 
 focused disposable systemd regression PASS (supported launcher; unsupported exit **3**
 non-restart); **FULL_LINUX_L1_L5_NOT_REQUIRED**. **R6-M02 is closed for mandatory pre-import Node
 gate and systemd exit-3 non-restart proof.** Disposable systemd evidence is non-authoritative broad
-validation. Codex Review №6 overall remains blocked; next finding: **R6-M03**.
+validation. Codex Review №6 overall remains blocked; next finding: **R6-L01**.
 `securityApprovalComplete`, `deploymentReady`, secret provider, encryption, durable Approval/Audit,
 channels/connectors, VPS/production deployment remain false or not performed. See
 [R6-M02 closeout record](validation/codex-review-6-r6-m02-production-node-gate-systemd-closeout.md).

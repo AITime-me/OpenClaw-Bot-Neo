@@ -133,6 +133,18 @@ non-restart behavior. See
 [R6-M02 closeout record](codex-review-6-r6-m02-production-node-gate-systemd-closeout.md).
 Historical Build 3.4F claims are **not** rewritten.
 
+## Codex Review №6 R6-M03 forward reference (live process identity)
+
+Historical Build 3.4 disposable Linux evidence exercised cooperative readiness lifecycle and
+process-lock wiring but did **not** independently prove schema **v2** live process identity binding,
+procfs `st_size` zero handling, PID/boot/ticks mismatch rejection, or SIGKILL stale readiness
+rejection on real procfs.
+
+Focused disposable Linux regression for Codex Review №6 **R6-M03** (post-Build-3.4) is the live
+evidence for live process identity-bound readiness on supported Linux procfs. See
+[R6-M03 closeout record](codex-review-6-r6-m03-live-process-identity-closeout.md).
+Historical Build 3.4E/3.4F claims are **not** rewritten.
+
 ## Known non-blocking notes (post-Build-3.4 backlog)
 
 1. L2/L3 harness should assert actual child exit codes instead of hardcoded exit-zero recording.

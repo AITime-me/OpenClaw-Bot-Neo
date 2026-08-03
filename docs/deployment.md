@@ -19,11 +19,13 @@ invocation of `dist/neo-runtime/cli/run-neo-process.js` is not a supported produ
 systemd exit-3 non-restart proof. See
 [closeout record](validation/codex-review-6-r6-m02-production-node-gate-systemd-closeout.md).
 `securityApprovalComplete=false`, `deploymentReady=false`. **R6-M03** (readiness/status bound to
-live process identity via schema v2 and verified status reader) had independent source review
-**blocked**; procfs bounded-read and verified status-snapshot defects were corrected locally.
-Pending independent re-review and focused Linux procfs regression — **not closed**. Operators must use
-`scripts/neo/neo-status.mjs` for readiness truth; raw `ready.json` is not liveness proof. Next
-after R6-M03 closure: **R6-L01**. DNS resolution,
+live process identity via schema v2 and verified status reader) is **closed** for live process
+identity-bound readiness. Closure evidence: corrective re-review
+(`R6_M03_CORRECTIVE_SOURCE_REREVIEW_APPROVED_WITH_NOTES_FOR_FOCUSED_LINUX_REGRESSION`), P1–P18
+PASS, focused disposable Linux procfs regression PASS (manifest 93/93). Operators must use
+`scripts/neo/neo-status.mjs` for readiness truth; raw `ready.json` is not liveness proof. Next:
+**R6-L01**. See
+[closeout record](validation/codex-review-6-r6-m03-live-process-identity-closeout.md). DNS resolution,
 redirect/rebinding SSRF checks, path/symlink-root isolation, MIME content sniffing,
 decompression-bomb limits, quarantine, persistent atomic replay/idempotency storage, real
 provider/auth stores и VPS hardening ниже являются **planned requirements**, а не действующими
