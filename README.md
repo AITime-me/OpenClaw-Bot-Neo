@@ -161,10 +161,11 @@ Deployment prohibited.
 | Codex Review №6 R6-M01 durable owner (closeout) | closed for retryable durable-owner preservation after fatal close failure (see `docs/validation/codex-review-6-r6-m01-retryable-durable-owner-closeout.md`) |
 | Codex Review №6 R6-M02 Node gate (closeout) | closed for mandatory pre-import Node gate and systemd exit-3 non-restart proof (see `docs/validation/codex-review-6-r6-m02-production-node-gate-systemd-closeout.md`) |
 | Codex Review №6 R6-M03 live process identity (closeout) | closed for live process identity-bound readiness on supported Linux procfs (see `docs/validation/codex-review-6-r6-m03-live-process-identity-closeout.md`) |
+| Codex Review №6 R6-L01—L04 LOW hardening (closeout) | closed for descriptor-safe config, exclusive readiness, correlated evidence, owner-only state (see `docs/validation/codex-review-6-r6-low-hardening-package-closeout.md`) |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
-| Security approval | absent pending independent Codex Review №6 (R6-H01, R6-H02, R6-M01, R6-M02, R6-M03 closed; R6-L01—L04 implemented locally, pending package review) |
+| Security approval | absent pending independent Codex Review №6 (R6-H01, R6-H02, R6-M01, R6-M02, R6-M03, R6-L01—L04 closed; deferred systemd/dependency work and explicit approval gates remain open) |
 
 **Codex Review №6 R6-H01 (closeout):** readiness shutdown/publication race remediated at
 `6b89e7a2d3be072328828bb465b66a937a48349e`. Closure evidence: deterministic race suite (20 passed),
@@ -202,11 +203,20 @@ P1–P18 PASS; focused disposable Linux procfs regression PASS (manifest 93/93);
 **FULL_LINUX_L1_L5_NOT_REQUIRED**. **R6-M03 is closed for live process identity-bound readiness.**
 Disposable Linux proof is non-authoritative broad validation.
 
-Codex Review №6 overall remains blocked; **R6-L01—L04 LOW hardening package implemented locally**
-and pending independent package review plus focused Linux filesystem regression.
-`deploymentReady` and
+**Codex Review №6 R6-L01—L04 (closeout):** LOW filesystem hardening remediated at
+`486403811250651e0e547237c2acdc5be29ee63b` with TC01 corrective
+`5aef38a9b989198e37d51f5a237e74cb4378e714` and fixture corrective
+`6309432d06a8db2bce463a5cf87f865470af7aae`. Closure evidence: initial source review blocked
+(`BLOCK_R6_LOW_HARDENING_SOURCE`); corrective re-review
+(`APPROVE_R6_LOW_HARDENING_CORRECTIVE_SOURCE_FOR_FOCUSED_LINUX_FILESYSTEM_REGRESSION`); focused
+disposable Linux filesystem regression PASS (manifest 87/87). **R6-L01—L04 are closed.**
+Package disposition:
+`R6_LOW_HARDENING_PACKAGE_CLOSED_WITH_DESCRIPTOR_SAFE_CONFIG_EXCLUSIVE_READINESS_CORRELATED_EVIDENCE_AND_OWNER_ONLY_STATE`.
+
+Codex Review №6 overall remains blocked; deferred systemd hardening, online dependency/provenance
+review, secret provider, encryption, and production deployment remain open. `deploymentReady` and
 `securityApprovalComplete` remain false. See
-[R6-M03 closeout record](docs/validation/codex-review-6-r6-m03-live-process-identity-closeout.md).
+[R6 LOW closeout record](docs/validation/codex-review-6-r6-low-hardening-package-closeout.md).
 
 Build 2.1B добавляет versioned declarative manifests, default-deny permission composition,
 provider-independent registry/webhook contracts, отключённые examples для call-analysis и external

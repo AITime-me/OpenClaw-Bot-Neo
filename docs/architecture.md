@@ -326,10 +326,22 @@ Status is read-only. Initial independent source review blocked the implementatio
 (`R6_M03_INDEPENDENT_SOURCE_REVIEW_BLOCKED`); corrective re-review:
 `R6_M03_CORRECTIVE_SOURCE_REREVIEW_APPROVED_WITH_NOTES_FOR_FOCUSED_LINUX_REGRESSION`; P1–P18 PASS;
 focused disposable Linux procfs regression PASS (manifest 93/93). **R6-M03 is closed for live
-process identity-bound readiness.** Codex Review №6 overall remains blocked; **R6-L01—L04 LOW
-hardening package implemented locally** (descriptor-safe config read, exclusive readiness temp,
-exact integration evidence, owner-only state permissions); pending independent package review and
-focused Linux filesystem regression. See implementation commit on `main`.
+process identity-bound readiness.** See
+[R6-M03 closeout record](validation/codex-review-6-r6-m03-live-process-identity-closeout.md).
+
+**Codex Review №6 — R6-L01—L04 LOW filesystem hardening package (closeout):**
+Remediation commit `486403811250651e0e547237c2acdc5be29ee63b` with TC01 corrective
+`5aef38a9b989198e37d51f5a237e74cb4378e714` and fixture corrective
+`6309432d06a8db2bce463a5cf87f865470af7aae` harden descriptor-safe config read, exclusive/no-follow
+readiness temp publication, exact integration-event correlation, and owner-only Neo state
+permissions. Initial source review `BLOCK_R6_LOW_HARDENING_SOURCE` (R6-L-TC01); corrective
+re-review `APPROVE_R6_LOW_HARDENING_CORRECTIVE_SOURCE_FOR_FOCUSED_LINUX_FILESYSTEM_REGRESSION`;
+focused disposable Linux filesystem regression PASS (manifest 87/87). **R6-L01—L04 are closed.**
+Package disposition:
+`R6_LOW_HARDENING_PACKAGE_CLOSED_WITH_DESCRIPTOR_SAFE_CONFIG_EXCLUSIVE_READINESS_CORRELATED_EVIDENCE_AND_OWNER_ONLY_STATE`.
+Codex Review №6 overall remains blocked; deferred systemd hardening, online dependency/provenance
+review, secret provider, encryption, and production deployment remain open. See
+[R6 LOW closeout record](validation/codex-review-6-r6-low-hardening-package-closeout.md).
 
 **Codex Review №6 — R6-M02 production Node launcher gate (closeout):**
 Remediation commit `6427a34b07ef9a4b031cafa9737d660a2fc265b4` enforces `>=22.13.0 <23` in
@@ -340,7 +352,8 @@ systemd `RestartPreventExitStatus=10 3`; status CLI ungated. Independent source 
 focused disposable systemd regression PASS (supported launcher; unsupported exit **3**
 non-restart); **FULL_LINUX_L1_L5_NOT_REQUIRED**. **R6-M02 is closed for mandatory pre-import Node
 gate and systemd exit-3 non-restart proof.** Disposable systemd evidence is non-authoritative broad
-validation. Codex Review №6 overall remains blocked; next finding: **R6-L01**.
+validation. Codex Review №6 overall remains blocked; R6-H01—R6-M03 and R6-L01—L04 closed; deferred
+systemd hardening and online dependency/provenance review remain open.
 `securityApprovalComplete`, `deploymentReady`, secret provider, encryption, durable Approval/Audit,
 channels/connectors, VPS/production deployment remain false or not performed. See
 [R6-M02 closeout record](validation/codex-review-6-r6-m02-production-node-gate-systemd-closeout.md).

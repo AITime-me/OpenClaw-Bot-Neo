@@ -413,17 +413,20 @@ only; deployment/security approval unchanged. Codex Review №6 pending; deploym
   (`R6_M03_CORRECTIVE_SOURCE_REREVIEW_APPROVED_WITH_NOTES_FOR_FOCUSED_LINUX_REGRESSION`); P1–P18
   PASS; focused disposable Linux procfs regression PASS (manifest 93/93). **R6-M03 is closed for
   live process identity-bound readiness.** `securityApprovalComplete=false`, `deploymentReady=false`.
-  Next: independent R6-L01—L04 package review and focused Linux filesystem regression. See
-  implementation commit on `main`.
-- **R6-L01—R6-L04 (LOW hardening package): IMPLEMENTED locally; not closed yet.** Descriptor-safe
-  config read, exclusive readiness temp publication, exact correlated integration evidence, and
-  owner-only runtime/durable state permissions. Pending independent package review and focused Linux
-  filesystem regression. Encryption remains deferred; systemd hardening remains deferred.
-- **R6-L01—R6-L04 (LOW hardening package): IMPLEMENTED locally as one bounded package; not
-  closed yet.** Pending independent package review and one focused Linux filesystem regression.
-  Encryption remains `false` and deferred. systemd hardening remains deferred. Online
-  dependency/provenance review remains open. Review №6 remains open. `securityApprovalComplete`
-  and `deploymentReady` remain false.
+  See [closeout record](validation/codex-review-6-r6-m03-live-process-identity-closeout.md).
+- **R6-L01—R6-L04 (LOW hardening package): CLOSED.** Descriptor-safe config read (`O_RDONLY |
+  O_NOFOLLOW` authority), exclusive/no-follow readiness temp publication, exact correlated
+  integration evidence, and owner-only runtime/durable state permissions (`umask 0077`). Remediation
+  commit `486403811250651e0e547237c2acdc5be29ee63b`; TC01 corrective
+  `5aef38a9b989198e37d51f5a237e74cb4378e714`; fixture corrective
+  `6309432d06a8db2bce463a5cf87f865470af7aae`. Initial source review
+  `BLOCK_R6_LOW_HARDENING_SOURCE` (R6-L-TC01 only); corrective re-review
+  `APPROVE_R6_LOW_HARDENING_CORRECTIVE_SOURCE_FOR_FOCUSED_LINUX_FILESYSTEM_REGRESSION`; focused
+  disposable Linux filesystem regression PASS (manifest 87/87). Package disposition:
+  `R6_LOW_HARDENING_PACKAGE_CLOSED_WITH_DESCRIPTOR_SAFE_CONFIG_EXCLUSIVE_READINESS_CORRELATED_EVIDENCE_AND_OWNER_ONLY_STATE`.
+  Encryption remains `false` and deferred; systemd hardening remains deferred. Online
+  dependency/provenance review remains open. See
+  [closeout record](validation/codex-review-6-r6-low-hardening-package-closeout.md).
 
 Codex Review №6 as a whole remains **blocked**. `securityApprovalComplete` and `deploymentReady`
 remain false. Production/VPS/connectors remain prohibited.

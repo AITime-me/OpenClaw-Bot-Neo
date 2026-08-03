@@ -24,9 +24,13 @@ identity-bound readiness. Closure evidence: corrective re-review
 (`R6_M03_CORRECTIVE_SOURCE_REREVIEW_APPROVED_WITH_NOTES_FOR_FOCUSED_LINUX_REGRESSION`), P1–P18
 PASS, focused disposable Linux procfs regression PASS (manifest 93/93). Operators must use
 `scripts/neo/neo-status.mjs` for readiness truth; raw `ready.json` is not liveness proof.
-**R6-L01—L04 LOW hardening package implemented locally**; pending independent package review and
-focused Linux filesystem regression. Encryption and systemd hardening remain deferred. See
-[closeout record](validation/codex-review-6-r6-m03-live-process-identity-closeout.md). DNS resolution,
+**R6-L01—L04 LOW hardening package** is **closed** for descriptor-safe config read, exclusive
+readiness temp publication, exact correlated integration evidence, and owner-only Neo state
+permissions. Closure evidence: corrective re-review
+(`APPROVE_R6_LOW_HARDENING_CORRECTIVE_SOURCE_FOR_FOCUSED_LINUX_FILESYSTEM_REGRESSION`), focused
+disposable Linux filesystem regression PASS (manifest 87/87). Encryption and systemd hardening
+remain deferred. See
+[closeout record](validation/codex-review-6-r6-low-hardening-package-closeout.md). DNS resolution,
 redirect/rebinding SSRF checks, path/symlink-root isolation, MIME content sniffing,
 decompression-bomb limits, quarantine, persistent atomic replay/idempotency storage, real
 provider/auth stores и VPS hardening ниже являются **planned requirements**, а не действующими
