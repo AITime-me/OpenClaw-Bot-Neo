@@ -343,25 +343,24 @@ export async function executeMemoryWrite(
   }
 
   // 14. Write through the memory port using the sealed contract only.
-  const secretClearance = issueSecretBoundaryClearance();
-  const verifiedWrite = sealVerifiedMemoryWrite(
-    {
-      recordId,
-      ownerId: access.ownerId,
-      namespace: command.targetNamespace,
-      content,
-      metadata,
-      source: command.source,
-      provenance: { ...provenance, ownerApproved: approvalId !== null },
-      privacyClassification,
-      trustLevel,
-      retentionPolicy: command.retentionPolicy,
-      approvalId,
-      createdAt: trustedIso,
-      updatedAt: trustedIso,
-    },
-    secretClearance,
-  );
+  const writeBinding = {
+    recordId,
+    ownerId: access.ownerId,
+    namespace: command.targetNamespace,
+    content,
+    metadata,
+    source: command.source,
+    provenance: { ...provenance, ownerApproved: approvalId !== null },
+    privacyClassification,
+    trustLevel,
+    retentionPolicy: command.retentionPolicy,
+    approvalId,
+    createdAt: trustedIso,
+    updatedAt: trustedIso,
+  };
+  const secretClearance = issueSecretBoundaryClearance(writeBinding);
+  if (secretClearance === null) return err({ code: 'DIGEST_FAILED' });
+  const verifiedWrite = sealVerifiedMemoryWrite(writeBinding, secretClearance);
   if (verifiedWrite === null || !isVerifiedMemoryWrite(verifiedWrite))
     return err({ code: 'DIGEST_FAILED' });
   const written = await deps.memory.write(verifiedWrite, access);

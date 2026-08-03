@@ -64,6 +64,7 @@ import {
   iso,
   NOW,
   operationContext,
+  retentionPolicy,
   writeCommand,
 } from './support/fixtures.js';
 
@@ -164,34 +165,31 @@ describe('FIN-001 sanitized snapshot immutability', () => {
   it('rejects clones of sealed metadata and verified writes', () => {
     const content = sealSanitizedText('note', 'allow');
     const metadata = sealSanitizedMetadata({ a: '1' }, 'allow');
-    const write = sealVerifiedMemoryWrite(
-      {
-        recordId: asRecordId(),
-        ownerId: asOwner(),
-        namespace: 'personal',
-        content,
-        metadata,
-        source: { kind: 'owner', reference: 'note', observedAt: iso(NOW) },
-        provenance: {
-          capturedAt: iso(NOW),
-          initiatedBy: asOwner(),
-          transformation: 'owner-stated',
-          ownerApproved: false,
-          crossProjectAccess: false,
-        },
-        privacyClassification: 'confidential',
-        trustLevel: 'owner-stated',
-        retentionPolicy: {
-          expiresAt: iso('2027-01-01T00:00:00.000Z'),
-          reviewAt: iso('2026-10-01T00:00:00.000Z'),
-          deleteOnExpiry: true,
-        },
-        approvalId: null,
-        createdAt: iso(NOW),
-        updatedAt: iso(NOW),
+    const writeBinding = {
+      recordId: asRecordId(),
+      ownerId: asOwner(),
+      namespace: 'personal' as const,
+      content,
+      metadata,
+      source: { kind: 'owner' as const, reference: 'note', observedAt: iso(NOW) },
+      provenance: {
+        capturedAt: iso(NOW),
+        initiatedBy: asOwner(),
+        transformation: 'owner-stated' as const,
+        ownerApproved: false,
+        crossProjectAccess: false,
       },
-      issueSecretBoundaryClearance(),
-    );
+      privacyClassification: 'confidential' as const,
+      trustLevel: 'owner-stated' as const,
+      retentionPolicy: retentionPolicy(),
+      approvalId: null,
+      createdAt: iso(NOW),
+      updatedAt: iso(NOW),
+    };
+    const clearance = issueSecretBoundaryClearance(writeBinding);
+    expect(clearance).not.toBeNull();
+    if (clearance === null) return;
+    const write = sealVerifiedMemoryWrite(writeBinding, clearance);
     expect(write).not.toBeNull();
     if (write === null) return;
     expect(isVerifiedMemoryWrite(write)).toBe(true);

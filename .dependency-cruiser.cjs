@@ -262,7 +262,7 @@ module.exports = {
       comment: 'Only the sealing owners may import a *.internal module.',
       from: {
         pathNot:
-          '^src/(core/(domain/(index|extension-permission|extension-registry-entry|extension-registry-entry\\.internal|sanitized\\.internal)\\.ts|policy/(confirmation-gate|extension-manifest|extension-permissions|namespace-isolation|voice-profile|webhook-ingress|memory-secret-boundary)\\.ts|application/(memory-write\\.service|memory-access\\.gateway|extension-registration\\.service|extension-activation\\.service|extension-activation\\.gateway|runtime-risk-classification\\.service|extension-permission\\.gateway|voice-resolution\\.gateway|webhook-ingress\\.service)\\.ts)|host/(in-memory/memory-store|storage/sqlite/sqlite-memory-port)\\.ts|host/storage/runtime/(open-posix-storage-root|posix-storage-root-resolve\\.internal|posix-storage-root-lease\\.internal)\\.ts)$',
+          '^src/(core/(domain/(index|extension-permission|extension-registry-entry|extension-registry-entry\\.internal|sanitized\\.internal|verified-memory-write-guard)\\.ts|policy/(confirmation-gate|extension-manifest|extension-permissions|namespace-isolation|voice-profile|webhook-ingress|memory-secret-boundary)\\.ts|application/(memory-write\\.service|memory-access\\.gateway|extension-registration\\.service|extension-activation\\.service|extension-activation\\.gateway|runtime-risk-classification\\.service|extension-permission\\.gateway|voice-resolution\\.gateway|webhook-ingress\\.service)\\.ts)|host/storage/runtime/(open-posix-storage-root|posix-storage-root-resolve\\.internal|posix-storage-root-lease\\.internal)\\.ts)$',
       },
       to: {
         path: '\\.internal\\.ts$',
@@ -293,6 +293,19 @@ module.exports = {
       },
       to: {
         path: '^src/host/storage/runtime/posix-storage-root-lease\\.internal\\.ts$',
+      },
+    },
+    {
+      name: 'memory-sink-clearance-guard-only',
+      severity: 'error',
+      comment:
+        'Memory sinks may import only the narrow verified-write guard from core/domain, not sealed internals.',
+      from: {
+        path: '^src/host/(in-memory/memory-store|storage/sqlite/sqlite-memory-port)\\.ts$',
+      },
+      to: {
+        path: '^src/core/domain/',
+        pathNot: '^src/core/domain/(index|verified-memory-write-guard)\\.ts$',
       },
     },
     {

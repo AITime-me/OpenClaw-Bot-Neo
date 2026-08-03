@@ -232,30 +232,33 @@ export const verifiedMemoryWriteForTests = (
     readonly updatedAt?: ISO8601;
   } = {},
 ): VerifiedMemoryWrite => {
-  const write = sealVerifiedMemoryWrite(
-    {
-      recordId: overrides.recordId ?? asRecordId(),
-      ownerId: overrides.ownerId ?? asOwner(),
-      namespace: overrides.namespace ?? 'personal',
-      content: sealSanitizedText(overrides.content ?? 'note-body', 'allow'),
-      metadata: sealSanitizedMetadata(overrides.metadata ?? { origin: 'test' }, 'allow'),
-      source: ownerSource(),
-      provenance: {
-        capturedAt: iso(NOW),
-        initiatedBy: overrides.ownerId ?? asOwner(),
-        transformation: 'owner-stated',
-        ownerApproved: false,
-        crossProjectAccess: false,
-      },
-      privacyClassification: 'confidential',
-      trustLevel: 'owner-stated',
-      retentionPolicy: retentionPolicy(),
-      approvalId: null,
-      createdAt: iso(NOW),
-      updatedAt: overrides.updatedAt ?? iso(NOW),
+  const ownerId = overrides.ownerId ?? asOwner();
+  const content = sealSanitizedText(overrides.content ?? 'note-body', 'allow');
+  const metadata = sealSanitizedMetadata(overrides.metadata ?? { origin: 'test' }, 'allow');
+  const writeBinding = {
+    recordId: overrides.recordId ?? asRecordId(),
+    ownerId,
+    namespace: overrides.namespace ?? 'personal',
+    content,
+    metadata,
+    source: ownerSource(),
+    provenance: {
+      capturedAt: iso(NOW),
+      initiatedBy: ownerId,
+      transformation: 'owner-stated' as const,
+      ownerApproved: false,
+      crossProjectAccess: false,
     },
-    issueSecretBoundaryClearance(),
-  );
+    privacyClassification: 'confidential' as const,
+    trustLevel: 'owner-stated' as const,
+    retentionPolicy: retentionPolicy(),
+    approvalId: null,
+    createdAt: iso(NOW),
+    updatedAt: overrides.updatedAt ?? iso(NOW),
+  };
+  const clearance = issueSecretBoundaryClearance(writeBinding);
+  if (clearance === null) throw new Error('failed to issue secret boundary clearance for tests');
+  const write = sealVerifiedMemoryWrite(writeBinding, clearance);
   if (write === null) throw new Error('failed to seal verified write for tests');
   return write;
 };

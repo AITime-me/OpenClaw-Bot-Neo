@@ -307,9 +307,16 @@ manifest 31/31) on implementation commit `6b89e7a2d3be072328828bb465b66a937a4834
 `add467465d7dea7d7c165110fc215781fcf9dd224a252da5251c97a8f6602304`, offline image
 `sha256:cc961fff5f5defc144eab8a540500ae43b68cb58ffdbf2d42c3a2b0fd6fbc834` (image label
 non-authoritative). **R6-H01 is closed for cooperative shutdown/readiness-publication ordering.**
-Codex Review №6 as a whole remains blocked; next security remediation is **R6-H02**.
-`deploymentReady`, `securityApprovalComplete`, secret provider, encryption, durable Approval/Audit,
-channels/connectors, VPS/production deployment remain false or not performed. No diagnostics changed.
+
+**Codex Review №6 — R6-H02 durable-memory secret boundary (in progress):**
+Local implementation exists on `e385d66` (non-overrideable secret-class boundary, opaque
+`SecretData`, mandatory clearance, sink guards). First independent review blocked closure on
+clearance binding/reuse, sink import authority, and native SQLite pre-transaction evidence.
+Corrective remediation binds clearance to a single verified write, narrows sink imports to a
+read-only guard facade, and adds SQLite rejection tests. **R6-H02 remains pending independent
+re-review; not closed.** `securityApprovalComplete`, `deploymentReady`, secret provider,
+encryption, durable Approval/Audit, channels/connectors, VPS/production deployment remain false or
+not performed. No diagnostics changed.
 See [R6-H01 closeout record](validation/codex-review-6-r6-h01-readiness-race-closeout.md).
 
 Связанные документы: [расширяемость](extensibility.md), [интеграции](integrations.md),
