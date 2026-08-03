@@ -403,12 +403,14 @@ only; deployment/security approval unchanged. Codex Review №6 pending; deploym
   **FULL_LINUX_L1_L5_NOT_REQUIRED**. Disposable systemd proof is non-authoritative broad validation.
   See
   [closeout record](validation/codex-review-6-r6-m02-production-node-gate-systemd-closeout.md).
-- **R6-M03 (MEDIUM, readiness/status → live process identity): IMPLEMENTED LOCALLY; NOT CLOSED.**
+- **R6-M03 (MEDIUM, readiness/status → live process identity): CORRECTIVE IMPLEMENTATION LOCALLY; NOT CLOSED.**
   Readiness schema **v2** binds `ready.json` to Linux boot ID and process start-time ticks; status
   verifies the exact live process instance at read time and rejects stale, legacy schema v1,
   reused-PID, boot-mismatched, and zombie records. Status remains read-only and does not acquire
   the process lock. Raw `ready.json` must not be treated as liveness proof — use
-  `scripts/neo/neo-status.mjs`. Pending independent source review and focused Linux procfs
+  `scripts/neo/neo-status.mjs`. Independent source review **blocked** the initial implementation
+  (`R6_M03_INDEPENDENT_SOURCE_REVIEW_BLOCKED`); procfs bounded-read and verified status-snapshot
+  defects were corrected locally. Pending independent re-review and focused Linux procfs
   readiness-identity regression. `securityApprovalComplete=false`, `deploymentReady=false`.
   Next after R6-M03 closure: **R6-L01**.
 - **R6-L01—R6-L04; deferred systemd hardening; online dependency/provenance

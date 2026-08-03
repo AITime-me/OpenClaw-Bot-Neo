@@ -198,7 +198,7 @@ module.exports = {
       from: {
         path: '^src/neo-runtime',
         pathNot:
-          '^src/neo-runtime/(production/read-production-config-file|cli/read-neo-readiness-file|readiness/neo-runtime-readiness-file|process-identity/linux-procfs-process-instance-provider)\\.ts$',
+          '^src/neo-runtime/(production/read-production-config-file|cli/read-neo-readiness-file|readiness/neo-runtime-readiness-file|process-identity/read-bounded-procfs-utf8)\\.ts$',
       },
       to: { path: '^(node:)?fs(/promises)?$' },
     },

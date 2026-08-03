@@ -7,7 +7,10 @@ import {
   createNodeNeoReadinessFileReader,
   type NeoReadinessFileReaderPort,
 } from './read-neo-readiness-file.js';
-import { toNeoReadinessStatusOutput } from './parse-neo-readiness-document.js';
+import {
+  toNeoReadinessStatusOutput,
+  type NeoReadinessStatusDocument,
+} from './parse-neo-readiness-document.js';
 import type { ProcessInstanceIdentityProvider } from '../process-identity/process-instance-identity-provider.port.js';
 import { createNodeProcessInstanceProvider } from '../process-identity/create-node-process-instance-provider.js';
 import { verifyNeoReadinessProcessIdentity } from './verify-neo-readiness-process-identity.js';
@@ -70,7 +73,7 @@ const evaluateReadiness = async (
   deps: ReadNeoStatusDeps,
   executionRoot: string,
 ): Promise<
-  | { readonly kind: 'ready' }
+  | { readonly kind: 'ready'; readonly document: NeoReadinessStatusDocument }
   | { readonly kind: 'not-ready'; readonly reason: NeoStatusNotReadyReason }
 > => {
   const result = await deps.reader.read(executionRoot);
@@ -89,7 +92,7 @@ const evaluateReadiness = async (
     return { kind: 'not-ready', reason: verified.reason };
   }
 
-  return { kind: 'ready' };
+  return { kind: 'ready', document: result.document };
 };
 
 const readOnce = async (
@@ -98,12 +101,7 @@ const readOnce = async (
 ): Promise<ReadNeoStatusResult> => {
   const evaluated = await evaluateReadiness(deps, executionRoot);
   if (evaluated.kind === 'ready') {
-    const result = await deps.reader.read(executionRoot);
-    if (!result.ok) {
-      emitStatus(deps, { ready: false, reason: 'readiness-invalid' });
-      return { exitCode: NEO_STATUS_EXIT_INVALID };
-    }
-    emitStatus(deps, toNeoReadinessStatusOutput(result.document));
+    emitStatus(deps, toNeoReadinessStatusOutput(evaluated.document));
     return { exitCode: NEO_STATUS_EXIT_SUCCESS };
   }
   emitStatus(deps, { ready: false, reason: evaluated.reason });
@@ -118,12 +116,7 @@ const waitForReady = async (
   while (deps.nowMs() < deadline) {
     const evaluated = await evaluateReadiness(deps, args.executionRoot);
     if (evaluated.kind === 'ready') {
-      const result = await deps.reader.read(args.executionRoot);
-      if (!result.ok) {
-        emitStatus(deps, { ready: false, reason: 'readiness-invalid' });
-        return { exitCode: NEO_STATUS_EXIT_INVALID };
-      }
-      emitStatus(deps, toNeoReadinessStatusOutput(result.document));
+      emitStatus(deps, toNeoReadinessStatusOutput(evaluated.document));
       return { exitCode: NEO_STATUS_EXIT_SUCCESS };
     }
     if (

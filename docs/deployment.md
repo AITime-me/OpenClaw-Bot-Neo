@@ -19,8 +19,9 @@ invocation of `dist/neo-runtime/cli/run-neo-process.js` is not a supported produ
 systemd exit-3 non-restart proof. See
 [closeout record](validation/codex-review-6-r6-m02-production-node-gate-systemd-closeout.md).
 `securityApprovalComplete=false`, `deploymentReady=false`. **R6-M03** (readiness/status bound to
-live process identity via schema v2 and verified status reader) is **implemented locally**; pending
-independent review and focused Linux procfs regression — **not closed**. Operators must use
+live process identity via schema v2 and verified status reader) had independent source review
+**blocked**; procfs bounded-read and verified status-snapshot defects were corrected locally.
+Pending independent re-review and focused Linux procfs regression — **not closed**. Operators must use
 `scripts/neo/neo-status.mjs` for readiness truth; raw `ready.json` is not liveness proof. Next
 after R6-M03 closure: **R6-L01**. DNS resolution,
 redirect/rebinding SSRF checks, path/symlink-root isolation, MIME content sniffing,

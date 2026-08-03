@@ -139,6 +139,31 @@ describe('neo status process identity verification', () => {
     expect(JSON.parse(lines[0] ?? '{}')).toEqual({ ready: false, reason: 'process-zombie' });
   });
 
+  it('returns process-zombie for dead state X', async () => {
+    const identity = validReadinessIdentity();
+    const processInstance = createFakeProcessInstanceProvider({
+      bootId: identity.bootId,
+      self: identity,
+      observedByPid: new Map([
+        [
+          identity.pid,
+          Object.freeze({
+            ...identity,
+            state: 'X',
+          }),
+        ],
+      ]),
+      platformSupported: true,
+    });
+    const lines: string[] = [];
+    const result = await readNeoStatus({
+      ...statusDeps({ [EXEC_ROOT]: validDocument() }, processInstance),
+      writeStdout: (line) => lines.push(line),
+    });
+    expect(result.exitCode).toBe(NEO_STATUS_EXIT_NOT_READY);
+    expect(JSON.parse(lines[0] ?? '{}')).toEqual({ ready: false, reason: 'process-zombie' });
+  });
+
   it('returns unavailable when procfs probe fails', async () => {
     const identity = validReadinessIdentity();
     const processInstance = createFakeProcessInstanceProvider({

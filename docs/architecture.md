@@ -317,12 +317,14 @@ rejection. Independent re-review:
 **NO_LINUX_RERUN_REQUIRED**. **R6-H02 is closed for the bounded secret-provenance guarantee.**
 Scanner remains defense-in-depth; universal free-text secret detection is not claimed.
 
-**Codex Review №6 — R6-M03 live process identity (implementation, not closed):**
+**Codex Review №6 — R6-M03 live process identity (corrective implementation, not closed):**
 Readiness schema **v2** publishes Linux `bootId` and `startTimeTicks` with PID; `neo-status` verifies
 boot ID, live `/proc/<pid>/stat` start ticks, and non-zombie state before reporting `ready:true`.
 Schema v1 and unbound readiness are rejected (`readiness-legacy-unbound`). Status is read-only;
-operators must not trust raw `ready.json`. **R6-M03 is implemented locally** pending independent
-review and focused Linux readiness-identity regression. `securityApprovalComplete`,
+operators must not trust raw `ready.json`. Independent source review **blocked** the initial
+implementation (`R6_M03_INDEPENDENT_SOURCE_REVIEW_BLOCKED`); procfs bounded-read and verified
+status-snapshot defects were corrected locally. **R6-M03 remains not closed** — pending
+independent re-review and focused Linux readiness-identity regression. `securityApprovalComplete`,
 `deploymentReady` remain false. Next after R6-M03 closure: **R6-L01**. See
 [security policy](security-policy.md).
 

@@ -23,16 +23,29 @@ describe('neo proc stat parser', () => {
   it('parses comm with spaces', () => {
     const parsed = parseProcStat(buildStatLine(7, 'my process name', 'S', '99'), 7);
     expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.startTimeTicks).toBe('99');
   });
 
   it('parses comm with parentheses', () => {
     const parsed = parseProcStat(buildStatLine(8, 'foo (bar)', 'R', '100'), 8);
     expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.startTimeTicks).toBe('100');
   });
 
   it('parses comm with multiple closing parentheses', () => {
     const parsed = parseProcStat(buildStatLine(9, 'a) b) c', 'R', '101'), 9);
     expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.startTimeTicks).toBe('101');
+  });
+
+  it('parses comm with misleading suffix-like text inside comm', () => {
+    const parsed = parseProcStat(buildStatLine(11, 'R 0 0 0 fake', 'S', '202'), 11);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.startTimeTicks).toBe('202');
   });
 
   it('rejects pid mismatch', () => {
