@@ -317,6 +317,13 @@ rejection. Independent re-review:
 **NO_LINUX_RERUN_REQUIRED**. **R6-H02 is closed for the bounded secret-provenance guarantee.**
 Scanner remains defense-in-depth; universal free-text secret detection is not claimed.
 
+**Codex Review №6 — R6-M02 production Node launcher gate (implementation):**
+Remediation enforces `>=22.13.0 <23` in `scripts/neo/start-neo.mjs` before dynamic import of
+compiled Neo runtime; shares `scripts/lib/node-version-contract.mjs` with CI `check:node`;
+unsupported runtime exits **3**; systemd `RestartPreventExitStatus=10 3`; status CLI ungated.
+**Implemented locally; pending independent review and focused systemd regression. Not closed.**
+`securityApprovalComplete`, `deploymentReady` remain false. Next after closure: **R6-M03**.
+
 **Codex Review №6 — R6-M01 retryable durable owner (closeout):**
 Remediation commit `c73aaecd7e8e00e4f0a2ecfc64141063cabaeaf3` preserves the unresolved durable
 owner across fatal close retries while lifecycle remains terminally `failed`, clears ownership
@@ -325,7 +332,8 @@ honest. Independent review:
 `APPROVE_WITH_NOTES_R6_M01_FOR_SECURITY_FINDING_CLOSEOUT` /
 `R6_M01_INDEPENDENT_REVIEW_APPROVED_WITH_NOTES_FOR_SECURITY_FINDING_CLOSEOUT`; O1–O15 PASS;
 **NO_LINUX_RERUN_REQUIRED**. **R6-M01 is closed for retryable durable-owner preservation after
-fatal close failure.** Codex Review №6 overall remains blocked; next finding **R6-M02**.
+fatal close failure.** Codex Review №6 overall remains blocked; next finding after R6-M02 closure:
+**R6-M03**.
 `securityApprovalComplete`, `deploymentReady`, secret provider, encryption, durable Approval/Audit,
 channels/connectors, VPS/production deployment remain false or not performed. No diagnostics
 changed. See

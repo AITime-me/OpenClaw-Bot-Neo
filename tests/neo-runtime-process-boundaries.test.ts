@@ -25,6 +25,7 @@ describe('neo runtime process boundaries', () => {
     expect(startNeo).not.toMatch(/process\.stdin\.resume\s*\(/);
     expect(startNeo).not.toMatch(/\bprocess\.exit\s*\(/);
     expect(startNeo).toContain('process.exitCode');
+    expect(startNeo).toContain('launch-neo-process.mjs');
     expect(startNeo).toContain('dist/neo-runtime/cli/run-neo-process.js');
   });
 
@@ -48,12 +49,17 @@ describe('neo runtime process boundaries', () => {
     expect(outputAdapter).not.toContain('JSON.stringify');
   });
 
-  it('launcher imports only compiled dist JavaScript', () => {
+  it('launcher imports only compiled dist JavaScript after Node gate', () => {
     const startNeo = readFileSync(join(REPO_ROOT, 'scripts', 'neo', 'start-neo.mjs'), 'utf8');
+    const launchHelper = readFileSync(
+      join(REPO_ROOT, 'scripts', 'neo', 'launch-neo-process.mjs'),
+      'utf8',
+    );
     const neoStatus = readFileSync(join(REPO_ROOT, 'scripts', 'neo', 'neo-status.mjs'), 'utf8');
     expect(startNeo).toContain('dist/neo-runtime/cli/run-neo-process.js');
+    expect(launchHelper).not.toMatch(/await\s+import\(/);
     expect(neoStatus).toContain('dist/neo-runtime/cli/read-neo-status.js');
-    for (const content of [startNeo, neoStatus]) {
+    for (const content of [startNeo, launchHelper, neoStatus]) {
       expect(content).not.toMatch(
         /\.ts['"]|tsx|ts-node|experimental-strip-types|ts-source-resolve/,
       );

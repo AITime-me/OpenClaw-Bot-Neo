@@ -30,7 +30,7 @@ describe('neo runtime systemd template', () => {
   it('places StartLimit directives in Unit and uses KillMode=mixed', () => {
     expect(content).toMatch(/\[Unit\][\s\S]*StartLimitIntervalSec=300/);
     expect(content).toContain('KillMode=mixed');
-    expect(content).toContain('RestartPreventExitStatus=10');
+    expect(content).toContain('RestartPreventExitStatus=10 3');
   });
 
   it('does not claim deployment or credentials readiness', () => {

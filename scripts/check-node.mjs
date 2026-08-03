@@ -1,47 +1,35 @@
 /**
- * Fail-fast Node runtime gate. Mirrors src/core/runtime/node-support.ts.
- * Production range: >=22.13.0 <23.
+ * Fail-fast Node runtime gate for CI and local tooling.
+ * Production range authority: scripts/lib/node-version-contract.mjs
  * Review override: OPENCLAW_REVIEW_NODE_OVERRIDE=1
  * Production gate (forbids override): OPENCLAW_PRODUCTION_NODE_GATE=1
  */
 
 import { pathToFileURL } from 'node:url';
+import {
+  evaluateSupportedNodeVersion,
+  PRODUCTION_NODE_RANGE,
+} from './lib/node-version-contract.mjs';
 
-const PRODUCTION_LABEL = '>=22.13.0 <23';
 const REVIEW_FLAG = 'OPENCLAW_REVIEW_NODE_OVERRIDE';
 const PRODUCTION_FLAG = 'OPENCLAW_PRODUCTION_NODE_GATE';
 
-export const parseNodeVersion = (version) => {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(String(version).trim());
-  if (!match) return null;
-  return {
-    major: Number(match[1]),
-    minor: Number(match[2]),
-    patch: Number(match[3]),
-  };
-};
+export { parseNodeVersion, PRODUCTION_NODE_RANGE } from './lib/node-version-contract.mjs';
 
 export const resolveReviewOverrideAllowed = (env = process.env) =>
   env[PRODUCTION_FLAG] !== '1' && env[REVIEW_FLAG] === '1';
 
 export const evaluateNodeSupport = (version, options = {}) => {
-  const parsed = parseNodeVersion(version);
-  if (parsed === null) return { ok: false, reason: `Malformed Node version "${version}".` };
-  const supported =
-    parsed.major === 22 &&
-    (parsed.minor > 13 || (parsed.minor === 13 && parsed.patch >= 0)) &&
-    parsed.major < 23;
-  if (supported) return { ok: true, mode: 'production' };
-  if (options.allowUnsupportedReviewOverride === true)
+  const decision = evaluateSupportedNodeVersion(version);
+  if (decision.ok) return { ok: true, mode: 'production' };
+  if (options.allowUnsupportedReviewOverride === true) {
     return {
       ok: true,
       mode: 'review-override',
-      reason: `Node ${version} is outside ${PRODUCTION_LABEL}; review override enabled.`,
+      reason: `Node ${version} is outside ${PRODUCTION_NODE_RANGE}; review override enabled.`,
     };
-  return {
-    ok: false,
-    reason: `Node ${version} is outside the production support range ${PRODUCTION_LABEL}.`,
-  };
+  }
+  return decision;
 };
 
 const isCli =

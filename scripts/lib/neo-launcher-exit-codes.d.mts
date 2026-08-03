@@ -1,0 +1,1 @@
+export declare const NEO_RUNTIME_EXIT_UNSUPPORTED_RUNTIME: 3;

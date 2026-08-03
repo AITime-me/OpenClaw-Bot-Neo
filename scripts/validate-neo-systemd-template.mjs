@@ -29,7 +29,7 @@ const SERVICE_DIRECTIVES = Object.freeze({
     '/usr/bin/node /opt/openclaw-neo/scripts/neo/start-neo.mjs --config /etc/openclaw/neo/config.json --storage-binding /etc/openclaw/neo/storage-binding.json --storage-policy /etc/openclaw/neo/storage-policy.json --execution-root /run/openclaw/neo',
   Restart: 'on-failure',
   RestartSec: '5',
-  RestartPreventExitStatus: '10',
+  RestartPreventExitStatus: '10 3',
   TimeoutStartSec: '60',
   TimeoutStopSec: '45',
   KillMode: 'mixed',
@@ -146,8 +146,20 @@ export const validateNeoSystemdTemplate = (content) => {
   if (!execStart.includes('start-neo.mjs')) {
     violations.push('ExecStart must use compiled start-neo.mjs launcher.');
   }
+  if (execStart.includes('dist/neo-runtime/cli/run-neo-process.js')) {
+    violations.push('ExecStart must not launch compiled run-neo-process.js directly.');
+  }
   if (!execStart.startsWith('/usr/bin/node /opt/openclaw-neo/')) {
     violations.push('ExecStart must use absolute /usr/bin/node and install root paths.');
+  }
+  if (service.has('ExecStartPre')) {
+    violations.push('ExecStartPre must not be present.');
+  }
+  const restartPrevent = service.get('RestartPreventExitStatus')?.[0] ?? '';
+  if (!/\b10\b/.test(restartPrevent) || !/\b3\b/.test(restartPrevent)) {
+    violations.push(
+      'RestartPreventExitStatus must include 10 (process lock) and 3 (unsupported Node runtime).',
+    );
   }
 
   const install = sections.get('Install') ?? new Map();

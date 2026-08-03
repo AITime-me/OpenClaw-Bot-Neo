@@ -4,6 +4,8 @@
  * Supported production range: Node >=22.13.0 <23 (Node 22 LTS line).
  * Node 23/24 are not production-supported.
  *
+ * Launcher/CI runtime authority: scripts/lib/node-version-contract.mjs (keep parity via tests).
+ *
  * Review/tooling may opt in with OPENCLAW_REVIEW_NODE_OVERRIDE=1.
  * OPENCLAW_PRODUCTION_NODE_GATE=1 always forbids override (production path).
  */

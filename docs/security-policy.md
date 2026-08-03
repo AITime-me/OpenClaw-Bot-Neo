@@ -390,8 +390,15 @@ only; deployment/security approval unchanged. Codex Review №6 pending; deploym
   `R6_M01_INDEPENDENT_REVIEW_APPROVED_WITH_NOTES_FOR_SECURITY_FINDING_CLOSEOUT`), O1–O15 PASS,
   **1537 passed** / 3 skipped, aggregate check PASS, **NO_LINUX_RERUN_REQUIRED**. See
   [closeout record](validation/codex-review-6-r6-m01-retryable-durable-owner-closeout.md).
-- **R6-M02, R6-M03; R6-L01—R6-L04; deferred systemd hardening; online dependency/provenance
-  review:** OPEN. Next remediation: **R6-M02**.
+- **R6-M02 (MEDIUM, production Node gate in launcher): implemented locally, not closed.**
+  `scripts/neo/start-neo.mjs` enforces `>=22.13.0 <23` via dependency-free
+  `scripts/lib/node-version-contract.mjs` before any Neo runtime import; unsupported runtime
+  exits **3**; systemd `RestartPreventExitStatus=10 3` prevents restart-loop on exit **3**;
+  `scripts/neo/neo-status.mjs` remains intentionally ungated; direct compiled CLI is unsupported.
+  Pending independent review and focused systemd regression (`SYSTEMD_REGRESSION_REQUIRED`).
+  `securityApprovalComplete=false`, `deploymentReady=false`.
+- **R6-M03; R6-L01—R6-L04; deferred systemd hardening; online dependency/provenance
+  review:** OPEN. Next remediation after R6-M02 closure: **R6-M03**.
 
 Codex Review №6 as a whole remains **blocked**. `securityApprovalComplete` and `deploymentReady`
 remain false. Production/VPS/connectors remain prohibited.

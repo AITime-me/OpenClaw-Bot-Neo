@@ -9,7 +9,15 @@ Production Node support: `>=22.13.0 <23`. FIN-012 **CLOSED / VERIFIED** на л�
 Review/tooling override (`OPENCLAW_REVIEW_NODE_OVERRIDE=1`) не заменяет production verification
 и не означает production support для Node 24.
 
-Production entrypoint и wiring strict Node gate пока **not implemented**. DNS resolution,
+Production Neo launcher `scripts/neo/start-neo.mjs` enforces the Node contract before importing
+compiled runtime modules. Unsupported runtime exits **3**; systemd `RestartPreventExitStatus`
+includes **3** so unsupported Node does not restart-loop. Operational status reader
+`scripts/neo/neo-status.mjs` remains intentionally ungated for emergency diagnostics. Direct
+invocation of `dist/neo-runtime/cli/run-neo-process.js` is not a supported production path.
+
+**R6-M02** (production Node gate in launcher) is implemented locally; pending independent review
+and focused systemd regression. `securityApprovalComplete=false`, `deploymentReady=false`.
+DNS resolution,
 redirect/rebinding SSRF checks, path/symlink-root isolation, MIME content sniffing,
 decompression-bomb limits, quarantine, persistent atomic replay/idempotency storage, real
 provider/auth stores и VPS hardening ниже являются **planned requirements**, а не действующими
