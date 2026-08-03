@@ -390,15 +390,21 @@ only; deployment/security approval unchanged. Codex Review №6 pending; deploym
   `R6_M01_INDEPENDENT_REVIEW_APPROVED_WITH_NOTES_FOR_SECURITY_FINDING_CLOSEOUT`), O1–O15 PASS,
   **1537 passed** / 3 skipped, aggregate check PASS, **NO_LINUX_RERUN_REQUIRED**. See
   [closeout record](validation/codex-review-6-r6-m01-retryable-durable-owner-closeout.md).
-- **R6-M02 (MEDIUM, production Node gate in launcher): implemented locally, not closed.**
-  `scripts/neo/start-neo.mjs` enforces `>=22.13.0 <23` via dependency-free
+- **R6-M02 (MEDIUM, production Node gate in launcher): CLOSED.** Remediation commit
+  `6427a34b07ef9a4b031cafa9737d660a2fc265b4` enforces `>=22.13.0 <23` via dependency-free
   `scripts/lib/node-version-contract.mjs` before any Neo runtime import; unsupported runtime
-  exits **3**; systemd `RestartPreventExitStatus=10 3` prevents restart-loop on exit **3**;
+  exits **3**; systemd `RestartPreventExitStatus=10 3` suppresses restart on exit **3**;
   `scripts/neo/neo-status.mjs` remains intentionally ungated; direct compiled CLI is unsupported.
-  Pending independent review and focused systemd regression (`SYSTEMD_REGRESSION_REQUIRED`).
-  `securityApprovalComplete=false`, `deploymentReady=false`.
+  Closure evidence: independent source review
+  (`APPROVE_WITH_NOTES_R6_M02_SOURCE_FOR_FOCUSED_SYSTEMD_REGRESSION` /
+  `R6_M02_INDEPENDENT_SOURCE_REVIEW_APPROVED_WITH_NOTES_FOR_FOCUSED_SYSTEMD_REGRESSION`), N1–N15
+  PASS, focused disposable systemd regression (supported PASS; unsupported exit **3** non-restart
+  PASS after harness correction), **1571 passed** / 3 skipped at source review, aggregate check PASS,
+  **FULL_LINUX_L1_L5_NOT_REQUIRED**. Disposable systemd proof is non-authoritative broad validation.
+  See
+  [closeout record](validation/codex-review-6-r6-m02-production-node-gate-systemd-closeout.md).
 - **R6-M03; R6-L01—R6-L04; deferred systemd hardening; online dependency/provenance
-  review:** OPEN. Next remediation after R6-M02 closure: **R6-M03**.
+  review:** OPEN. Next remediation: **R6-M03**.
 
 Codex Review №6 as a whole remains **blocked**. `securityApprovalComplete` and `deploymentReady`
 remain false. Production/VPS/connectors remain prohibited.

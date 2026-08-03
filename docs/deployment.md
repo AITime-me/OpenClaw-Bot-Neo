@@ -15,8 +15,10 @@ includes **3** so unsupported Node does not restart-loop. Operational status rea
 `scripts/neo/neo-status.mjs` remains intentionally ungated for emergency diagnostics. Direct
 invocation of `dist/neo-runtime/cli/run-neo-process.js` is not a supported production path.
 
-**R6-M02** (production Node gate in launcher) is implemented locally; pending independent review
-and focused systemd regression. `securityApprovalComplete=false`, `deploymentReady=false`.
+**R6-M02** (production Node gate in launcher) is **closed** for mandatory pre-import Node gate and
+systemd exit-3 non-restart proof. See
+[closeout record](validation/codex-review-6-r6-m02-production-node-gate-systemd-closeout.md).
+`securityApprovalComplete=false`, `deploymentReady=false`. Next Codex Review №6 finding: **R6-M03**.
 DNS resolution,
 redirect/rebinding SSRF checks, path/symlink-root isolation, MIME content sniffing,
 decompression-bomb limits, quarantine, persistent atomic replay/idempotency storage, real

@@ -317,12 +317,19 @@ rejection. Independent re-review:
 **NO_LINUX_RERUN_REQUIRED**. **R6-H02 is closed for the bounded secret-provenance guarantee.**
 Scanner remains defense-in-depth; universal free-text secret detection is not claimed.
 
-**Codex Review №6 — R6-M02 production Node launcher gate (implementation):**
-Remediation enforces `>=22.13.0 <23` in `scripts/neo/start-neo.mjs` before dynamic import of
-compiled Neo runtime; shares `scripts/lib/node-version-contract.mjs` with CI `check:node`;
-unsupported runtime exits **3**; systemd `RestartPreventExitStatus=10 3`; status CLI ungated.
-**Implemented locally; pending independent review and focused systemd regression. Not closed.**
-`securityApprovalComplete`, `deploymentReady` remain false. Next after closure: **R6-M03**.
+**Codex Review №6 — R6-M02 production Node launcher gate (closeout):**
+Remediation commit `6427a34b07ef9a4b031cafa9737d660a2fc265b4` enforces `>=22.13.0 <23` in
+`scripts/neo/start-neo.mjs` before dynamic import of compiled Neo runtime; shares
+`scripts/lib/node-version-contract.mjs` with CI `check:node`; unsupported runtime exits **3**;
+systemd `RestartPreventExitStatus=10 3`; status CLI ungated. Independent source review:
+`R6_M02_INDEPENDENT_SOURCE_REVIEW_APPROVED_WITH_NOTES_FOR_FOCUSED_SYSTEMD_REGRESSION`; N1–N15 PASS;
+focused disposable systemd regression PASS (supported launcher; unsupported exit **3**
+non-restart); **FULL_LINUX_L1_L5_NOT_REQUIRED**. **R6-M02 is closed for mandatory pre-import Node
+gate and systemd exit-3 non-restart proof.** Disposable systemd evidence is non-authoritative broad
+validation. Codex Review №6 overall remains blocked; next finding: **R6-M03**.
+`securityApprovalComplete`, `deploymentReady`, secret provider, encryption, durable Approval/Audit,
+channels/connectors, VPS/production deployment remain false or not performed. See
+[R6-M02 closeout record](validation/codex-review-6-r6-m02-production-node-gate-systemd-closeout.md).
 
 **Codex Review №6 — R6-M01 retryable durable owner (closeout):**
 Remediation commit `c73aaecd7e8e00e4f0a2ecfc64141063cabaeaf3` preserves the unresolved durable
@@ -337,6 +344,7 @@ fatal close failure.** Codex Review №6 overall remains blocked; next finding a
 `securityApprovalComplete`, `deploymentReady`, secret provider, encryption, durable Approval/Audit,
 channels/connectors, VPS/production deployment remain false or not performed. No diagnostics
 changed. See
+[R6-M02 closeout record](validation/codex-review-6-r6-m02-production-node-gate-systemd-closeout.md),
 [R6-M01 closeout record](validation/codex-review-6-r6-m01-retryable-durable-owner-closeout.md),
 [R6-H02 closeout record](validation/codex-review-6-r6-h02-durable-memory-secret-boundary-closeout.md),
 and [R6-H01 closeout record](validation/codex-review-6-r6-h01-readiness-race-closeout.md).

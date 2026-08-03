@@ -121,6 +121,18 @@ unchanged.
 | BLOCKER / HIGH / material MEDIUM | none |
 | LOW / INFO | remain post-Build-3.4 backlog |
 
+## Codex Review №6 R6-M02 forward reference (exit **3** non-restart)
+
+Historical Build 3.4F disposable evidence validated `RestartPreventExitStatus=10` and cooperative
+exit **10** second-instance behavior. It did **not** independently evidence launcher exit **3**
+non-restart semantics.
+
+Focused disposable systemd regression for Codex Review №6 **R6-M02** (post-Build-3.4) is the live
+evidence for unsupported-runtime exit **3** propagation and `RestartPreventExitStatus=10 3`
+non-restart behavior. See
+[R6-M02 closeout record](codex-review-6-r6-m02-production-node-gate-systemd-closeout.md).
+Historical Build 3.4F claims are **not** rewritten.
+
 ## Known non-blocking notes (post-Build-3.4 backlog)
 
 1. L2/L3 harness should assert actual child exit codes instead of hardcoded exit-zero recording.
