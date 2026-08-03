@@ -198,7 +198,7 @@ module.exports = {
       from: {
         path: '^src/neo-runtime',
         pathNot:
-          '^src/neo-runtime/(production/read-production-config-file|cli/read-neo-readiness-file|readiness/neo-runtime-readiness-file|process-identity/read-bounded-procfs-utf8)\\.ts$',
+          '^src/neo-runtime/(production/read-production-config-file|production/config-file-open-driver|cli/read-neo-readiness-file|readiness/neo-runtime-readiness-file|readiness/readiness-temp-open-driver|process-identity/read-bounded-procfs-utf8)\\.ts$',
       },
       to: { path: '^(node:)?fs(/promises)?$' },
     },
@@ -209,7 +209,7 @@ module.exports = {
       from: {
         path: '^src/neo-runtime',
         pathNot:
-          '^src/neo-runtime/(adapters/create-node-process-signal-port|adapters/create-node-process-keep-alive-port|adapters/create-node-process-output-port|cli/run-neo-process|cli/read-neo-status|process-identity/create-node-process-instance-provider)\\.ts$',
+          '^src/neo-runtime/(adapters/create-node-process-signal-port|adapters/create-node-process-keep-alive-port|adapters/create-node-process-output-port|cli/run-neo-process|cli/read-neo-status|cli/apply-restrictive-process-umask|process-identity/create-node-process-instance-provider|production/config-file-open-driver|readiness/readiness-temp-open-driver)\\.ts$',
       },
       to: { path: '^(node:)?process$' },
     },

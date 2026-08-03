@@ -62,7 +62,7 @@ describe('neo readiness file reader', () => {
 
   it('parses a valid regular readiness file', async () => {
     const executionRoot = createExecutionRoot();
-    writeFileSync(join(executionRoot, 'ready.json'), validReadyPayload(), { mode: 0o640 });
+    writeFileSync(join(executionRoot, 'ready.json'), validReadyPayload(), { mode: 0o600 });
     const result = await readNeoReadinessFile(executionRoot);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -98,7 +98,7 @@ describe('neo readiness file reader', () => {
         durableHostOpened: true,
         startedAtUtc: '2026-08-02T12:00:00.000Z',
       }),
-      { mode: 0o640 },
+      { mode: 0o600 },
     );
     const result = await readNeoReadinessFile(executionRoot);
     expect(result).toEqual({ ok: false, reason: 'legacy-unbound' });
@@ -106,7 +106,7 @@ describe('neo readiness file reader', () => {
 
   it('returns invalid for malformed readiness schema', async () => {
     const executionRoot = createExecutionRoot();
-    writeFileSync(join(executionRoot, 'ready.json'), '{"schemaVersion":"9"}', { mode: 0o640 });
+    writeFileSync(join(executionRoot, 'ready.json'), '{"schemaVersion":"9"}', { mode: 0o600 });
     const result = await readNeoReadinessFile(executionRoot);
     expect(result).toEqual({ ok: false, reason: 'invalid' });
   });
@@ -116,7 +116,7 @@ describe('neo readiness file reader', () => {
     async () => {
       const executionRoot = createExecutionRoot();
       const target = join(executionRoot, 'ready-target.json');
-      writeFileSync(target, validReadyPayload(), { mode: 0o640 });
+      writeFileSync(target, validReadyPayload(), { mode: 0o600 });
       symlinkSync(target, join(executionRoot, 'ready.json'));
       const result = await readNeoReadinessFile(executionRoot);
       expect(result).toEqual({ ok: false, reason: 'unreadable' });
@@ -140,7 +140,7 @@ describe('neo readiness file reader', () => {
     'does not treat permission errors as absent readiness',
     async () => {
       const executionRoot = createExecutionRoot(0o750);
-      writeFileSync(join(executionRoot, 'ready.json'), validReadyPayload(), { mode: 0o640 });
+      writeFileSync(join(executionRoot, 'ready.json'), validReadyPayload(), { mode: 0o600 });
       chmodSync(executionRoot, 0o000);
       const result = await readNeoReadinessFile(executionRoot);
       expect(result.ok).toBe(false);
@@ -164,7 +164,7 @@ describe('neo status wait-ready with production reader', () => {
         await Promise.resolve();
         now += ms;
         if (now >= 200) {
-          writeFileSync(join(executionRoot, 'ready.json'), validReadyPayload(), { mode: 0o640 });
+          writeFileSync(join(executionRoot, 'ready.json'), validReadyPayload(), { mode: 0o600 });
         }
       },
       writeStdout: () => undefined,
@@ -197,7 +197,7 @@ describe('neo status wait-ready with production reader', () => {
 
   it('returns invalid exit 2 immediately for invalid readiness schema', async () => {
     const executionRoot = createExecutionRoot();
-    writeFileSync(join(executionRoot, 'ready.json'), '{"schemaVersion":"9"}', { mode: 0o640 });
+    writeFileSync(join(executionRoot, 'ready.json'), '{"schemaVersion":"9"}', { mode: 0o600 });
     const result = await readNeoStatus({
       argv: ['--execution-root', executionRoot, '--wait-ready', '--timeout-ms', '1000'],
       reader: createNodeNeoReadinessFileReader(),

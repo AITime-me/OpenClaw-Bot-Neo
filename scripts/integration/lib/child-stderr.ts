@@ -217,10 +217,15 @@ export const classifyChildStartupDiagnostic = (input: {
 
 export const buildChildStartupDiagnostics = (input: {
   readonly exitCode: number | null;
-  readonly messages: readonly { readonly event: string }[];
+  readonly messages: readonly {
+    readonly event: string;
+    readonly runId?: string;
+    readonly role?: string;
+  }[];
   readonly collector: ChildStderrCollector;
   readonly paths: ChildStderrRedactionPaths;
   readonly secretValues?: readonly string[];
+  readonly correlation?: { readonly runId: string; readonly role: string };
 }): ChildStartupDiagnostics => {
   const snap = input.collector.snapshot();
   const redacted = redactChildStderrSummary(
@@ -230,7 +235,15 @@ export const buildChildStartupDiagnostics = (input: {
     CHILD_STDERR_EVIDENCE_CAP,
     snap.truncated,
   );
-  const sawReady = input.messages.some((message) => message.event === 'READY');
+  const sawReady =
+    input.correlation !== undefined
+      ? input.messages.some(
+          (message) =>
+            message.event === 'READY' &&
+            message.runId === input.correlation?.runId &&
+            message.role === input.correlation?.role,
+        )
+      : input.messages.some((message) => message.event === 'READY');
   return {
     diagnosticClass: classifyChildStartupDiagnostic({
       exitCode: input.exitCode,

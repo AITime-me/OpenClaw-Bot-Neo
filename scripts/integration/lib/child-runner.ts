@@ -252,6 +252,7 @@ export const spawnChildSession = (options: ChildSessionOptions): ChildSessionHan
         executionRoot: options.executionRoot,
       },
       secretValues: [options.capability],
+      correlation: { runId: options.runId, role: options.role },
     });
     return {
       exitCode,

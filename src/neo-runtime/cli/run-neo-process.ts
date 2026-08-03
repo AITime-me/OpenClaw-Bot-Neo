@@ -35,6 +35,7 @@ import { createNodeProductionConfigFileReader } from '../production/read-product
 import { createNodeNeoRuntimeReadinessPort } from '../readiness/neo-runtime-readiness-file.js';
 import { createNodeProcessInstanceProvider } from '../process-identity/create-node-process-instance-provider.js';
 import { createProductionNeoRuntimeLogSink } from '../logging/neo-runtime-log.js';
+import { applyRestrictiveProcessUmask } from './apply-restrictive-process-umask.js';
 
 export type RunNeoProcessResult = {
   readonly exitCode: NeoRuntimeExitCode;
@@ -241,6 +242,7 @@ export const runNeoProcess = async (deps: RunNeoProcessDeps): Promise<RunNeoProc
 };
 
 export const runNeoProcessFromNode = async (): Promise<RunNeoProcessResult> => {
+  applyRestrictiveProcessUmask();
   const identity = {
     pid: process.pid,
     nowUtcIso: () => new Date().toISOString(),

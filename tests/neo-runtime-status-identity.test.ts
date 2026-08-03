@@ -234,7 +234,7 @@ describe('neo status read-only guarantee', () => {
     chmodSync(executionRoot, 0o750);
     const payload = JSON.stringify(validDocument());
     const readyPath = join(executionRoot, 'ready.json');
-    writeFileSync(readyPath, payload, { mode: 0o640 });
+    writeFileSync(readyPath, payload, { mode: 0o600 });
     const before = readFileSync(readyPath, 'utf8');
 
     const { createNodeNeoReadinessFileReader } =

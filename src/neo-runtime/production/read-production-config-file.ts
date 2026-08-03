@@ -1,8 +1,15 @@
 import { join } from 'node:path';
-import { lstat, open } from 'node:fs/promises';
+import { lstat } from 'node:fs/promises';
 import type { NeoProcessConfigFileReaderPort } from '../ports/neo-process-ports.js';
+import {
+  createNodeConfigFileOpenDriver,
+  type ConfigFileOpenDriver,
+} from './config-file-open-driver.js';
 
 export const NEO_CONFIG_MAX_FILE_BYTES = 256 * 1024;
+
+const isErrnoException = (error: unknown): error is NodeJS.ErrnoException =>
+  typeof error === 'object' && error !== null && 'code' in error;
 
 const hasSymlinkInPath = async (absolutePath: string): Promise<boolean> => {
   const segments = absolutePath.replace(/\\/g, '/').split('/').filter(Boolean);
@@ -21,38 +28,71 @@ const hasSymlinkInPath = async (absolutePath: string): Promise<boolean> => {
   return false;
 };
 
-export const createNodeProductionConfigFileReader = (): NeoProcessConfigFileReaderPort => ({
-  readJsonFile: async (absolutePath: string) => {
-    if (absolutePath.includes('\0')) {
-      return { ok: false, reason: 'Config path contains NUL.' };
-    }
-    try {
-      if (await hasSymlinkInPath(absolutePath)) {
-        return { ok: false, reason: 'Config path must not traverse symlinks.' };
+const readBoundedFromHandle = async (
+  handle: Awaited<ReturnType<ConfigFileOpenDriver['openConfigFile']>>,
+  byteLength: number,
+): Promise<string> => {
+  const buffer = Buffer.alloc(byteLength);
+  let offset = 0;
+  while (offset < byteLength) {
+    const { bytesRead } = await handle.read(buffer, offset, byteLength - offset, offset);
+    if (bytesRead === 0) break;
+    offset += bytesRead;
+  }
+  if (offset !== byteLength) {
+    const error = new Error('Config file short read.');
+    Object.defineProperty(error, 'code', { value: 'EIO' });
+    throw error;
+  }
+  return buffer.toString('utf8');
+};
+
+export function createNodeProductionConfigFileReaderWithOpenDriver(
+  openDriver: ConfigFileOpenDriver,
+): NeoProcessConfigFileReaderPort {
+  return {
+    readJsonFile: async (absolutePath: string) => {
+      if (absolutePath.includes('\0')) {
+        return { ok: false, reason: 'Config path contains NUL.' };
       }
-      const handle = await open(absolutePath, 'r');
       try {
-        const stats = await handle.stat();
-        if (!stats.isFile()) return { ok: false, reason: 'Config path must be a regular file.' };
-        if (stats.size > NEO_CONFIG_MAX_FILE_BYTES) {
-          return { ok: false, reason: 'Config file exceeds size limit.' };
+        if (openDriver.requiresNoFollow && (await hasSymlinkInPath(absolutePath))) {
+          return { ok: false, reason: 'Config path must not traverse symlinks.' };
         }
-        const buffer = Buffer.alloc(stats.size);
-        await handle.read(buffer, 0, stats.size, 0);
-        const text = buffer.toString('utf8');
-        if (text.includes('${')) {
-          return { ok: false, reason: 'Config interpolation is not allowed.' };
+        const handle = await openDriver.openConfigFile(absolutePath);
+        try {
+          const stats = await handle.stat();
+          if (!stats.isFile()) {
+            return { ok: false, reason: 'Config path must be a regular file.' };
+          }
+          if (stats.size > NEO_CONFIG_MAX_FILE_BYTES) {
+            return { ok: false, reason: 'Config file exceeds size limit.' };
+          }
+          const text = await readBoundedFromHandle(handle, stats.size);
+          if (text.includes('${')) {
+            return { ok: false, reason: 'Config interpolation is not allowed.' };
+          }
+          const json: unknown = JSON.parse(text);
+          return { ok: true, json };
+        } finally {
+          await handle.close();
         }
-        const json: unknown = JSON.parse(text);
-        return { ok: true, json };
-      } finally {
-        await handle.close();
+      } catch (error: unknown) {
+        if (
+          openDriver.requiresNoFollow &&
+          isErrnoException(error) &&
+          error.code === 'CONFIG_OPEN_FLAGS_UNAVAILABLE'
+        ) {
+          return { ok: false, reason: 'Config secure open is unavailable on this runtime.' };
+        }
+        return { ok: false, reason: 'Config file could not be read or parsed.' };
       }
-    } catch {
-      return { ok: false, reason: 'Config file could not be read or parsed.' };
-    }
-  },
-});
+    },
+  };
+}
+
+export const createNodeProductionConfigFileReader = (): NeoProcessConfigFileReaderPort =>
+  createNodeProductionConfigFileReaderWithOpenDriver(createNodeConfigFileOpenDriver());
 
 export const createInMemoryProductionConfigFileReader = (
   files: Readonly<Record<string, unknown>>,

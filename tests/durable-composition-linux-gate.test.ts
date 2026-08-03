@@ -282,6 +282,8 @@ const perfectCleanup = {
   pendingEventWaitersCleared: true,
 };
 
+let mockGateRunId = 'run';
+
 const mockGateOwnership = (): DisposableRootOwnership => {
   const base = join(tmpdir(), `openclaw-b3c4-test-${generateRunId()}`);
   return {
@@ -334,7 +336,7 @@ const passingScenarioBOrchestrationImpl: typeof runScenarioBOrchestration = (
   }
   const baseMessage = {
     v: 1 as const,
-    runId: 'run',
+    runId: mockGateRunId,
     role: 'holder' as const,
     pid: 1,
   };
@@ -2519,20 +2521,21 @@ describe('R2/R3 abort-checked spawn', () => {
 describe('gate-level stop-on-first-failure', () => {
   const scenarioKeys = [...REQUIRED_SCENARIO_KEYS];
 
-  const closedMessages = [
-    { v: 1 as const, runId: 'run', role: 'normal' as const, event: 'READY' as const, pid: 1 },
-    { v: 1 as const, runId: 'run', role: 'normal' as const, event: 'CLOSED' as const, pid: 1 },
-  ];
-
   const makeSession = (options: {
     readonly pendingWaiters?: number;
     readonly pass?: boolean;
     readonly pid?: number;
     readonly role?: string;
+    readonly runId?: string;
   }): ChildSessionHandle => {
     const pass = options.pass ?? true;
     const pid = options.pid ?? 9000;
     const role = options.role ?? 'normal';
+    const runId = options.runId ?? mockGateRunId;
+    const closedMessages = [
+      { v: 1 as const, runId, role: 'normal' as const, event: 'READY' as const, pid: 1 },
+      { v: 1 as const, runId, role: 'normal' as const, event: 'CLOSED' as const, pid: 1 },
+    ];
     const writeDetail = buildWriteConfirmationDetail({
       recordId: PERSISTED_RECORD_ID,
       ownerId: PERSISTED_OWNER_ID,
@@ -2557,7 +2560,7 @@ describe('gate-level stop-on-first-failure', () => {
       ? [
           {
             v: 1 as const,
-            runId: 'run',
+            runId,
             role: 'writer' as const,
             event: 'WRITE_CONFIRMED' as const,
             pid: 1,
@@ -2565,7 +2568,7 @@ describe('gate-level stop-on-first-failure', () => {
           },
           {
             v: 1 as const,
-            runId: 'run',
+            runId,
             role: 'writer' as const,
             event: 'CLOSED' as const,
             pid: 1,
@@ -2576,7 +2579,7 @@ describe('gate-level stop-on-first-failure', () => {
       ? [
           {
             v: 1 as const,
-            runId: 'run',
+            runId,
             role: 'reader' as const,
             event: 'READ_CONFIRMED' as const,
             pid: 1,
@@ -2584,7 +2587,7 @@ describe('gate-level stop-on-first-failure', () => {
           },
           {
             v: 1 as const,
-            runId: 'run',
+            runId,
             role: 'reader' as const,
             event: 'CLOSED' as const,
             pid: 1,
@@ -2594,7 +2597,7 @@ describe('gate-level stop-on-first-failure', () => {
     const contenderMessages = [
       {
         v: 1 as const,
-        runId: 'run',
+        runId,
         role: 'contender' as const,
         event: 'HELD' as const,
         pid: 1,
@@ -2603,7 +2606,7 @@ describe('gate-level stop-on-first-failure', () => {
     ];
     const readyMessage = {
       v: 1 as const,
-      runId: 'run',
+      runId,
       role: 'normal' as const,
       event: 'READY' as const,
       pid: 1,
@@ -2639,7 +2642,7 @@ describe('gate-level stop-on-first-failure', () => {
         const rollbackMessages = [
           {
             v: 1 as const,
-            runId: 'run',
+            runId,
             role: 'rollback' as const,
             event: 'FAILED' as const,
             pid: 1,
@@ -2648,7 +2651,7 @@ describe('gate-level stop-on-first-failure', () => {
         const repeatedCloseMessages = [
           {
             v: 1 as const,
-            runId: 'run',
+            runId,
             role: 'repeated-close' as const,
             event: 'CLOSED' as const,
             pid: 1,
@@ -2685,7 +2688,7 @@ describe('gate-level stop-on-first-failure', () => {
         if (role === 'holder' && event === 'WRITE_CONFIRMED' && writeDetail.ok) {
           return Promise.resolve({
             v: 1 as const,
-            runId: 'run',
+            runId,
             role: 'holder' as const,
             event,
             pid: 1,
@@ -2695,7 +2698,7 @@ describe('gate-level stop-on-first-failure', () => {
         if (role === 'holder' && event === 'READ_CONFIRMED' && readDetail.ok) {
           return Promise.resolve({
             v: 1 as const,
-            runId: 'run',
+            runId,
             role: 'holder' as const,
             event,
             pid: 1,
@@ -2704,7 +2707,7 @@ describe('gate-level stop-on-first-failure', () => {
         }
         return Promise.resolve({
           v: 1 as const,
-          runId: 'run',
+          runId: mockGateRunId,
           role: 'holder' as const,
           event,
           pid: 1,
@@ -2713,7 +2716,7 @@ describe('gate-level stop-on-first-failure', () => {
       waitForNextEvent: (event) =>
         Promise.resolve({
           v: 1 as const,
-          runId: 'run',
+          runId: mockGateRunId,
           role: 'holder' as const,
           event,
           pid: 1,
@@ -2722,7 +2725,7 @@ describe('gate-level stop-on-first-failure', () => {
       expectNextEvent: (event) =>
         Promise.resolve({
           v: 1 as const,
-          runId: 'run',
+          runId: mockGateRunId,
           role: 'holder' as const,
           event,
           pid: 1,
@@ -2745,6 +2748,7 @@ describe('gate-level stop-on-first-failure', () => {
     const trackedSessions: Array<{ pendingEventWaiterCount: () => number }> = [];
     const cleanup = createCleanupController();
     const ownership = mockGateOwnership();
+    mockGateRunId = ownership.runId;
     const spawnCalls: string[] = [];
     let spawnIndex = 0;
 
@@ -2791,6 +2795,7 @@ describe('gate-level stop-on-first-failure', () => {
     const trackedSessions: Array<{ pendingEventWaiterCount: () => number }> = [];
     const cleanup = createCleanupController();
     const ownership = mockGateOwnership();
+    mockGateRunId = ownership.runId;
     const auxiliary = {
       quickCheckVerified: false,
       childExitCodes: {},
@@ -3144,7 +3149,7 @@ describe('Scenario G cold-root lifecycle', () => {
     const contenderMessages = [
       {
         v: 1 as const,
-        runId: 'run',
+        runId: mockGateRunId,
         role: 'contender' as const,
         event: 'HELD' as const,
         pid: 1,
@@ -3154,7 +3159,7 @@ describe('Scenario G cold-root lifecycle', () => {
     const normalMessages = [
       {
         v: 1 as const,
-        runId: 'run',
+        runId: mockGateRunId,
         role: 'normal' as const,
         event: 'CLOSED' as const,
         pid: 1,
@@ -3182,7 +3187,7 @@ describe('Scenario G cold-root lifecycle', () => {
       waitForEvent: (event) =>
         Promise.resolve({
           v: 1,
-          runId: 'run',
+          runId: mockGateRunId,
           role: 'holder',
           event,
           pid: 1,
@@ -3190,17 +3195,17 @@ describe('Scenario G cold-root lifecycle', () => {
       waitForNextEvent: (event) =>
         Promise.resolve({
           v: 1,
-          runId: 'run',
+          runId: mockGateRunId,
           role: 'holder',
           event,
           pid: 1,
         }),
       waitForNextProtocolEvent: () =>
-        Promise.resolve({ v: 1, runId: 'run', role: 'holder', event: 'READY', pid: 1 }),
+        Promise.resolve({ v: 1, runId: mockGateRunId, role: 'holder', event: 'READY', pid: 1 }),
       expectNextEvent: (event) =>
         Promise.resolve({
           v: 1,
-          runId: 'run',
+          runId: mockGateRunId,
           role: 'holder',
           event,
           pid: 1,
@@ -3479,7 +3484,7 @@ describe('abort tracked-session survival', () => {
             ? [
                 {
                   v: 1 as const,
-                  runId: 'run',
+                  runId: mockGateRunId,
                   role: 'normal' as const,
                   event: 'READY' as const,
                   pid: 1,
@@ -3494,7 +3499,7 @@ describe('abort tracked-session survival', () => {
     waitForEvent: (event) =>
       Promise.resolve({
         v: 1,
-        runId: 'run',
+        runId: mockGateRunId,
         role: 'holder',
         event,
         pid: 1,
@@ -3502,17 +3507,17 @@ describe('abort tracked-session survival', () => {
     waitForNextEvent: (event) =>
       Promise.resolve({
         v: 1,
-        runId: 'run',
+        runId: mockGateRunId,
         role: 'holder',
         event,
         pid: 1,
       }),
     waitForNextProtocolEvent: () =>
-      Promise.resolve({ v: 1, runId: 'run', role: 'holder', event: 'READY', pid: 1 }),
+      Promise.resolve({ v: 1, runId: mockGateRunId, role: 'holder', event: 'READY', pid: 1 }),
     expectNextEvent: (event) =>
       Promise.resolve({
         v: 1,
-        runId: 'run',
+        runId: mockGateRunId,
         role: 'holder',
         event,
         pid: 1,
@@ -3526,6 +3531,7 @@ describe('abort tracked-session survival', () => {
     const trackedSessions: Array<{ pendingEventWaiterCount: () => number }> = [];
     const cleanup = createCleanupController();
     const ownership = mockGateOwnership();
+    mockGateRunId = ownership.runId;
 
     await expect(
       runScenarios(

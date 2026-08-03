@@ -413,10 +413,17 @@ only; deployment/security approval unchanged. Codex Review №6 pending; deploym
   (`R6_M03_CORRECTIVE_SOURCE_REREVIEW_APPROVED_WITH_NOTES_FOR_FOCUSED_LINUX_REGRESSION`); P1–P18
   PASS; focused disposable Linux procfs regression PASS (manifest 93/93). **R6-M03 is closed for
   live process identity-bound readiness.** `securityApprovalComplete=false`, `deploymentReady=false`.
-  Next: **R6-L01**. See
-  [closeout record](validation/codex-review-6-r6-m03-live-process-identity-closeout.md).
-- **R6-L01—R6-L04; deferred systemd hardening; online dependency/provenance
-  review:** OPEN.
+  Next: independent R6-L01—L04 package review and focused Linux filesystem regression. See
+  implementation commit on `main`.
+- **R6-L01—R6-L04 (LOW hardening package): IMPLEMENTED locally; not closed yet.** Descriptor-safe
+  config read, exclusive readiness temp publication, exact correlated integration evidence, and
+  owner-only runtime/durable state permissions. Pending independent package review and focused Linux
+  filesystem regression. Encryption remains deferred; systemd hardening remains deferred.
+- **R6-L01—R6-L04 (LOW hardening package): IMPLEMENTED locally as one bounded package; not
+  closed yet.** Pending independent package review and one focused Linux filesystem regression.
+  Encryption remains `false` and deferred. systemd hardening remains deferred. Online
+  dependency/provenance review remains open. Review №6 remains open. `securityApprovalComplete`
+  and `deploymentReady` remain false.
 
 Codex Review №6 as a whole remains **blocked**. `securityApprovalComplete` and `deploymentReady`
 remain false. Production/VPS/connectors remain prohibited.

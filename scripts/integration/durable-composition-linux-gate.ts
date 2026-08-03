@@ -64,6 +64,7 @@ import {
   serializePublicFailure,
 } from './lib/redaction.ts';
 import {
+  assertCorrelatedEventPresent,
   assertExactSigkillProof,
   assertHeldLockCode,
   assertReadConfirmationMatches,
@@ -252,9 +253,12 @@ export const buildGateScenarioSteps = (ctx: GateScenarioBuildContext): ScenarioS
         session.sendCommand({ command: 'CLOSE' });
         const result = await session.waitForCompletion();
         ctx.checkpoint('A-done');
-        const pass =
-          validateChildExit(result, 'CLOSED') &&
-          result.messages.some((message) => message.event === 'READY');
+        const correlation = { runId: ctx.ownership.runId, role: 'normal' as const };
+        const readyCheck = assertCorrelatedEventPresent(result.messages, {
+          ...correlation,
+          event: 'READY',
+        });
+        const pass = validateChildExit(result, 'CLOSED') && readyCheck.pass;
         ctx.auxiliary.childExitCodes = {
           ...ctx.auxiliary.childExitCodes,
           A: result.exitCode ?? -1,
@@ -263,7 +267,11 @@ export const buildGateScenarioSteps = (ctx: GateScenarioBuildContext): ScenarioS
           verdict: pass ? 'PASS' : 'FAIL',
           ...(pass
             ? {}
-            : { detail: serializeChildStartupFailureDetail(result.startupDiagnostics) }),
+            : {
+                detail:
+                  readyCheck.detail ??
+                  serializeChildStartupFailureDetail(result.startupDiagnostics),
+              }),
         };
       },
     },
@@ -286,10 +294,11 @@ export const buildGateScenarioSteps = (ctx: GateScenarioBuildContext): ScenarioS
           },
         );
         ctx.checkpoint('B-done');
+        const holderCorrelation = { runId: ctx.ownership.runId, role: 'holder' as const };
         const pass =
           orchestration.pass &&
           assertScenarioBStepOrder(orchestration.steps) &&
-          assertScenarioBDenialsComplete(orchestration.messages, expected);
+          assertScenarioBDenialsComplete(orchestration.messages, expected, holderCorrelation);
         return {
           verdict: pass ? 'PASS' : 'FAIL',
           ...(pass ? {} : { detail: orchestration.detail ?? 'scenario-b-failed' }),
@@ -318,11 +327,13 @@ export const buildGateScenarioSteps = (ctx: GateScenarioBuildContext): ScenarioS
         const readerResult = await reader.waitForCompletion();
         ctx.checkpoint('C-done');
         const expected = contentExpectation(PERSISTED_RECORD_ID, PERSISTED_OWNER_ID);
+        const writerCorrelation = { runId: ctx.ownership.runId, role: 'writer' as const };
+        const readerCorrelation = { runId: ctx.ownership.runId, role: 'reader' as const };
         const pass =
           validateChildExit(writerResult, 'CLOSED') &&
           validateChildExit(readerResult, 'CLOSED') &&
-          assertWriteConfirmationMatches(writerResult.messages, expected) &&
-          assertReadConfirmationMatches(readerResult.messages, expected);
+          assertWriteConfirmationMatches(writerResult.messages, expected, writerCorrelation) &&
+          assertReadConfirmationMatches(readerResult.messages, expected, readerCorrelation);
         return { verdict: pass ? 'PASS' : 'FAIL' };
       },
     },
@@ -346,10 +357,11 @@ export const buildGateScenarioSteps = (ctx: GateScenarioBuildContext): ScenarioS
         const redacted = detectRedactionViolations(
           safeSerializeForEvidence(contenderResult.messages),
         );
+        const contenderCorrelation = { runId: ctx.ownership.runId, role: 'contender' as const };
         const pass =
           assertReadyBeforeContender(timeline) &&
           contenderResult.exitCode === EXIT_LOCK_CONTENTION &&
-          assertHeldLockCode(contenderResult.messages) &&
+          assertHeldLockCode(contenderResult.messages, contenderCorrelation) &&
           validateChildExit(holderResult, 'CLOSED') &&
           fingerprintsStableEqual(
             lockBaseline,
@@ -385,6 +397,8 @@ export const buildGateScenarioSteps = (ctx: GateScenarioBuildContext): ScenarioS
       run: async () => {
         const fTimeline: string[] = [];
         const expected = contentExpectation(PERSISTED_RECORD_ID, PERSISTED_OWNER_ID);
+        const holderCorrelation = { runId: ctx.ownership.runId, role: 'holder' as const };
+        const readerCorrelation = { runId: ctx.ownership.runId, role: 'reader' as const };
         const holder = ctx.spawnSession(ctx.sessionOpts({ role: 'holder' }));
         await holder.waitForEvent('READY');
         ctx.checkpoint('F-ready');
@@ -421,11 +435,11 @@ export const buildGateScenarioSteps = (ctx: GateScenarioBuildContext): ScenarioS
         ctx.checkpoint('F-done');
         const pass =
           assertWriteReadBeforeKill(fTimeline) &&
-          assertExactSigkillProof(killedResult) &&
-          assertWriteConfirmationMatches([writeConfirmed], expected) &&
-          assertReadConfirmationMatches([readConfirmed], expected) &&
+          assertExactSigkillProof(killedResult, holderCorrelation) &&
+          assertWriteConfirmationMatches([writeConfirmed], expected, holderCorrelation) &&
+          assertReadConfirmationMatches([readConfirmed], expected, holderCorrelation) &&
           validateChildExit(readerResult, 'CLOSED') &&
-          assertReadConfirmationMatches(readerResult.messages, expected);
+          assertReadConfirmationMatches(readerResult.messages, expected, readerCorrelation);
         ctx.auxiliary.quickCheckVerified = pass;
         return { verdict: pass ? 'PASS' : 'FAIL' };
       },
@@ -472,16 +486,21 @@ export const buildGateScenarioSteps = (ctx: GateScenarioBuildContext): ScenarioS
         retry.sendCommand({ command: 'CLOSE' });
         const retryResult = await retry.waitForCompletion();
         ctx.checkpoint('H-done');
+        const rollbackCorrelation = { runId: ctx.ownership.runId, role: 'rollback' as const };
+        const failedCheck = assertCorrelatedEventPresent(rollbackResult.messages, {
+          ...rollbackCorrelation,
+          event: 'FAILED',
+        });
         const pass =
           rollbackResult.exitCode !== 0 &&
           rollbackResult.exitCode !== null &&
-          rollbackResult.messages.some((message) => message.event === 'FAILED') &&
+          failedCheck.pass &&
           validateChildExit(retryResult, 'CLOSED');
         return {
           verdict: pass ? 'PASS' : 'FAIL',
           detail: pass
             ? 'rollback-injected-sqlite-failure-then-reopen-on-same-root'
-            : 'rollback-scenario-failed',
+            : (failedCheck.detail ?? 'rollback-scenario-failed'),
         };
       },
     },

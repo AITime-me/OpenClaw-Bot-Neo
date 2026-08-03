@@ -164,7 +164,7 @@ Deployment prohibited.
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
-| Security approval | absent pending independent Codex Review №6 (R6-H01, R6-H02, R6-M01, R6-M02, R6-M03 closed; R6-L01 next) |
+| Security approval | absent pending independent Codex Review №6 (R6-H01, R6-H02, R6-M01, R6-M02, R6-M03 closed; R6-L01—L04 implemented locally, pending package review) |
 
 **Codex Review №6 R6-H01 (closeout):** readiness shutdown/publication race remediated at
 `6b89e7a2d3be072328828bb465b66a937a48349e`. Closure evidence: deterministic race suite (20 passed),
@@ -202,7 +202,9 @@ P1–P18 PASS; focused disposable Linux procfs regression PASS (manifest 93/93);
 **FULL_LINUX_L1_L5_NOT_REQUIRED**. **R6-M03 is closed for live process identity-bound readiness.**
 Disposable Linux proof is non-authoritative broad validation.
 
-Codex Review №6 overall remains blocked; next finding is **R6-L01**. `deploymentReady` and
+Codex Review №6 overall remains blocked; **R6-L01—L04 LOW hardening package implemented locally**
+and pending independent package review plus focused Linux filesystem regression.
+`deploymentReady` and
 `securityApprovalComplete` remain false. See
 [R6-M03 closeout record](docs/validation/codex-review-6-r6-m03-live-process-identity-closeout.md).
 

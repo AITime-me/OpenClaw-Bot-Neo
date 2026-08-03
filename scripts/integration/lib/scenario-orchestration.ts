@@ -1,3 +1,4 @@
+import type { ChildRole } from './constants.ts';
 import type { ProtocolMessage } from './protocol.ts';
 
 type ContentExpectation = {
@@ -5,6 +6,79 @@ type ContentExpectation = {
   readonly ownerId: string;
   readonly namespace: string;
   readonly contentSha256: string;
+};
+
+export type EventCorrelation = {
+  readonly runId: string;
+  readonly role: ChildRole;
+};
+
+export type CorrelatedEventExpectation = EventCorrelation & {
+  readonly event: string;
+};
+
+const correlates = (message: ProtocolMessage, correlation: EventCorrelation): boolean =>
+  message.runId === correlation.runId && message.role === correlation.role;
+
+export const findCorrelatedEvent = (
+  messages: ReadonlyArray<ProtocolMessage>,
+  expected: CorrelatedEventExpectation,
+): ProtocolMessage | undefined =>
+  messages.find(
+    (message) =>
+      message.event === expected.event &&
+      message.runId === expected.runId &&
+      message.role === expected.role,
+  );
+
+export const assertCorrelatedEventPresent = (
+  messages: ReadonlyArray<ProtocolMessage>,
+  expected: CorrelatedEventExpectation,
+): { readonly pass: boolean; readonly detail?: string } => {
+  const found = findCorrelatedEvent(messages, expected);
+  if (found === undefined) {
+    return {
+      pass: false,
+      detail: `missing correlated event ${expected.event} runId=${expected.runId} role=${expected.role}`,
+    };
+  }
+  return { pass: true };
+};
+
+export const assertCorrelatedEventSequence = (
+  messages: ReadonlyArray<ProtocolMessage>,
+  correlation: EventCorrelation,
+  events: readonly string[],
+): { readonly pass: boolean; readonly detail?: string } => {
+  let searchFrom = 0;
+  for (const event of events) {
+    const index = messages.findIndex(
+      (message, messageIndex) =>
+        messageIndex >= searchFrom && message.event === event && correlates(message, correlation),
+    );
+    if (index < 0) {
+      return {
+        pass: false,
+        detail: `missing correlated event ${event} runId=${correlation.runId} role=${correlation.role} after index ${String(searchFrom)}`,
+      };
+    }
+    searchFrom = index + 1;
+  }
+  return { pass: true };
+};
+
+export const assertNoCorrelatedEvent = (
+  messages: ReadonlyArray<ProtocolMessage>,
+  expected: CorrelatedEventExpectation,
+): { readonly pass: boolean; readonly detail?: string } => {
+  const found = findCorrelatedEvent(messages, expected);
+  if (found !== undefined) {
+    return {
+      pass: false,
+      detail: `unexpected correlated event ${expected.event} runId=${expected.runId} role=${expected.role}`,
+    };
+  }
+  return { pass: true };
 };
 
 /** True when READY appears before CONTENDER_SPAWN in the orchestration timeline. */
@@ -32,15 +106,31 @@ export const assertFlockReadyBeforeContender = (events: readonly string[]): bool
   return readyIndex < contenderIndex;
 };
 
-/** True when killed by SIGKILL and no CLOSED event was emitted. */
-export const assertExactSigkillProof = (result: {
-  readonly signal: string | null;
-  readonly exitCode?: number | null;
-  readonly messages: ReadonlyArray<{ readonly event: string }>;
-}): boolean => {
+/** True when killed by SIGKILL and no CLOSED event was emitted for the correlated session. */
+export const assertExactSigkillProof = (
+  result: {
+    readonly signal: string | null;
+    readonly exitCode?: number | null;
+    readonly messages: ReadonlyArray<{
+      readonly event: string;
+      readonly runId?: string;
+      readonly role?: ChildRole;
+    }>;
+  },
+  correlation?: EventCorrelation,
+): boolean => {
   if (result.signal === 'SIGTERM') return false;
   if (result.signal !== 'SIGKILL') return false;
-  if (result.messages.some((message) => message.event === 'CLOSED')) return false;
+  const closed =
+    correlation === undefined
+      ? result.messages.some((message) => message.event === 'CLOSED')
+      : result.messages.some(
+          (message) =>
+            message.event === 'CLOSED' &&
+            message.runId === correlation.runId &&
+            message.role === correlation.role,
+        );
+  if (closed) return false;
   return true;
 };
 
@@ -55,15 +145,25 @@ const detailMatches = (message: ProtocolMessage, expected: ContentExpectation): 
   );
 };
 
+const scopedMessages = (
+  messages: ReadonlyArray<ProtocolMessage>,
+  correlation?: EventCorrelation,
+): ReadonlyArray<ProtocolMessage> =>
+  correlation === undefined
+    ? messages
+    : messages.filter((message) => correlates(message, correlation));
+
 /** True when WRITE_CONFIRMED and READ_CONFIRMED carry matching content identity detail. */
 export const assertMatchingContentConfirmations = (
   messages: ReadonlyArray<ProtocolMessage>,
   expected: ContentExpectation,
+  correlation?: EventCorrelation,
 ): boolean => {
-  const writeConfirmed = messages.some(
+  const scoped = scopedMessages(messages, correlation);
+  const writeConfirmed = scoped.some(
     (message) => message.event === 'WRITE_CONFIRMED' && detailMatches(message, expected),
   );
-  const readConfirmed = messages.some(
+  const readConfirmed = scoped.some(
     (message) => message.event === 'READ_CONFIRMED' && detailMatches(message, expected),
   );
   return writeConfirmed && readConfirmed;
@@ -73,8 +173,9 @@ export const assertMatchingContentConfirmations = (
 export const assertReadConfirmationMatches = (
   messages: ReadonlyArray<ProtocolMessage>,
   expected: ContentExpectation,
+  correlation?: EventCorrelation,
 ): boolean =>
-  messages.some(
+  scopedMessages(messages, correlation).some(
     (message) => message.event === 'READ_CONFIRMED' && detailMatches(message, expected),
   );
 
@@ -82,16 +183,18 @@ export const assertReadConfirmationMatches = (
 export const assertWriteConfirmationMatches = (
   messages: ReadonlyArray<ProtocolMessage>,
   expected: ContentExpectation,
+  correlation?: EventCorrelation,
 ): boolean =>
-  messages.some(
+  scopedMessages(messages, correlation).some(
     (message) => message.event === 'WRITE_CONFIRMED' && detailMatches(message, expected),
   );
 
 const hasReadRejected = (
   messages: ReadonlyArray<ProtocolMessage>,
   proofType: 'OWNER_MISMATCH' | 'NAMESPACE_ISOLATED',
+  correlation?: EventCorrelation,
 ): boolean =>
-  messages.some((message) => {
+  scopedMessages(messages, correlation).some((message) => {
     if (message.event !== 'READ_REJECTED' || message.errorCode !== 'POLICY_DENIED') return false;
     const detail = message.detail;
     if (detail === undefined) return false;
@@ -109,16 +212,17 @@ const hasReadRejected = (
 export const assertScenarioBDenialsComplete = (
   messages: ReadonlyArray<ProtocolMessage>,
   expected: ContentExpectation,
+  correlation?: EventCorrelation,
 ): boolean => {
-  if (!assertMatchingContentConfirmations(messages, expected)) return false;
-  const legitReads = messages.filter(
+  if (!assertMatchingContentConfirmations(messages, expected, correlation)) return false;
+  const scoped = scopedMessages(messages, correlation);
+  const legitReads = scoped.filter(
     (message) => message.event === 'READ_CONFIRMED' && detailMatches(message, expected),
   );
   if (legitReads.length < 2) return false;
-  if (!hasReadRejected(messages, 'OWNER_MISMATCH')) return false;
-  if (!hasReadRejected(messages, 'NAMESPACE_ISOLATED')) return false;
-  // Not-found must never be labeled as READ_REJECTED / ACCESS_DENIED access proof.
-  const forgedAccess = messages.some(
+  if (!hasReadRejected(messages, 'OWNER_MISMATCH', correlation)) return false;
+  if (!hasReadRejected(messages, 'NAMESPACE_ISOLATED', correlation)) return false;
+  const forgedAccess = scoped.some(
     (message) =>
       (message.event === 'READ_REJECTED' || message.event === 'ACCESS_DENIED') &&
       (message.errorCode === 'VALIDATION_FAILED' ||
@@ -130,7 +234,10 @@ export const assertScenarioBDenialsComplete = (
 };
 
 /** True when contender emitted HELD with DURABLE_COMPOSITION_LOCK_HELD error code. */
-export const assertHeldLockCode = (messages: ReadonlyArray<ProtocolMessage>): boolean =>
-  messages.some(
+export const assertHeldLockCode = (
+  messages: ReadonlyArray<ProtocolMessage>,
+  correlation?: EventCorrelation,
+): boolean =>
+  scopedMessages(messages, correlation).some(
     (message) => message.event === 'HELD' && message.errorCode === 'DURABLE_COMPOSITION_LOCK_HELD',
   );

@@ -23,8 +23,9 @@ live process identity via schema v2 and verified status reader) is **closed** fo
 identity-bound readiness. Closure evidence: corrective re-review
 (`R6_M03_CORRECTIVE_SOURCE_REREVIEW_APPROVED_WITH_NOTES_FOR_FOCUSED_LINUX_REGRESSION`), P1–P18
 PASS, focused disposable Linux procfs regression PASS (manifest 93/93). Operators must use
-`scripts/neo/neo-status.mjs` for readiness truth; raw `ready.json` is not liveness proof. Next:
-**R6-L01**. See
+`scripts/neo/neo-status.mjs` for readiness truth; raw `ready.json` is not liveness proof.
+**R6-L01—L04 LOW hardening package implemented locally**; pending independent package review and
+focused Linux filesystem regression. Encryption and systemd hardening remain deferred. See
 [closeout record](validation/codex-review-6-r6-m03-live-process-identity-closeout.md). DNS resolution,
 redirect/rebinding SSRF checks, path/symlink-root isolation, MIME content sniffing,
 decompression-bomb limits, quarantine, persistent atomic replay/idempotency storage, real

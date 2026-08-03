@@ -326,9 +326,10 @@ Status is read-only. Initial independent source review blocked the implementatio
 (`R6_M03_INDEPENDENT_SOURCE_REVIEW_BLOCKED`); corrective re-review:
 `R6_M03_CORRECTIVE_SOURCE_REREVIEW_APPROVED_WITH_NOTES_FOR_FOCUSED_LINUX_REGRESSION`; P1–P18 PASS;
 focused disposable Linux procfs regression PASS (manifest 93/93). **R6-M03 is closed for live
-process identity-bound readiness.** Codex Review №6 overall remains blocked; next finding:
-**R6-L01**. See
-[R6-M03 closeout record](validation/codex-review-6-r6-m03-live-process-identity-closeout.md).
+process identity-bound readiness.** Codex Review №6 overall remains blocked; **R6-L01—L04 LOW
+hardening package implemented locally** (descriptor-safe config read, exclusive readiness temp,
+exact integration evidence, owner-only state permissions); pending independent package review and
+focused Linux filesystem regression. See implementation commit on `main`.
 
 **Codex Review №6 — R6-M02 production Node launcher gate (closeout):**
 Remediation commit `6427a34b07ef9a4b031cafa9737d660a2fc265b4` enforces `>=22.13.0 <23` in

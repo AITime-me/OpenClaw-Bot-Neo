@@ -116,12 +116,24 @@ export const HOST_PATH_BUILTIN_ALLOWLIST = Object.freeze({
 });
 
 export const NEO_RUNTIME_PATH_BUILTIN_ALLOWLIST = Object.freeze({
+  'neo-runtime/production/config-file-open-driver.ts': Object.freeze([
+    'node:fs',
+    'node:fs/promises',
+    'node:process',
+  ]),
   'neo-runtime/production/read-production-config-file.ts': Object.freeze([
     'node:fs/promises',
     'node:path',
   ]),
+  'neo-runtime/readiness/readiness-temp-open-driver.ts': Object.freeze([
+    'node:fs',
+    'node:fs/promises',
+    'node:process',
+  ]),
+  'neo-runtime/cli/apply-restrictive-process-umask.ts': Object.freeze(['node:process']),
   'neo-runtime/cli/read-neo-readiness-file.ts': Object.freeze(['node:fs/promises', 'node:path']),
   'neo-runtime/readiness/neo-runtime-readiness-file.ts': Object.freeze([
+    'node:crypto',
     'node:fs/promises',
     'node:path',
   ]),
