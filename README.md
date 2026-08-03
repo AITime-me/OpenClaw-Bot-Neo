@@ -158,10 +158,11 @@ Deployment prohibited.
 | Build 3.4 closeout (Build 3.4H) | recorded (see `docs/validation/build-3.4-neo-linux-systemd-validation.md`) |
 | Codex Review №6 R6-H01 readiness race (closeout) | closed for cooperative shutdown/readiness ordering (see `docs/validation/codex-review-6-r6-h01-readiness-race-closeout.md`) |
 | Codex Review №6 R6-H02 secret boundary (closeout) | closed for bounded secret-provenance durable-memory guarantee (see `docs/validation/codex-review-6-r6-h02-durable-memory-secret-boundary-closeout.md`) |
+| Codex Review №6 R6-M01 durable owner (closeout) | closed for retryable durable-owner preservation after fatal close failure (see `docs/validation/codex-review-6-r6-m01-retryable-durable-owner-closeout.md`) |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
-| Security approval | absent pending independent Codex Review №6 (R6-H01 and R6-H02 closed; R6-M01 next) |
+| Security approval | absent pending independent Codex Review №6 (R6-H01, R6-H02, R6-M01 closed; R6-M02 next) |
 
 **Codex Review №6 R6-H01 (closeout):** readiness shutdown/publication race remediated at
 `6b89e7a2d3be072328828bb465b66a937a48349e`. Closure evidence: deterministic race suite (20 passed),
@@ -177,9 +178,16 @@ Closure evidence: independent re-review
 secret-provenance guarantee.** Scanner remains defense-in-depth; universal free-text secret detection
 is not claimed.
 
-Codex Review №6 overall remains blocked; next finding is **R6-M01**. `deploymentReady` and
+**Codex Review №6 R6-M01 (closeout):** fatal close owner-loss remediated at
+`c73aaecd7e8e00e4f0a2ecfc64141063cabaeaf3`. Closure evidence: independent review
+(`APPROVE_WITH_NOTES_R6_M01_FOR_SECURITY_FINDING_CLOSEOUT` /
+`R6_M01_INDEPENDENT_REVIEW_APPROVED_WITH_NOTES_FOR_SECURITY_FINDING_CLOSEOUT`), O1–O15 PASS,
+**1537 passed** / 3 skipped, aggregate check PASS, **NO_LINUX_RERUN_REQUIRED**. **R6-M01 is closed
+for retryable durable-owner preservation after fatal close failure.**
+
+Codex Review №6 overall remains blocked; next finding is **R6-M02**. `deploymentReady` and
 `securityApprovalComplete` remain false. See
-[closeout record](docs/validation/codex-review-6-r6-h02-durable-memory-secret-boundary-closeout.md).
+[R6-M01 closeout record](docs/validation/codex-review-6-r6-m01-retryable-durable-owner-closeout.md).
 
 Build 2.1B добавляет versioned declarative manifests, default-deny permission composition,
 provider-independent registry/webhook contracts, отключённые examples для call-analysis и external

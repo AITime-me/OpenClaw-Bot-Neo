@@ -315,11 +315,22 @@ boundary, bound single-use clearance, narrow sink verifier, and native SQLite pr
 rejection. Independent re-review:
 `R6_H02_INDEPENDENT_REREVIEW_APPROVED_FOR_SECURITY_FINDING_CLOSEOUT`; P1–P18 PASS;
 **NO_LINUX_RERUN_REQUIRED**. **R6-H02 is closed for the bounded secret-provenance guarantee.**
-Scanner remains defense-in-depth; universal free-text secret detection is not claimed. Codex Review
-№6 overall remains blocked; next finding **R6-M01**. `securityApprovalComplete`, `deploymentReady`,
-secret provider, encryption, durable Approval/Audit, channels/connectors, VPS/production deployment
-remain false or not performed. No diagnostics changed.
-See [R6-H02 closeout record](validation/codex-review-6-r6-h02-durable-memory-secret-boundary-closeout.md)
+Scanner remains defense-in-depth; universal free-text secret detection is not claimed.
+
+**Codex Review №6 — R6-M01 retryable durable owner (closeout):**
+Remediation commit `c73aaecd7e8e00e4f0a2ecfc64141063cabaeaf3` preserves the unresolved durable
+owner across fatal close retries while lifecycle remains terminally `failed`, clears ownership
+only after confirmed cleanup success, and keeps fatal exit **12** / graceful timeout exit **13**
+honest. Independent review:
+`APPROVE_WITH_NOTES_R6_M01_FOR_SECURITY_FINDING_CLOSEOUT` /
+`R6_M01_INDEPENDENT_REVIEW_APPROVED_WITH_NOTES_FOR_SECURITY_FINDING_CLOSEOUT`; O1–O15 PASS;
+**NO_LINUX_RERUN_REQUIRED**. **R6-M01 is closed for retryable durable-owner preservation after
+fatal close failure.** Codex Review №6 overall remains blocked; next finding **R6-M02**.
+`securityApprovalComplete`, `deploymentReady`, secret provider, encryption, durable Approval/Audit,
+channels/connectors, VPS/production deployment remain false or not performed. No diagnostics
+changed. See
+[R6-M01 closeout record](validation/codex-review-6-r6-m01-retryable-durable-owner-closeout.md),
+[R6-H02 closeout record](validation/codex-review-6-r6-h02-durable-memory-secret-boundary-closeout.md),
 and [R6-H01 closeout record](validation/codex-review-6-r6-h01-readiness-race-closeout.md).
 
 Связанные документы: [расширяемость](extensibility.md), [интеграции](integrations.md),

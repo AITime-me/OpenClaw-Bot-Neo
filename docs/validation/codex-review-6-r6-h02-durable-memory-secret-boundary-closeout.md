@@ -195,8 +195,9 @@ Still false:
 
 R6-H02 does **not** close:
 
-1. **R6-M01** — fatal close failure may lose retryable owner cleanup state (**next highest priority**)
-2. **R6-M02** — production Node gate is not wired into launcher
+1. **R6-M01** — fatal close failure may lose retryable owner cleanup state — **CLOSED**
+   (see [R6-M01 closeout](codex-review-6-r6-m01-retryable-durable-owner-closeout.md))
+2. **R6-M02** — production Node gate is not wired into launcher (**next highest priority**)
 3. **R6-M03** — readiness/status is not bound to a live process identity
 4. **R6-L01** — config lstat/open TOCTOU
 5. **R6-L02** — readiness temp-file exclusive/no-follow hardening
@@ -206,7 +207,7 @@ R6-H02 does **not** close:
 9. online dependency/provenance review
 
 Codex Review №6 as a whole remains **blocked** pending remediation of remaining findings,
-starting with **R6-M01**.
+starting with **R6-M02**.
 
 ## Final R6-H02 disposition
 

@@ -76,10 +76,12 @@ describe('Codex Review 6 R6-H02 closeout record', () => {
   it('disclaims universal free-text detection and names next finding', () => {
     expect(record).toContain('does **not** claim universal free-text credential detection');
     expect(record).toContain('Arbitrary untyped free text may contain an unknown secret format');
-    const m01Index = record.indexOf('**R6-M01**');
+    const m02Index = record.indexOf('**R6-M02**');
     const openFindingsIndex = record.indexOf('## Open findings');
-    expect(m01Index).toBeGreaterThan(openFindingsIndex);
-    expect(record).toContain('starting with **R6-M01**');
+    expect(m02Index).toBeGreaterThan(openFindingsIndex);
+    expect(record).toContain('starting with **R6-M02**');
+    expect(record).toContain('R6-M01');
+    expect(record).toContain('CLOSED');
   });
 
   it('lists remaining M/L findings without production readiness claims', () => {
