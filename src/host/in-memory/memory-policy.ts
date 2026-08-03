@@ -23,7 +23,8 @@ export function createDenyByDefaultMemoryPolicy(): MemoryPolicyPort {
 
 /**
  * Explicit allow policy for local happy-path composition. Must be injected deliberately;
- * never selected as a hidden fallback.
+ * never selected as a hidden fallback. Cannot authorize secret-class content: mandatory
+ * secret-boundary guard in executeMemoryWrite runs before and independent of this policy.
  */
 export function createExplicitAllowMemoryPolicy(): MemoryPolicyPort {
   return {

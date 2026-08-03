@@ -370,8 +370,10 @@ only; deployment/security approval unchanged. Codex Review №6 pending; deploym
   (`R6_H01_INDEPENDENT_REVIEW_APPROVED_WITH_NOTES_FOR_LINUX_REGRESSION`), and non-authoritative
   disposable Linux L1–L5 regression (manifest 31/31). See
   [closeout record](validation/codex-review-6-r6-h01-readiness-race-closeout.md).
-- **R6-H02 (HIGH): OPEN** — raw secrets may reach durable memory through an injected allow-policy.
-  **Next highest-priority remediation.**
+- **R6-H02 (HIGH): LOCAL REMEDIATION IMPLEMENTED — pending independent review** — mandatory
+  non-overrideable secret-class/provenance boundary blocks durable memory persistence regardless of
+  injected product allow-policy. Scanner remains defense-in-depth; arbitrary untyped free-text secret
+  detection is not guaranteed. Secret Provider and encryption remain absent.
 - **R6-M01, R6-M02, R6-M03; R6-L01—R6-L04; deferred systemd hardening; online dependency/provenance
   review:** OPEN.
 

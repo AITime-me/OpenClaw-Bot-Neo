@@ -48,8 +48,10 @@ import {
   type AuthenticatedMemoryAccessContext,
 } from '../../src/core/domain/memory-access.internal.js';
 import {
+  issueSecretBoundaryClearance,
   sealSanitizedMetadata,
   sealSanitizedText,
+  sealVerifiedMemoryWrite,
 } from '../../src/core/domain/sanitized.internal.js';
 
 export const iso = (value: string): ISO8601 => {
@@ -218,6 +220,45 @@ export const writeCommand = (overrides: Partial<MemoryWriteCommand> = {}): Memor
   approvalId: null,
   ...overrides,
 });
+
+/** Seals a verified memory write with mandatory secret-boundary clearance for sink tests. */
+export const verifiedMemoryWriteForTests = (
+  overrides: {
+    readonly recordId?: MemoryRecordId;
+    readonly ownerId?: OwnerId;
+    readonly namespace?: MemoryNamespace;
+    readonly content?: string;
+    readonly metadata?: Readonly<Record<string, string>>;
+    readonly updatedAt?: ISO8601;
+  } = {},
+): VerifiedMemoryWrite => {
+  const write = sealVerifiedMemoryWrite(
+    {
+      recordId: overrides.recordId ?? asRecordId(),
+      ownerId: overrides.ownerId ?? asOwner(),
+      namespace: overrides.namespace ?? 'personal',
+      content: sealSanitizedText(overrides.content ?? 'note-body', 'allow'),
+      metadata: sealSanitizedMetadata(overrides.metadata ?? { origin: 'test' }, 'allow'),
+      source: ownerSource(),
+      provenance: {
+        capturedAt: iso(NOW),
+        initiatedBy: overrides.ownerId ?? asOwner(),
+        transformation: 'owner-stated',
+        ownerApproved: false,
+        crossProjectAccess: false,
+      },
+      privacyClassification: 'confidential',
+      trustLevel: 'owner-stated',
+      retentionPolicy: retentionPolicy(),
+      approvalId: null,
+      createdAt: iso(NOW),
+      updatedAt: overrides.updatedAt ?? iso(NOW),
+    },
+    issueSecretBoundaryClearance(),
+  );
+  if (write === null) throw new Error('failed to seal verified write for tests');
+  return write;
+};
 
 /** Builds a grant whose digest matches the actual operation that executeMemoryWrite will derive. */
 export const grantForCommand = (

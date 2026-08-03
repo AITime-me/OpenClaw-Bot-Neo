@@ -11,7 +11,8 @@ Accepted — implementation validation required.
 ## Consequences
 Cross-role synthesis требует явного policy path; provenance остаётся проверяемым.
 ## Security implications
-Scanner до записи, least access, deletion/retention и запрет secret storage.
+Scanner до записи, mandatory secret-class boundary (non-overrideable by product policy), least access,
+deletion/retention и запрет secret storage. Secret Provider и encryption не заявлены.
 ## Validation required
 Cross-namespace leakage tests, provenance integrity, retention and deletion tests.
 ## Rollback or revision conditions

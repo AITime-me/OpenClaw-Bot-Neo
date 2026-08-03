@@ -202,6 +202,13 @@ export const INTERNAL_MODULE_ALLOWLIST = {
   'core/domain/sanitized.internal.ts': [
     'core/domain/index.ts',
     'core/application/memory-write.service.ts',
+    'host/in-memory/memory-store.ts',
+    'host/storage/sqlite/sqlite-memory-port.ts',
+  ],
+  'core/domain/secret.internal.ts': [
+    'core/domain/index.ts',
+    'core/policy/memory-secret-boundary.ts',
+    'core/ports/secrets.port.ts',
   ],
   'core/domain/memory-access.internal.ts': [
     'core/domain/index.ts',

@@ -27,6 +27,8 @@ import type {
   SanitizedText,
   SensitiveCategory,
 } from '../domain/index.js';
+import type { MemoryContentSensitivity } from '../domain/secret.js';
+import { issueSecretBoundaryClearance } from '../domain/sanitized.internal.js';
 import {
   isAuthenticatedMemoryAccessContext,
   type AuthenticatedMemoryAccessContext,
@@ -44,6 +46,7 @@ import {
 import {
   authorizeMemoryAccess,
   classifyData,
+  evaluateMemorySecretBoundary,
   markUntrusted,
   validateApproval,
   type MemoryAuthorizationFailureCode,
@@ -84,6 +87,11 @@ export interface MemoryWriteCommand {
   readonly source: MemorySource;
   readonly retentionPolicy: MemoryRetentionPolicy;
   readonly approvalId: ApprovalId | null;
+  /**
+   * Trusted secret-bearing adapters mark credential-originating content. Ordinary user text must
+   * omit this field. Product policy cannot downgrade secret-class content.
+   */
+  readonly contentSensitivity?: MemoryContentSensitivity;
 }
 
 export interface MemoryWriteOutcome {
@@ -98,6 +106,7 @@ export type MemoryWriteFailure =
   | { readonly code: 'INVALID_CONTENT'; readonly detail: string }
   | { readonly code: 'SCANNER_UNAVAILABLE' }
   | { readonly code: 'SCAN_DENIED'; readonly categories: readonly SensitiveCategory[] }
+  | { readonly code: 'SECRET_CLASS_DENIED' }
   | { readonly code: 'AUTHORIZATION_DENIED'; readonly reason: MemoryAuthorizationFailureCode }
   | { readonly code: 'POLICY_UNAVAILABLE' }
   | { readonly code: 'POLICY_DENIED'; readonly reason: string }
@@ -236,6 +245,16 @@ export async function executeMemoryWrite(
   const untrusted = markUntrusted(normalized);
   const candidate = trustLevel === 'owner-stated' ? normalized : untrusted.value;
 
+  // 4b. Mandatory non-overrideable secret boundary before scanner (raw metadata may contain SecretData).
+  const secretBoundary = evaluateMemorySecretBoundary({
+    ...(command.contentSensitivity === undefined
+      ? {}
+      : { contentSensitivity: command.contentSensitivity }),
+    rawContent: command.rawContent,
+    rawMetadata: command.rawMetadata,
+  });
+  if ('code' in secretBoundary) return err({ code: secretBoundary.code });
+
   // 5. Scan text.
   const textScan = await deps.scanner.scanText(candidate, access.operation);
   if (!textScan.ok) return err({ code: 'SCANNER_UNAVAILABLE' });
@@ -252,6 +271,7 @@ export async function executeMemoryWrite(
         (finding) => finding.category,
       ),
     });
+
   const scanDecision = worstDecision(textScan.value.decision, metadataScan.value.decision);
   const content = sealSanitizedText(textScan.value.redacted, textScan.value.decision);
   const metadata = sealSanitizedMetadata(
@@ -323,21 +343,25 @@ export async function executeMemoryWrite(
   }
 
   // 14. Write through the memory port using the sealed contract only.
-  const verifiedWrite = sealVerifiedMemoryWrite({
-    recordId,
-    ownerId: access.ownerId,
-    namespace: command.targetNamespace,
-    content,
-    metadata,
-    source: command.source,
-    provenance: { ...provenance, ownerApproved: approvalId !== null },
-    privacyClassification,
-    trustLevel,
-    retentionPolicy: command.retentionPolicy,
-    approvalId,
-    createdAt: trustedIso,
-    updatedAt: trustedIso,
-  });
+  const secretClearance = issueSecretBoundaryClearance();
+  const verifiedWrite = sealVerifiedMemoryWrite(
+    {
+      recordId,
+      ownerId: access.ownerId,
+      namespace: command.targetNamespace,
+      content,
+      metadata,
+      source: command.source,
+      provenance: { ...provenance, ownerApproved: approvalId !== null },
+      privacyClassification,
+      trustLevel,
+      retentionPolicy: command.retentionPolicy,
+      approvalId,
+      createdAt: trustedIso,
+      updatedAt: trustedIso,
+    },
+    secretClearance,
+  );
   if (verifiedWrite === null || !isVerifiedMemoryWrite(verifiedWrite))
     return err({ code: 'DIGEST_FAILED' });
   const written = await deps.memory.write(verifiedWrite, access);

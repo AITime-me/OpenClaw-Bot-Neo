@@ -4,16 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { MemoryPort } from '../src/core/ports/index.js';
-import type {
-  MemoryNamespace,
-  MemoryQueryRequest,
-  VerifiedMemoryWrite,
-} from '../src/core/domain/index.js';
-import {
-  sealSanitizedMetadata,
-  sealSanitizedText,
-  sealVerifiedMemoryWrite,
-} from '../src/core/domain/sanitized.internal.js';
+import type { MemoryNamespace, MemoryQueryRequest } from '../src/core/domain/index.js';
 import {
   createInMemoryMemoryStore,
   createLocalStoragePlan,
@@ -37,10 +28,7 @@ import {
   asOwner,
   asRecordId,
   authenticatedAccess,
-  iso,
-  NOW,
-  ownerSource,
-  retentionPolicy,
+  verifiedMemoryWriteForTests,
 } from './support/fixtures.js';
 
 const require = createRequire(import.meta.url);
@@ -159,31 +147,13 @@ const verifiedWrite = (overrides: {
   readonly ownerId?: string;
   readonly namespace?: MemoryNamespace;
   readonly content?: string;
-}): VerifiedMemoryWrite => {
-  const write = sealVerifiedMemoryWrite({
+}) =>
+  verifiedMemoryWriteForTests({
     recordId: asRecordId(overrides.recordId ?? 'record-1'),
     ownerId: asOwner(overrides.ownerId ?? 'owner-1'),
     namespace: overrides.namespace ?? 'personal',
-    content: sealSanitizedText(overrides.content ?? 'note-body', 'allow'),
-    metadata: sealSanitizedMetadata({ origin: 'test' }, 'allow'),
-    source: ownerSource(),
-    provenance: {
-      capturedAt: iso(NOW),
-      initiatedBy: asOwner(overrides.ownerId ?? 'owner-1'),
-      transformation: 'owner-stated',
-      ownerApproved: false,
-      crossProjectAccess: false,
-    },
-    privacyClassification: 'confidential',
-    trustLevel: 'owner-stated',
-    retentionPolicy: retentionPolicy(),
-    approvalId: null,
-    createdAt: iso(NOW),
-    updatedAt: iso(NOW),
+    content: overrides.content ?? 'note-body',
   });
-  if (write === null) throw new Error('seal');
-  return write;
-};
 
 const queryRequest = (
   overrides: Partial<MemoryQueryRequest> & { readonly limit: number },

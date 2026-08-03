@@ -64,7 +64,8 @@
 
 - Разрешены только согласованные namespaces; cross-namespace read/write deny-by-default.
 - Каждая запись содержит provenance, source date, confidence, classification и retention; unverified claims не становятся фактами.
-- Secret in ordinary string блокируется до memory; TypeScript/static type не считается защитой.
+- Secret in ordinary string is blocked by scanner defense-in-depth and by explicit secret-class
+  provenance (`SECRET_CLASS_DENIED`) before memory; TypeScript/static type alone is not protection.
 - URL credentials блокируются или маскируются до любого sink.
 - Private key block никогда не достигает memory/logs.
 - Telegram bot token никогда не достигает memory/logs.

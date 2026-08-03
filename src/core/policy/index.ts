@@ -15,3 +15,4 @@ export * from './size-limits.js';
 export * from './retention.js';
 export * from './data-classification.js';
 export * from './untrusted-content.js';
+export * from './memory-secret-boundary.js';

@@ -9,6 +9,26 @@ import type { SafeScanDecision } from './sensitive-data.js';
 import { deepFreeze, freezeStringRecord } from './immutable.js';
 
 /**
+ * Mandatory evidence that a memory write passed the non-overrideable secret boundary.
+ * Trust is module-private WeakMap membership; callers cannot forge clearance.
+ */
+export interface SecretBoundaryClearance {
+  readonly kind: 'secret-boundary-clearance';
+}
+
+const clearanceRegistry = new WeakMap<object, true>();
+
+/** Issued only after the mandatory memory-write secret guard succeeds. */
+export const issueSecretBoundaryClearance = (): SecretBoundaryClearance => {
+  const view = deepFreeze({ kind: 'secret-boundary-clearance' as const });
+  clearanceRegistry.set(view, true);
+  return view;
+};
+
+export const isSecretBoundaryClearance = (value: unknown): value is SecretBoundaryClearance =>
+  typeof value === 'object' && value !== null && clearanceRegistry.has(value);
+
+/**
  * Seals for values that already passed the sensitive-data scanner.
  * Trust is module-private WeakMap membership (object identity), not a Symbol property.
  * Factories are not part of the public API.
@@ -69,6 +89,7 @@ interface VerifiedMemoryWriteCanonical {
 const sanitizedTextRegistry = new WeakMap<object, SanitizedTextCanonical>();
 const sanitizedMetadataRegistry = new WeakMap<object, SanitizedMetadataCanonical>();
 const verifiedMemoryWriteRegistry = new WeakMap<object, VerifiedMemoryWriteCanonical>();
+const verifiedMemoryWriteClearanceRegistry = new WeakMap<object, SecretBoundaryClearance>();
 
 export const sealSanitizedText = (value: string, scanDecision: SafeScanDecision): SanitizedText => {
   if (typeof value !== 'string') throw new TypeError('Sanitized text must be a string.');
@@ -94,21 +115,25 @@ export const sealSanitizedMetadata = (
   return view;
 };
 
-export const sealVerifiedMemoryWrite = (write: {
-  readonly recordId: MemoryRecordId;
-  readonly ownerId: OwnerId;
-  readonly namespace: MemoryNamespace;
-  readonly content: SanitizedText;
-  readonly metadata: SanitizedMetadata;
-  readonly source: MemorySource;
-  readonly provenance: MemoryProvenance;
-  readonly privacyClassification: PrivacyClassification;
-  readonly trustLevel: MemoryTrustLevel;
-  readonly retentionPolicy: MemoryRetentionPolicy;
-  readonly approvalId: ApprovalId | null;
-  readonly createdAt: ISO8601;
-  readonly updatedAt: ISO8601;
-}): VerifiedMemoryWrite | null => {
+export const sealVerifiedMemoryWrite = (
+  write: {
+    readonly recordId: MemoryRecordId;
+    readonly ownerId: OwnerId;
+    readonly namespace: MemoryNamespace;
+    readonly content: SanitizedText;
+    readonly metadata: SanitizedMetadata;
+    readonly source: MemorySource;
+    readonly provenance: MemoryProvenance;
+    readonly privacyClassification: PrivacyClassification;
+    readonly trustLevel: MemoryTrustLevel;
+    readonly retentionPolicy: MemoryRetentionPolicy;
+    readonly approvalId: ApprovalId | null;
+    readonly createdAt: ISO8601;
+    readonly updatedAt: ISO8601;
+  },
+  clearance: SecretBoundaryClearance,
+): VerifiedMemoryWrite | null => {
+  if (!isSecretBoundaryClearance(clearance)) return null;
   if (!isSanitizedText(write.content) || !isSanitizedMetadata(write.metadata)) return null;
   const contentCanonical = sanitizedTextRegistry.get(write.content);
   const metadataCanonical = sanitizedMetadataRegistry.get(write.metadata);
@@ -148,6 +173,7 @@ export const sealVerifiedMemoryWrite = (write: {
     updatedAt: write.updatedAt,
   };
   verifiedMemoryWriteRegistry.set(view, canonical);
+  verifiedMemoryWriteClearanceRegistry.set(view, clearance);
   return view;
 };
 
@@ -170,3 +196,9 @@ export const getSanitizedMetadataCanonical = (
 export const getVerifiedMemoryWriteCanonical = (
   value: VerifiedMemoryWrite,
 ): VerifiedMemoryWriteCanonical | null => verifiedMemoryWriteRegistry.get(value) ?? null;
+
+export const verifiedMemoryWriteHasClearance = (value: unknown): boolean =>
+  typeof value === 'object' &&
+  value !== null &&
+  verifiedMemoryWriteRegistry.has(value) &&
+  verifiedMemoryWriteClearanceRegistry.has(value);

@@ -2,6 +2,7 @@ export * from './identity.js';
 export * from './operation-context.js';
 export * from './message.js';
 export * from './privacy.js';
+export * from './secret.js';
 export * from './capability.js';
 export * from './media-kind.js';
 export * from './media-asset.js';

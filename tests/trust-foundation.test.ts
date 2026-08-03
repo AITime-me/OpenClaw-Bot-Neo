@@ -16,6 +16,8 @@ import {
   sealSanitizedMetadata,
   sealSanitizedText,
   sealVerifiedMemoryWrite,
+  issueSecretBoundaryClearance,
+  verifiedMemoryWriteHasClearance,
 } from '../src/core/domain/sanitized.internal.js';
 import { freezeStringRecord } from '../src/core/domain/immutable.js';
 import {
@@ -162,34 +164,38 @@ describe('FIN-001 sanitized snapshot immutability', () => {
   it('rejects clones of sealed metadata and verified writes', () => {
     const content = sealSanitizedText('note', 'allow');
     const metadata = sealSanitizedMetadata({ a: '1' }, 'allow');
-    const write = sealVerifiedMemoryWrite({
-      recordId: asRecordId(),
-      ownerId: asOwner(),
-      namespace: 'personal',
-      content,
-      metadata,
-      source: { kind: 'owner', reference: 'note', observedAt: iso(NOW) },
-      provenance: {
-        capturedAt: iso(NOW),
-        initiatedBy: asOwner(),
-        transformation: 'owner-stated',
-        ownerApproved: false,
-        crossProjectAccess: false,
+    const write = sealVerifiedMemoryWrite(
+      {
+        recordId: asRecordId(),
+        ownerId: asOwner(),
+        namespace: 'personal',
+        content,
+        metadata,
+        source: { kind: 'owner', reference: 'note', observedAt: iso(NOW) },
+        provenance: {
+          capturedAt: iso(NOW),
+          initiatedBy: asOwner(),
+          transformation: 'owner-stated',
+          ownerApproved: false,
+          crossProjectAccess: false,
+        },
+        privacyClassification: 'confidential',
+        trustLevel: 'owner-stated',
+        retentionPolicy: {
+          expiresAt: iso('2027-01-01T00:00:00.000Z'),
+          reviewAt: iso('2026-10-01T00:00:00.000Z'),
+          deleteOnExpiry: true,
+        },
+        approvalId: null,
+        createdAt: iso(NOW),
+        updatedAt: iso(NOW),
       },
-      privacyClassification: 'confidential',
-      trustLevel: 'owner-stated',
-      retentionPolicy: {
-        expiresAt: iso('2027-01-01T00:00:00.000Z'),
-        reviewAt: iso('2026-10-01T00:00:00.000Z'),
-        deleteOnExpiry: true,
-      },
-      approvalId: null,
-      createdAt: iso(NOW),
-      updatedAt: iso(NOW),
-    });
+      issueSecretBoundaryClearance(),
+    );
     expect(write).not.toBeNull();
     if (write === null) return;
     expect(isVerifiedMemoryWrite(write)).toBe(true);
+    expect(verifiedMemoryWriteHasClearance(write)).toBe(true);
     expect(Object.isFrozen(write)).toBe(true);
     expect(Object.isFrozen(write.provenance)).toBe(true);
     rejectAllCopies(isSanitizedMetadata, metadata);
@@ -264,6 +270,8 @@ describe('FIN-001 sanitized snapshot immutability', () => {
     expect(names).not.toContain('sealSanitizedText');
     expect(names).not.toContain('sealSanitizedMetadata');
     expect(names).not.toContain('sealVerifiedMemoryWrite');
+    expect(names).not.toContain('issueSecretBoundaryClearance');
+    expect(names).not.toContain('sealSecretData');
   });
 });
 

@@ -8,6 +8,7 @@ export async function executeMemoryWrite(deps, access, command) {
   readTrustedTimestamp(deps.clock);
   normalizeMemoryWriteContent(command.rawContent);
   markUntrusted(command.rawContent);
+  evaluateMemorySecretBoundary({ contentSensitivity: command.contentSensitivity, rawContent: command.rawContent, rawMetadata: command.rawMetadata });
   await deps.scanner.scanText(command.rawContent, access.operation);
   await deps.scanner.scanMetadata(command.rawMetadata, access.operation);
   classifyData('owner');
@@ -33,6 +34,7 @@ const nestedCanonicalStages = `
   readTrustedTimestamp(deps.clock);
   normalizeMemoryWriteContent(command.rawContent);
   markUntrusted(command.rawContent);
+  evaluateMemorySecretBoundary({ contentSensitivity: command.contentSensitivity, rawContent: command.rawContent, rawMetadata: command.rawMetadata });
   deps.scanner.scanText(command.rawContent, access.operation);
   deps.scanner.scanMetadata(command.rawMetadata, access.operation);
   classifyData('owner');
@@ -138,6 +140,7 @@ export async function executeMemoryWrite(deps, access, command) {
   readTrustedTimestamp(deps.clock);
   normalizeMemoryWriteContent(command.rawContent);
   markUntrusted(command.rawContent);
+  evaluateMemorySecretBoundary({ contentSensitivity: command.contentSensitivity, rawContent: command.rawContent, rawMetadata: command.rawMetadata });
   await deps.scanner.scanText(command.rawContent, access.operation);
   await deps.scanner.scanMetadata(command.rawMetadata, access.operation);
   classifyData('owner');
@@ -208,6 +211,7 @@ function helper(deps, access, command) {
   readTrustedTimestamp(deps.clock);
   normalizeMemoryWriteContent(command.rawContent);
   markUntrusted(command.rawContent);
+  evaluateMemorySecretBoundary({ contentSensitivity: command.contentSensitivity, rawContent: command.rawContent, rawMetadata: command.rawMetadata });
   deps.scanner.scanText(command.rawContent, access.operation);
   deps.scanner.scanMetadata(command.rawMetadata, access.operation);
   classifyData('owner');
@@ -315,6 +319,7 @@ export async function executeMemoryWrite(deps, access, command) {
   readTrustedTimestamp(deps.clock);
   normalizeMemoryWriteContent(command.rawContent);
   markUntrusted(command.rawContent);
+  evaluateMemorySecretBoundary({ contentSensitivity: command.contentSensitivity, rawContent: command.rawContent, rawMetadata: command.rawMetadata });
   await deps.scanner.scanText(command.rawContent, access.operation);
   await deps.scanner.scanMetadata(command.rawMetadata, access.operation);
   classifyData('owner');

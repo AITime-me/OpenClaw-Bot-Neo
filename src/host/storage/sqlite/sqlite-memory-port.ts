@@ -16,6 +16,7 @@ import {
   type VerifiedMemoryWrite,
 } from '../../../core/domain/index.js';
 import { authorizeMemoryAccess } from '../../../core/policy/namespace-isolation.js';
+import { verifiedMemoryWriteHasClearance } from '../../../core/domain/sanitized.internal.js';
 import type { MemoryPort } from '../../../core/ports/index.js';
 import { memoryRecordNotFound } from '../../memory-port-errors.js';
 import type { SqliteDatabase, SqliteStatement } from './better-sqlite3-driver.js';
@@ -241,6 +242,13 @@ export const createSqliteMemoryPortConnection = (
       if (denied !== null) return Promise.resolve(err(denied));
       if (write.ownerId !== access.ownerId)
         return Promise.resolve(err(authorizationDenied('OWNER_MISMATCH', 'Write owner mismatch.')));
+      if (!verifiedMemoryWriteHasClearance(write))
+        return Promise.resolve(
+          err({
+            code: 'VALIDATION_FAILED',
+            reason: 'Memory write lacks secret boundary clearance.',
+          }),
+        );
 
       const encoded = encodeVerifiedWriteForStorage(write);
       if (!encoded.ok)

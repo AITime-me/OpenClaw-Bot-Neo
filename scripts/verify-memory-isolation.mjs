@@ -84,6 +84,7 @@ const STAGE_ALIASES = Object.freeze({
   markUntrusted: 'untrusted-marking',
   'deps.scanner.scanText': 'text-scan',
   'deps.scanner.scanMetadata': 'metadata-scan',
+  evaluateMemorySecretBoundary: 'secret-boundary',
   classifyData: 'privacy-classification',
   classificationFor: 'privacy-classification',
   authorizeMemoryAccess: 'namespace-authorization',
@@ -193,6 +194,7 @@ const REQUIRED_ORDER = Object.freeze([
   'trusted-clock',
   'input-normalization',
   'untrusted-marking',
+  'secret-boundary',
   'text-scan',
   'metadata-scan',
   'privacy-classification',
@@ -986,6 +988,7 @@ export function analyzeExecuteMemoryWrite(sourceText, fileName = 'memory-write.s
       'input-normalization',
       'trusted-clock',
       'untrusted-marking',
+      'secret-boundary',
       'text-scan',
       'metadata-scan',
       'namespace-authorization',
@@ -1138,8 +1141,10 @@ export async function executeMemoryWrite(deps, access, command) {
   readTrustedTimestamp(deps.clock);
   normalizeMemoryWriteContent(command.rawContent);
   markUntrusted(command.rawContent);
+  evaluateMemorySecretBoundary({ contentSensitivity: command.contentSensitivity, rawContent: command.rawContent, rawMetadata: command.rawMetadata });
   await deps.scanner.scanText(command.rawContent, access.operation);
   await deps.scanner.scanMetadata(command.rawMetadata, access.operation);
+  evaluateMemorySecretBoundary({ contentSensitivity: command.contentSensitivity, rawContent: command.rawContent, rawMetadata: command.rawMetadata });
   classifyData('owner');
   authorizeMemoryAccess(access, 'write', { ownerId: access.ownerId, namespace: command.targetNamespace });
   const policyResult = await deps.policy.evaluate({}, access);
@@ -1360,8 +1365,10 @@ export async function executeMemoryWrite(deps, access, command) {
   readTrustedTimestamp(deps.clock);
   normalizeMemoryWriteContent(command.rawContent);
   markUntrusted(command.rawContent);
+  evaluateMemorySecretBoundary({ contentSensitivity: command.contentSensitivity, rawContent: command.rawContent, rawMetadata: command.rawMetadata });
   await deps.scanner.scanText(command.rawContent, access.operation);
   await deps.scanner.scanMetadata(command.rawMetadata, access.operation);
+  evaluateMemorySecretBoundary({ contentSensitivity: command.contentSensitivity, rawContent: command.rawContent, rawMetadata: command.rawMetadata });
   classifyData('owner');
   authorizeMemoryAccess(access, 'write', { ownerId: access.ownerId, namespace: command.targetNamespace });
   const policyResult = await deps.policy.evaluate({}, access);
@@ -1391,8 +1398,10 @@ export async function executeMemoryWrite(deps, access, command) {
   readTrustedTimestamp(deps.clock);
   normalizeMemoryWriteContent(command.rawContent);
   markUntrusted(command.rawContent);
+  evaluateMemorySecretBoundary({ contentSensitivity: command.contentSensitivity, rawContent: command.rawContent, rawMetadata: command.rawMetadata });
   await deps.scanner.scanText(command.rawContent, access.operation);
   await deps.scanner.scanMetadata(command.rawMetadata, access.operation);
+  evaluateMemorySecretBoundary({ contentSensitivity: command.contentSensitivity, rawContent: command.rawContent, rawMetadata: command.rawMetadata });
   classifyData('owner');
   authorizeMemoryAccess(access, 'write', { ownerId: access.ownerId, namespace: command.targetNamespace });
   const policyResult = await deps.policy.evaluate({}, access);
@@ -1421,8 +1430,10 @@ export async function executeMemoryWrite(deps, access, command) {
   readTrustedTimestamp(deps.clock);
   normalizeMemoryWriteContent(command.rawContent);
   markUntrusted(command.rawContent);
+  evaluateMemorySecretBoundary({ contentSensitivity: command.contentSensitivity, rawContent: command.rawContent, rawMetadata: command.rawMetadata });
   await deps.scanner.scanText(command.rawContent, access.operation);
   await deps.scanner.scanMetadata(command.rawMetadata, access.operation);
+  evaluateMemorySecretBoundary({ contentSensitivity: command.contentSensitivity, rawContent: command.rawContent, rawMetadata: command.rawMetadata });
   classifyData('owner');
   authorizeMemoryAccess(access, 'write', { ownerId: access.ownerId, namespace: command.targetNamespace });
   await deps.policy.evaluate({}, access);
