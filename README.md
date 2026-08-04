@@ -307,6 +307,11 @@ remains in-memory; ApprovalPort/AuditPort ephemeral; no cross-port transaction o
 Сервер/VPS не куплен. Deployment запрещён.
 Security approval отсутствует (Codex Review №6 pending). Build №3 целиком не завершён.
 
+**Build 3.5B (Connector Platform Core):** implemented locally; connector contracts, SDK,
+in-memory registries, orchestrator, and offline reference connector only. No real connectors,
+OAuth, network, production Secret Provider (`SECRET_PROVIDER_CONFIGURED=false`), or production
+composition wiring. Pending independent review.
+
 Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate
 (override запрещён). Review/tooling runner может использовать `OPENCLAW_REVIEW_NODE_OVERRIDE=1`
 только для локального tooling вне production gate; это не замена verified Node 22.13.0 PASS.

@@ -430,3 +430,12 @@ only; deployment/security approval unchanged. Codex Review №6 pending; deploym
 
 Codex Review №6 as a whole remains **blocked**. `securityApprovalComplete` and `deploymentReady`
 remain false. Production/VPS/connectors remain prohibited.
+
+## Connector platform (Build 3.5B)
+
+Tool invocation uses separate tool-scoped ports (`ToolPolicyEngine`, `ToolApprovalPort`,
+`ToolAuditPort`, `ConnectorSecretProvider`) and does not replace memory approval/audit/secret
+contracts. Secret handles resolve only after policy allow and approval consumption. Connector
+output is always untrusted. `FINANCIAL` side-effect tools are rejected at manifest validation and
+hard-denied by default policy. Read-only financial analysis remains representable as `READ_ONLY`.
+No production Secret Provider is configured (`SECRET_PROVIDER_CONFIGURED=false`).

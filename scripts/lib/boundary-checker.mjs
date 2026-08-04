@@ -25,7 +25,11 @@ export const CORE_LAYER_RULES = {
     'core/policy',
     'core/routing',
     'core/application',
+    'connectors/sdk',
   ],
+  'connectors/sdk': ['core/domain', 'connectors/sdk'],
+  'connectors/reference': ['core/domain', 'connectors/sdk', 'connectors/reference'],
+  connectors: ['connectors'],
   /**
    * App-private local composition (Build 3.0+), pure config bootstrap (Build 3.1),
    * storage boundary/schema contract (Build 3.2), POSIX storage-root safe-open (Build 3.3B1),

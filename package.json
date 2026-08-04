@@ -16,7 +16,7 @@
     "test": "vitest",
     "test:run": "vitest run",
     "check:node": "node scripts/check-node.mjs",
-    "check:boundaries": "depcruise src --config .dependency-cruiser.cjs && node scripts/verify-boundaries.mjs && node scripts/verify-memory-isolation.mjs && node scripts/verify-integration-boundaries.mjs",
+    "check:boundaries": "depcruise src --config .dependency-cruiser.cjs && node scripts/verify-boundaries.mjs && node scripts/verify-memory-isolation.mjs && node scripts/verify-integration-boundaries.mjs && node scripts/verify-connector-boundaries.mjs",
     "check:secrets": "node scripts/check-secret-patterns.mjs",
     "check:hygiene": "node scripts/verify-repo-hygiene.mjs",
     "check:systemd-template": "node scripts/validate-neo-systemd-template.mjs",

@@ -19,18 +19,62 @@ module.exports = {
     layer('routing-depends-on-domain-and-ports', 'routing', ['domain', 'ports', 'routing']),
     layer('config-depends-on-domain-and-routing', 'config', ['domain', 'routing', 'config']),
     layer('runtime-is-isolated', 'runtime', ['runtime']),
-    layer('application-depends-on-core-only', 'application', [
-      'domain',
-      'ports',
-      'policy',
-      'routing',
-      'application',
-    ]),
+    {
+      name: 'application-depends-on-core-only',
+      severity: 'error',
+      comment:
+        'Application may depend only on allowed core layers (connector subpackage uses a separate rule).',
+      from: { path: '^src/core/application', pathNot: '^src/core/application/connector' },
+      to: {
+        pathNot: '^src/core/(domain|ports|policy|routing|application)',
+        dependencyTypesNot: ['core'],
+      },
+    },
+    {
+      name: 'connector-application-may-use-sdk',
+      severity: 'error',
+      comment: 'Connector application modules may import connector SDK contracts only.',
+      from: { path: '^src/core/application/connector' },
+      to: {
+        path: '^src/',
+        pathNot: '^src/(core/(domain|ports|application/connector)|connectors/sdk)',
+      },
+    },
+    {
+      name: 'connector-sdk-domain-only',
+      severity: 'error',
+      comment: 'Connector SDK imports connector domain contracts only.',
+      from: { path: '^src/connectors/sdk' },
+      to: {
+        path: '^src/',
+        pathNot: '^src/(core/domain|connectors/sdk)',
+      },
+    },
+    {
+      name: 'connector-reference-test-only',
+      severity: 'error',
+      comment: 'Reference connector is test/dev only; production must not import it.',
+      from: {
+        path: '^src/',
+        pathNot: '^src/connectors/reference',
+      },
+      to: { path: '^src/connectors/reference' },
+    },
+    {
+      name: 'neo-runtime-no-connector-internals',
+      severity: 'error',
+      comment: 'Neo runtime must not import connector platform internals.',
+      from: { path: '^src/neo-runtime' },
+      to: { path: '^src/(core/application/connector|connectors)' },
+    },
     {
       name: 'core-uses-known-layers-only',
       severity: 'error',
       comment: 'Any new directory inside src is forbidden for core until it is allowlisted.',
-      from: { path: '^src/core' },
+      from: {
+        path: '^src/core',
+        pathNot: '^src/core/application/connector',
+      },
       to: {
         path: '^src/',
         pathNot: '^src/core/(domain|ports|policy|routing|config|runtime|application)',
