@@ -24,7 +24,10 @@ module.exports = {
       severity: 'error',
       comment:
         'Application may depend only on allowed core layers (connector subpackage uses a separate rule).',
-      from: { path: '^src/core/application', pathNot: '^src/core/application/connector' },
+      from: {
+        path: '^src/core/application',
+        pathNot: '^src/core/application/(connector|infrastructure)',
+      },
       to: {
         pathNot: '^src/core/(domain|ports|policy|routing|application)',
         dependencyTypesNot: ['core'],
@@ -38,6 +41,47 @@ module.exports = {
       to: {
         path: '^src/',
         pathNot: '^src/(core/(domain|ports|application/connector)|connectors/sdk)',
+      },
+    },
+    {
+      name: 'infrastructure-application-may-use-connector-facades',
+      severity: 'error',
+      comment:
+        'Infrastructure application may import domain, ports, connector facades, and itself only.',
+      from: { path: '^src/core/application/infrastructure' },
+      to: {
+        path: '^src/',
+        pathNot: '^src/core/(domain|ports|application/(infrastructure|connector))',
+      },
+    },
+    {
+      name: 'infrastructure-connector-sdk-and-application-only',
+      severity: 'error',
+      comment: 'Infrastructure connector imports SDK and infrastructure application only.',
+      from: { path: '^src/connectors/infrastructure' },
+      to: {
+        path: '^src/',
+        pathNot: '^src/(core/(domain|application/infrastructure)|connectors/(sdk|infrastructure))',
+      },
+    },
+    {
+      name: 'infrastructure-reference-test-only',
+      severity: 'error',
+      comment: 'Reference infrastructure adapters are test/dev only.',
+      from: {
+        path: '^src/',
+        pathNot: '^src/infrastructure/reference',
+      },
+      to: { path: '^src/infrastructure/reference' },
+    },
+    {
+      name: 'infrastructure-domain-pure',
+      severity: 'error',
+      comment: 'Infrastructure domain imports domain/infrastructure only.',
+      from: { path: '^src/core/domain/infrastructure' },
+      to: {
+        path: '^src/',
+        pathNot: '^src/core/domain/(infrastructure|identity|immutable|connector|result)',
       },
     },
     {
@@ -84,7 +128,7 @@ module.exports = {
       comment: 'Any new directory inside src is forbidden for core until it is allowlisted.',
       from: {
         path: '^src/core',
-        pathNot: '^src/core/application/connector',
+        pathNot: '^src/core/application/(connector|infrastructure)',
       },
       to: {
         path: '^src/',

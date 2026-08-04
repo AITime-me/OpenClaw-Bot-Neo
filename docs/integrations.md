@@ -7,6 +7,11 @@ wiring, or production Secret Provider is configured. No push performed. See
 [connector platform](connector-platform.md) and
 [closeout record](validation/build-3.5b-connector-platform-core-closeout.md).
 
+Build 3.6B adds infrastructure fleet inventory contracts, restricted host/provider operation
+contracts, Timeweb contract only, and offline reference adapters on feature branch
+`build-3-6b-infrastructure-fleet-foundation`; pending independent review; no real Timeweb/SSH/VPS;
+no production connector wiring. See [infrastructure platform](infrastructure-platform.md).
+
 Build 2.1B/2.1D/2.1E/2.1H содержат только provider-independent contracts и отключённые example
 manifests. Реальных adapter, integration, webhook endpoint, cryptographic verifier и сетевого
 вызова нет. Trusted derivation gateways принимают untrusted observations от будущих adapters и

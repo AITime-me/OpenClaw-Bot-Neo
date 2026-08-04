@@ -447,3 +447,13 @@ ports require an injected `ClockPort`; grant and consume evaluate expiry in the 
 No production Secret Provider is configured (`SECRET_PROVIDER_CONFIGURED=false`). Durable
 approval/audit persistence absent. `securityApprovalComplete` and `deploymentReady` remain false.
 No push performed. See [closeout record](validation/build-3.5b-connector-platform-core-closeout.md).
+
+## Infrastructure platform (Build 3.6B)
+
+Infrastructure inventories are metadata-only and cannot execute operations. Infrastructure tools reuse
+the Build 3.5B invocation pipeline exclusively. Provider/host/log output is untrusted. Server deletion,
+financial provider actions, firewall mutation and credential rotation are hard-denied in foundation
+policy. Reference infrastructure adapters are test-only. No Timeweb network client or SSH
+implementation. `SECRET_PROVIDER_CONFIGURED=false`. `deploymentReady` remains false. Pending
+independent review on feature branch `build-3-6b-infrastructure-fleet-foundation`. See
+[infrastructure platform](infrastructure-platform.md).

@@ -392,6 +392,14 @@ remains at `16bf1f4` pending owner-directed synchronization. No push performed. 
 [connector platform](connector-platform.md) and
 [closeout record](validation/build-3.5b-connector-platform-core-closeout.md).
 
+**Build 3.6B — Infrastructure Fleet Foundation (local feature branch):**
+Adds infrastructure domain contracts, in-memory environment/server/service inventories, provider-neutral
+and restricted host operation contracts, Timeweb contract only, infrastructure tool manifests routed
+through Build 3.5B `ToolInvocationOrchestrator`, offline reference provider/host adapters, and
+behavioural tests. Pending independent review. No Timeweb API client, SSH implementation, VPS,
+production inventory wiring, or deployment. `DEPLOYMENT_READY=false`. See
+[infrastructure platform](infrastructure-platform.md).
+
 Связанные документы: [расширяемость](extensibility.md), [интеграции](integrations.md),
 [VoiceProfile](voice-profile.md), [каналы](channels.md), [безопасность](security-policy.md),
 [deployment](deployment.md), [ADR runtime](adr/0001-openclaw-as-runtime.md).

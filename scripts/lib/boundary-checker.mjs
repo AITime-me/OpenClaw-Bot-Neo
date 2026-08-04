@@ -25,6 +25,12 @@ export const CORE_LAYER_RULES = {
     'core/application/connector',
     'connectors/sdk',
   ],
+  'core/application/infrastructure': [
+    'core/domain',
+    'core/ports',
+    'core/application/infrastructure',
+    'core/application/connector',
+  ],
   'core/application': [
     'core/domain',
     'core/ports',
@@ -34,6 +40,13 @@ export const CORE_LAYER_RULES = {
   ],
   'connectors/sdk': ['core/domain', 'connectors/sdk'],
   'connectors/reference': ['core/domain', 'connectors/sdk', 'connectors/reference'],
+  'connectors/infrastructure': [
+    'core/domain',
+    'connectors/sdk',
+    'connectors/infrastructure',
+    'core/application/infrastructure',
+  ],
+  'infrastructure/reference': ['core/domain', 'infrastructure/reference'],
   connectors: ['connectors'],
   /**
    * App-private local composition (Build 3.0+), pure config bootstrap (Build 3.1),

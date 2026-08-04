@@ -322,6 +322,12 @@ durable approval/audit persistence, or production composition wiring. Feature br
 `16bf1f4` pending owner-directed synchronization. No push performed. See
 [closeout record](docs/validation/build-3.5b-connector-platform-core-closeout.md).
 
+**Build 3.6B (Infrastructure Fleet Foundation):** implemented locally on feature branch
+`build-3-6b-infrastructure-fleet-foundation`; pending independent review. Fleet inventory contracts,
+restricted operations, infrastructure tool manifests via Build 3.5B orchestrator, offline reference
+provider/host only. No Timeweb API client, SSH implementation, VPS, production inventory wiring, or
+deployment. `DEPLOYMENT_READY=false`. See [infrastructure platform](docs/infrastructure-platform.md).
+
 Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate
 (override запрещён). Review/tooling runner может использовать `OPENCLAW_REVIEW_NODE_OVERRIDE=1`
 только для локального tooling вне production gate; это не замена verified Node 22.13.0 PASS.
