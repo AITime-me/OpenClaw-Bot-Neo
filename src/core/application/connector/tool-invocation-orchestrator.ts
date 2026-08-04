@@ -34,8 +34,8 @@ import type { ConnectorId, ConnectionId, InputDigest } from '../../domain/connec
 import type { ToolApprovalRequestBinding } from '../../domain/connector/approval.js';
 import type { ConnectorExecutionResult } from '../../../connectors/sdk/connector.js';
 import type { ConnectorExecutionError } from '../../../connectors/sdk/connector.js';
+import { parseConnectorLocalExecutionOutcome } from '../../../connectors/sdk/connector.js';
 import { isWriteLikeSideEffect } from '../../domain/connector/capabilities.js';
-import { INFRASTRUCTURE_OUTCOME_UNKNOWN_REASON } from '../../domain/infrastructure/constants.js';
 import type { VerifiedToolManifest } from '../../domain/connector/manifest-validation.js';
 
 export interface ToolInvocationOrchestratorDeps {
@@ -117,12 +117,8 @@ const mapConnectorFailure = (
   };
 } => {
   const writeLike = isWriteLikeSideEffect(sideEffectClass);
-  if (
-    !signal.aborted &&
-    error.code === 'unavailable' &&
-    error.reason === INFRASTRUCTURE_OUTCOME_UNKNOWN_REASON &&
-    writeLike
-  ) {
+  const localOutcome = parseConnectorLocalExecutionOutcome(error.executionOutcome);
+  if (!signal.aborted && writeLike && localOutcome === 'outcome-unknown') {
     return {
       code: 'internal-error',
       reason: 'Mutation outcome is unknown.',

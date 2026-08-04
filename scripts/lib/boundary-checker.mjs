@@ -13,8 +13,9 @@ import ts from 'typescript';
  */
 
 export const CORE_LAYER_RULES = {
+  'core/domain/infrastructure': ['core/domain', 'core/domain/infrastructure'],
   'core/domain': ['core/domain'],
-  'core/ports': ['core/domain', 'core/ports'],
+  'core/ports': ['core/domain', 'core/domain/infrastructure', 'core/ports'],
   'core/policy': ['core/domain', 'core/ports', 'core/policy'],
   'core/routing': ['core/domain', 'core/ports', 'core/routing'],
   'core/config': ['core/domain', 'core/routing', 'core/config'],
@@ -27,6 +28,7 @@ export const CORE_LAYER_RULES = {
   ],
   'core/application/infrastructure': [
     'core/domain',
+    'core/domain/infrastructure',
     'core/ports',
     'core/application/infrastructure',
     'core/application/connector',
@@ -42,11 +44,16 @@ export const CORE_LAYER_RULES = {
   'connectors/reference': ['core/domain', 'connectors/sdk', 'connectors/reference'],
   'connectors/infrastructure': [
     'core/domain',
+    'core/domain/infrastructure',
     'connectors/sdk',
     'connectors/infrastructure',
     'core/application/infrastructure',
   ],
-  'infrastructure/reference': ['core/domain', 'infrastructure/reference'],
+  'infrastructure/reference': [
+    'core/domain',
+    'core/domain/infrastructure',
+    'infrastructure/reference',
+  ],
   connectors: ['connectors'],
   /**
    * App-private local composition (Build 3.0+), pure config bootstrap (Build 3.1),

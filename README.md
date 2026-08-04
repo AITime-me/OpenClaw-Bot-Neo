@@ -324,10 +324,11 @@ durable approval/audit persistence, or production composition wiring. Feature br
 
 **Build 3.6B (Infrastructure Fleet Foundation):** implemented locally on feature branch
 `build-3-6b-infrastructure-fleet-foundation`. Initial independent source review **BLOCKED** (3 HIGH,
-7 MEDIUM — IF-H01–IF-M07); security corrective package pending independent re-review. Fleet inventory
-contracts, restricted operations, infrastructure tool manifests via Build 3.5B orchestrator, offline
-reference provider/host only. No Timeweb API client, SSH implementation, VPS, production inventory
-wiring, or deployment. `DEPLOYMENT_READY=false`. See
+7 MEDIUM — IF-H01–IF-M07); first security corrective re-review **BLOCKED**; second corrective package
+pending independent re-review; no Build 3.6B closeout. Fleet inventory contracts, restricted
+operations, infrastructure tool manifests via Build 3.5B orchestrator, offline reference
+provider/host only. No Timeweb API client, SSH implementation, VPS, production inventory wiring, or
+deployment. `DEPLOYMENT_READY=false`. See
 [infrastructure platform](docs/infrastructure-platform.md).
 
 Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate

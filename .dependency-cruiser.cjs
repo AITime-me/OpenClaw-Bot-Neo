@@ -44,6 +44,13 @@ module.exports = {
       },
     },
     {
+      name: 'connector-application-no-infrastructure',
+      severity: 'error',
+      comment: 'Generic connector application must not import infrastructure modules.',
+      from: { path: '^src/core/application/connector' },
+      to: { path: '^src/core/(domain/infrastructure|application/infrastructure)' },
+    },
+    {
       name: 'infrastructure-application-may-use-connector-facades',
       severity: 'error',
       comment:

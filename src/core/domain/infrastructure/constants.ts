@@ -20,6 +20,3 @@ export const INFRASTRUCTURE_FORBIDDEN_GENERIC_TOOL_IDS = Object.freeze([
 ] as const);
 
 export const DEFAULT_OBSERVATION_STALE_MS = 300_000;
-
-/** Connector/orchestrator agreement for uncertain infrastructure mutations. */
-export const INFRASTRUCTURE_OUTCOME_UNKNOWN_REASON = 'Outcome unknown.' as const;

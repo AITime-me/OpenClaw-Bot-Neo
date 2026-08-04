@@ -2,7 +2,7 @@
  * Test and development simulation controls for the offline infrastructure connector.
  * Not part of production ToolManifest input.
  */
-import { INFRASTRUCTURE_OUTCOME_UNKNOWN_REASON } from '../../core/domain/infrastructure/constants.js';
+import { connectorExecutionFailure } from '../sdk/connector.js';
 
 export const INFRASTRUCTURE_CONNECTOR_SIMULATION_SCENARIOS = Object.freeze({
   serverInspect: ['ok', 'unavailable'] as const,
@@ -41,23 +41,11 @@ export const DEFAULT_INFRASTRUCTURE_CONNECTOR_SIMULATION: InfrastructureConnecto
     rebootMutation: 'ok',
   });
 
-const OUTCOME_UNKNOWN_REASON = INFRASTRUCTURE_OUTCOME_UNKNOWN_REASON;
-
-export const infrastructureMutationOutcomeUnknownError = (): {
-  readonly ok: false;
-  readonly error: {
-    readonly code: 'unavailable';
-    readonly reason: typeof OUTCOME_UNKNOWN_REASON;
-    readonly category: 'internal';
-  };
-} => ({
-  ok: false,
-  error: {
+/** Typed connector-local uncertain mutation failure (generic SDK contract). */
+export const infrastructureMutationOutcomeUnknownError = () =>
+  connectorExecutionFailure({
     code: 'unavailable',
-    reason: OUTCOME_UNKNOWN_REASON,
+    reason: 'Mutation outcome is unknown.',
     category: 'internal',
-  },
-});
-
-export const isInfrastructureOutcomeUnknownReason = (reason: string): boolean =>
-  reason === OUTCOME_UNKNOWN_REASON;
+    executionOutcome: 'outcome-unknown',
+  });

@@ -45,6 +45,15 @@ for (const file of listFiles('src').filter((path) => path.endsWith('.ts'))) {
     failures.push(`EXECUTION_REGISTRY_LEAK: ${normalized} imports executable connector registry.`);
 }
 
+const orchestratorPath = 'src/core/application/connector/tool-invocation-orchestrator.ts';
+if (existsSync(orchestratorPath)) {
+  const source = readFileSync(orchestratorPath, 'utf8');
+  if (/domain\/infrastructure|application\/infrastructure/.test(source))
+    failures.push(
+      `ORCHESTRATOR_INFRA_COUPLING: ${orchestratorPath} imports infrastructure modules.`,
+    );
+}
+
 if (failures.length > 0) {
   console.error(failures.join('\n'));
   process.exit(1);

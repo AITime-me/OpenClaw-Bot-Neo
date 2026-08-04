@@ -264,6 +264,7 @@ describe('allowlist-based layer rules', () => {
     ['forbidden-core-durable-process-lock', 'INTERNAL_MODULE_LEAK'],
     ['forbidden-channel-durable-process-lock', 'INTERNAL_MODULE_LEAK'],
     ['forbidden-infra-domain-imports-connector', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-orchestrator-imports-infrastructure', 'FORBIDDEN_DEPENDENCY'],
   ])('rejects the %s fixture with %s', (name, code) => {
     const report = analyzeBoundaries({ rootDir: fixture(name), requiredLayers: [] });
     expect(codes(report)).toContain(code);

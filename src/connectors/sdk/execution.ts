@@ -9,4 +9,5 @@ export type {
   ConnectorExecutionSuccess,
   ConnectorHealthResult,
   ConnectorHealthStatus,
+  ConnectorLocalExecutionOutcome,
 } from './connector.js';

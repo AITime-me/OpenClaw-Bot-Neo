@@ -7,6 +7,8 @@ import {
   sealValidatedResourceSnapshot,
   sealValidatedHealthSnapshot,
   mapRestrictedHostOperationToSshTemplate,
+  containsSecretShapedData,
+  rejectSecretOrCommand,
 } from '../../src/core/domain/infrastructure/index.js';
 import { createInfrastructureHarness, invoke, asToolId, asIdempotency, NOW } from './harness.js';
 import { seedInfrastructureFixtures } from './fixtures.js';
@@ -23,21 +25,54 @@ import {
 } from '../../src/core/application/infrastructure/index.js';
 import type { ServerId } from '../../src/core/domain/infrastructure/identity.js';
 
-const PEM_BEGIN_RSA = '-----BEGIN ' + 'RSA PRIVATE KEY-----';
-const PEM_END_RSA = '-----END ' + 'RSA PRIVATE KEY-----';
-const PEM_BLOCK = [
-  PEM_BEGIN_RSA,
-  'MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC7',
-  PEM_END_RSA,
-  'ok',
-].join('\n');
+const pem = (kind: string): string =>
+  [
+    '-----BEGIN ' + kind + '-----',
+    'MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC7',
+    '-----END ' + kind + '-----',
+  ].join('\n');
 
-describe('log sanitization (IF-H01)', () => {
-  it('redacts complete multiline PEM blocks', () => {
-    const redacted = redactSecretsInBuffer(PEM_BLOCK);
-    expect(redacted.text).not.toMatch(/MIIEvg/);
-    expect(redacted.text).toContain('[REDACTED-PRIVATE-KEY]');
-    expect(redacted.redactionCount).toBeGreaterThan(0);
+const PEM_VARIANTS = [
+  'PRIVATE KEY',
+  'RSA PRIVATE KEY',
+  'EC PRIVATE KEY',
+  'OPENSSH PRIVATE KEY',
+  'ENCRYPTED PRIVATE KEY',
+] as const;
+
+const approveAndInvoke = async (
+  toolId: string,
+  input: JsonObject,
+  simulation: NonNullable<Parameters<typeof createInfrastructureHarness>[0]>['simulation'],
+) => {
+  const h = createInfrastructureHarness(simulation !== undefined ? { simulation } : undefined);
+  seedInfrastructureFixtures(h);
+  const pending = await invoke(h, {
+    toolId: asToolId(toolId),
+    input,
+    idempotencyKey: asIdempotency(`k-${toolId}`),
+  });
+  expect(pending.kind).toBe('approval-required');
+  if (pending.kind !== 'approval-required') return { harness: h, result: pending };
+  await h.decisionPort.grant(pending.approvalRequest.approvalId, 'approver-1' as never);
+  const result = await invoke(h, {
+    invocationId: pending.invocationId,
+    toolId: pending.toolId,
+    input,
+    idempotencyKey: asIdempotency(`k-${toolId}`),
+    approvalId: pending.approvalRequest.approvalId,
+    approvalNonce: pending.approvalRequest.nonce,
+  });
+  return { harness: h, result };
+};
+
+describe('log sanitization (IF-H01 preserved)', () => {
+  it('redacts RSA/EC/OPENSSH/ENCRYPTED multiline PEM blocks', () => {
+    for (const kind of PEM_VARIANTS) {
+      const redacted = redactSecretsInBuffer(pem(kind));
+      expect(redacted.text).not.toMatch(/MIIEvg/);
+      expect(redacted.text).toContain('[REDACTED-PRIVATE-KEY]');
+    }
   });
 
   it('redacts unterminated BEGIN blocks to end of input', () => {
@@ -54,10 +89,30 @@ describe('log sanitization (IF-H01)', () => {
     expect(result.redactionCount).toBeGreaterThan(0);
   });
 
-  it('neutralizes ANSI CSI sequences', () => {
-    const stripped = stripAnsiAndUnsafeControlCharacters('\x1b[31mSECRET\x1b[0m');
-    expect(stripped.text).not.toContain('\x1b');
-    expect(stripped.text).toContain('SECRET');
+  it('neutralizes ANSI CSI, incomplete CSI, and OSC through production sanitizer', () => {
+    const csi = stripAnsiAndUnsafeControlCharacters('\x1b[31mSECRET\x1b[0m');
+    expect(csi.text).not.toContain('\x1b');
+    expect(csi.text).toContain('SECRET');
+    const incompletePayload = sanitizeBoundedLogPayload(['prefix\x1b[31'], 5, 500, NOW as never);
+    expect(incompletePayload.lines.join('\n')).not.toContain('\x1b');
+    const oscPayload = sanitizeBoundedLogPayload(
+      [`x${String.fromCharCode(0x1b)}]8;;http://example${String.fromCharCode(0x07)}y`],
+      5,
+      500,
+      NOW as never,
+    );
+    expect(oscPayload.lines.join('\n')).not.toContain(String.fromCharCode(0x1b));
+    expect(oscPayload.lines.join('\n')).toContain('x');
+    expect(oscPayload.lines.join('\n')).toContain('y');
+  });
+
+  it('sanitizes full multiline EC and OPENSSH private key blocks', () => {
+    for (const kind of ['EC PRIVATE KEY', 'OPENSSH PRIVATE KEY'] as const) {
+      const result = sanitizeBoundedLogPayload([pem(kind)], 20, 4_096, NOW as never);
+      expect(result.lines.join('\n')).not.toMatch(/MIIEvg/);
+      expect(result.lines.join('\n')).toContain('[REDACTED-PRIVATE-KEY]');
+      expect(result.redactionCount).toBeGreaterThan(0);
+    }
   });
 
   it('keeps instruction-like log text as ordinary untrusted data', () => {
@@ -72,72 +127,158 @@ describe('log sanitization (IF-H01)', () => {
   });
 });
 
-describe('outcome-unknown mutations (IF-H02)', () => {
-  const approveAndInvoke = async (
-    toolId: string,
-    input: JsonObject,
-    simulation: NonNullable<Parameters<typeof createInfrastructureHarness>[0]>['simulation'],
-  ) => {
-    const h = createInfrastructureHarness(simulation !== undefined ? { simulation } : undefined);
-    seedInfrastructureFixtures(h);
-    const pending = await invoke(h, {
-      toolId: asToolId(toolId),
-      input,
-      idempotencyKey: asIdempotency(`k-${toolId}`),
-    });
-    expect(pending.kind).toBe('approval-required');
-    if (pending.kind !== 'approval-required') return pending;
-    await h.decisionPort.grant(pending.approvalRequest.approvalId, 'approver-1' as never);
-    return invoke(h, {
-      invocationId: pending.invocationId,
-      toolId: pending.toolId,
-      input,
-      idempotencyKey: asIdempotency(`k-${toolId}`),
-      approvalId: pending.approvalRequest.approvalId,
-      approvalNonce: pending.approvalRequest.nonce,
-    });
-  };
-
-  it('maps deploy outcome-unknown to failure with executionState outcome-unknown', async () => {
-    const result = await approveAndInvoke(
-      'infrastructure.release.deploy',
-      {
-        serverId: 'srv-1',
-        serviceId: 'svc-1',
-        environmentId: 'env-1',
-        releaseId: 'rel-1',
-      },
-      { deployMutation: 'outcome-unknown' },
-    );
-    expect(result.kind).toBe('failure');
-    if (result.kind === 'failure') {
-      expect(result.error.executionState).toBe('outcome-unknown');
-      expect(result.error.code).toBe('internal-error');
+describe('stateless secret predicates (IF-CR01)', () => {
+  it('rejects the same PEM shape on 20 consecutive calls', () => {
+    for (const kind of PEM_VARIANTS) {
+      const value = '-----BEGIN ' + kind + '-----';
+      for (let i = 0; i < 20; i += 1) {
+        expect(containsSecretShapedData(value)).toBe(true);
+        expect(rejectSecretOrCommand(value, 'Field').ok).toBe(false);
+      }
     }
   });
 
-  it('maps rollback and reboot outcome-unknown to failure', async () => {
-    const rollback = await approveAndInvoke(
-      'infrastructure.release.rollback',
+  it('rejects unterminated BEGIN and token shapes repeatedly', () => {
+    const samples = [
+      '-----BEGIN ' + 'PRIVATE KEY-----',
+      'Bearer abcdefghijklmnop',
+      'password=secret123',
+      'token=abc',
+      'secret=xyz',
+    ];
+    for (const sample of samples) {
+      for (let i = 0; i < 20; i += 1) {
+        expect(rejectSecretOrCommand(sample, 'Field').ok).toBe(false);
+      }
+    }
+  });
+
+  it('interleaves valid and secret values without state bleed', () => {
+    const secret = pem('RSA PRIVATE KEY');
+    const other = pem('EC PRIVATE KEY');
+    const sequence = ['safe-profile', secret, 'another-safe', secret, other];
+    for (let round = 0; round < 5; round += 1) {
+      for (const value of sequence) {
+        const rejected = rejectSecretOrCommand(value, 'Policy');
+        if (value.startsWith('safe') || value.startsWith('another')) expect(rejected.ok).toBe(true);
+        else expect(rejected.ok).toBe(false);
+      }
+    }
+  });
+
+  it('rejects secret-shaped policy on every environment register and update call', () => {
+    const environments = createInMemoryEnvironmentRegistry();
+    environments.register(
       {
+        environmentId: 'env-ok' as never,
+        name: 'Lab' as never,
+        kind: 'lab',
+        ownerId: 'owner-1' as never,
+        regionAffinity: null,
+        policyProfileReference: 'default',
+      },
+      NOW,
+    );
+    const secretPolicy = '-----BEGIN ' + 'RSA PRIVATE KEY-----';
+    for (let i = 0; i < 20; i += 1) {
+      const registered = environments.register(
+        {
+          environmentId: `env-bad-${String(i)}` as never,
+          name: 'Lab' as never,
+          kind: 'lab',
+          ownerId: 'owner-1' as never,
+          regionAffinity: null,
+          policyProfileReference: secretPolicy,
+        },
+        NOW,
+      );
+      expect(registered.ok).toBe(false);
+      const before = environments.get('env-ok' as never);
+      const updated = environments.updateDeclared(
+        'env-ok' as never,
+        { policyProfileReference: secretPolicy },
+        NOW,
+      );
+      expect(updated.ok).toBe(false);
+      expect(environments.get('env-ok' as never)?.policyProfileReference).toBe(
+        before?.policyProfileReference,
+      );
+    }
+  });
+});
+
+describe('typed outcome-unknown mutations (IF-H02 / IF-CR02)', () => {
+  const cases: {
+    toolId: string;
+    input: JsonObject;
+    simulation: NonNullable<Parameters<typeof createInfrastructureHarness>[0]>['simulation'];
+  }[] = [
+    {
+      toolId: 'infrastructure.service.restart',
+      input: { serverId: 'srv-1', serviceId: 'svc-1', environmentId: 'env-1' },
+      simulation: { restartMutation: 'outcome-unknown' },
+    },
+    {
+      toolId: 'infrastructure.release.deploy',
+      input: {
         serverId: 'srv-1',
         serviceId: 'svc-1',
         environmentId: 'env-1',
         releaseId: 'rel-1',
       },
-      { rollbackMutation: 'outcome-unknown' },
-    );
-    expect(rollback.kind).toBe('failure');
-    const reboot = await approveAndInvoke(
-      'infrastructure.server.reboot',
-      { serverId: 'srv-1', environmentId: 'env-1', providerId: 'provider-1' },
-      { rebootMutation: 'outcome-unknown' },
-    );
-    expect(reboot.kind).toBe('failure');
-  });
+      simulation: { deployMutation: 'outcome-unknown' },
+    },
+    {
+      toolId: 'infrastructure.release.rollback',
+      input: {
+        serverId: 'srv-1',
+        serviceId: 'svc-1',
+        environmentId: 'env-1',
+        releaseId: 'rel-1',
+      },
+      simulation: { rollbackMutation: 'outcome-unknown' },
+    },
+    {
+      toolId: 'infrastructure.server.reboot',
+      input: { serverId: 'srv-1', environmentId: 'env-1', providerId: 'provider-1' },
+      simulation: { rebootMutation: 'outcome-unknown' },
+    },
+  ];
+
+  for (const entry of cases) {
+    it(`maps ${entry.toolId} uncertainty to failure without success audit/health/retry`, async () => {
+      const { harness, result } = await approveAndInvoke(
+        entry.toolId,
+        entry.input,
+        entry.simulation,
+      );
+      expect(result.kind).toBe('failure');
+      if (result.kind !== 'failure') return;
+      expect(result.error.executionState).toBe('outcome-unknown');
+      expect(result.error.code).toBe('internal-error');
+      const successAudits = harness.auditPort.events.filter(
+        (event) =>
+          (event.kind === 'execution-finished' || event.kind === 'invocation-completed') &&
+          event.outcome === 'success',
+      );
+      expect(successAudits).toHaveLength(0);
+      const failureAudits = harness.auditPort.events.filter(
+        (event) =>
+          (event.kind === 'execution-finished' || event.kind === 'invocation-completed') &&
+          event.outcome === 'failure',
+      );
+      expect(failureAudits.length).toBeGreaterThan(0);
+      expect(
+        harness.auditPort.events.filter((event) => event.kind === 'execution-started'),
+      ).toHaveLength(1);
+      const health = harness.healthRegistry.get('infrastructure' as never);
+      expect(health?.status).not.toBe('healthy');
+      expect('output' in result).toBe(false);
+    });
+  }
 });
 
-describe('runtime inventory validation (IF-H03, IF-M01, IF-M02)', () => {
+describe('runtime inventory validation (IF-H03)', () => {
   it('rejects forged IDs and invalid capacities at registration', () => {
     const environments = createInMemoryEnvironmentRegistry();
     environments.register(
@@ -172,6 +313,77 @@ describe('runtime inventory validation (IF-H03, IF-M01, IF-M02)', () => {
       NOW,
     );
     expect(invalid.ok).toBe(false);
+  });
+
+  it('rejects secret-shaped purpose and release metadata on server/service writes atomically', () => {
+    const harness = createInfrastructureHarness();
+    seedInfrastructureFixtures(harness);
+    const secretPurpose = '-----BEGIN ' + 'EC PRIVATE KEY-----';
+    const beforeServer = harness.servers.get('srv-1' as ServerId);
+    for (let i = 0; i < 20; i += 1) {
+      const registered = harness.servers.registerDeclared(
+        {
+          serverId: `srv-bad-${String(i)}` as ServerId,
+          providerId: 'provider-1' as never,
+          providerServerId: null,
+          environmentId: 'env-1' as never,
+          regionId: null,
+          displayName: 'Bad' as never,
+          purpose: secretPurpose,
+          lifecycleStatus: 'active',
+          os: { family: 'linux', version: '24.04', architecture: 'amd64' },
+          capacity: { cpuCores: 1, memoryBytes: 1, storageBytes: 1 },
+          addressing: { primaryHostname: null, primaryIpv4: null, primaryIpv6: null },
+          managementCapabilities: [],
+          hostConnection: null,
+          ownerId: 'owner-1' as never,
+        },
+        NOW,
+      );
+      expect(registered.ok).toBe(false);
+      const updated = harness.servers.updateDeclared(
+        'srv-1' as ServerId,
+        { purpose: secretPurpose },
+        NOW,
+      );
+      expect(updated.ok).toBe(false);
+      expect(harness.servers.get('srv-1' as ServerId)?.purpose).toBe(beforeServer?.purpose);
+    }
+
+    const beforeService = harness.services.get('svc-1' as never);
+    const secretRelease = 'password=secret123';
+    for (let i = 0; i < 20; i += 1) {
+      const registered = harness.services.registerDeclared({
+        serviceId: `svc-bad-${String(i)}` as never,
+        serverId: 'srv-1' as ServerId,
+        environmentId: 'env-1' as never,
+        productIdReference: null,
+        displayName: 'Bad' as never,
+        serviceType: 'worker',
+        runtimeType: 'systemd',
+        deployment: { deploymentRoot: '/opt/neo', releaseLabel: secretRelease },
+        healthCheck: { endpointPath: null, intervalSeconds: null },
+        systemdUnit: null,
+        compose: null,
+        ports: [],
+        dependencyServiceIds: [],
+        ownerId: 'owner-1' as never,
+        criticality: 'low',
+        desiredState: 'running',
+        managementCapabilities: [],
+        lastDeclaredUpdate: NOW as never,
+      });
+      expect(registered.ok).toBe(false);
+      const updated = harness.services.updateDeclared(
+        'svc-1' as never,
+        { deployment: { deploymentRoot: '/opt/neo', releaseLabel: secretRelease } },
+        NOW,
+      );
+      expect(updated.ok).toBe(false);
+      expect(harness.services.get('svc-1' as never)?.deployment.releaseLabel).toBe(
+        beforeService?.deployment.releaseLabel,
+      );
+    }
   });
 
   it('rejects traversal deployment roots and invalid environment updates', () => {
@@ -231,7 +443,7 @@ describe('runtime inventory validation (IF-H03, IF-M01, IF-M02)', () => {
   });
 });
 
-describe('production manifests (IF-M03)', () => {
+describe('production manifests (IF-M03 preserved)', () => {
   it('rejects scenario and mode in tool inputs', () => {
     const logsTool = INFRASTRUCTURE_TOOLS.find(
       (tool) => (tool.toolId as string) === 'infrastructure.service.logs.read',
@@ -248,7 +460,7 @@ describe('production manifests (IF-M03)', () => {
   });
 });
 
-describe('reference host redaction path (IF-M04)', () => {
+describe('reference host redaction path (IF-M04 preserved)', () => {
   it('returns raw secret-bearing logs; coordinator sanitizes them', async () => {
     const host = createReferenceRestrictedHostAccess({ scenario: 'redacted-logs' });
     const hostResult = await host.execute(
@@ -290,7 +502,7 @@ describe('reference host redaction path (IF-M04)', () => {
   });
 });
 
-describe('SSH trusted templates (IF-M07)', () => {
+describe('SSH trusted templates (IF-M07 preserved)', () => {
   it('maps host operations to closed template IDs and denies unknown ops', () => {
     expect(mapRestrictedHostOperationToSshTemplate('inspect-host-identity')).toBe(
       'tpl-inspect-host-identity',
@@ -304,11 +516,13 @@ describe('SSH trusted templates (IF-M07)', () => {
       expect(schema.includes('templateId')).toBe(false);
       expect(schema.includes('scenario')).toBe(false);
       expect(schema.includes('"mode"')).toBe(false);
+      expect(schema.includes('executionOutcome')).toBe(false);
+      expect(schema.includes('executionState')).toBe(false);
     }
   });
 });
 
-describe('numeric sealing (IF-M05)', () => {
+describe('numeric sealing (IF-M05 preserved)', () => {
   it('rejects invalid health snapshot latency', () => {
     const result = sealValidatedHealthSnapshot({
       serviceState: 'running',

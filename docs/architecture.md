@@ -396,10 +396,11 @@ remains at `16bf1f4` pending owner-directed synchronization. No push performed. 
 Adds infrastructure domain contracts, in-memory environment/server/service inventories, provider-neutral
 and restricted host operation contracts, Timeweb contract only, infrastructure tool manifests routed
 through Build 3.5B `ToolInvocationOrchestrator`, offline reference provider/host adapters, and
-behavioural tests. Initial independent source review **BLOCKED** (3 HIGH, 7 MEDIUM); security
-corrective package pending independent re-review. No Timeweb API client, SSH implementation, VPS,
-production inventory wiring, or deployment. `DEPLOYMENT_READY=false`. See
-[infrastructure platform](infrastructure-platform.md).
+behavioural tests. Initial independent source review **BLOCKED** (3 HIGH, 7 MEDIUM). First security
+corrective re-review **BLOCKED**; second corrective package (typed connector-local
+`executionOutcome`, stateless secret predicates) pending independent re-review. No Build 3.6B
+closeout. No Timeweb API client, SSH implementation, VPS, production inventory wiring, or deployment.
+`DEPLOYMENT_READY=false`. See [infrastructure platform](infrastructure-platform.md).
 
 Связанные документы: [расширяемость](extensibility.md), [интеграции](integrations.md),
 [VoiceProfile](voice-profile.md), [каналы](channels.md), [безопасность](security-policy.md),

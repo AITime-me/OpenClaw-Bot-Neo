@@ -455,6 +455,8 @@ the Build 3.5B invocation pipeline exclusively. Provider/host/log output is untr
 financial provider actions, firewall mutation and credential rotation are hard-denied in foundation
 policy. Reference infrastructure adapters are test-only. No Timeweb network client or SSH
 implementation. `SECRET_PROVIDER_CONFIGURED=false`. `deploymentReady` remains false. Initial
-independent source review **BLOCKED** (3 HIGH, 7 MEDIUM); security corrective package pending
-independent re-review on feature branch `build-3-6b-infrastructure-fleet-foundation`. See
+independent source review **BLOCKED** (3 HIGH, 7 MEDIUM); first security corrective re-review
+**BLOCKED**; second corrective package pending independent re-review on feature branch
+`build-3-6b-infrastructure-fleet-foundation`. No Build 3.6B closeout. Uncertain write-like outcomes use
+a generic typed connector-local `executionOutcome`; free-form reason text has no authority. See
 [infrastructure platform](infrastructure-platform.md).

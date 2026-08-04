@@ -18,13 +18,21 @@ export const MAX_POSITIVE_CAPACITY = Number.MAX_SAFE_INTEGER;
 const IPV4_PATTERN = /^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$/;
 const IPV6_PATTERN = /^[0-9a-fA-F:]+$/;
 
-const SECRET_LINE_PATTERNS = [
+const SECRET_LINE_PREDICATES = [
   /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}\b/i,
   /\bpassword\s*[:=]\s*\S+/i,
   /\btoken\s*[:=]\s*\S+/i,
   /\bapi[_-]?key\s*[:=]\s*\S+/i,
   /\bsecret\s*[:=]\s*\S+/i,
-];
+] as const;
+
+const SECRET_LINE_REPLACERS = [
+  /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}\b/gi,
+  /\bpassword\s*[:=]\s*\S+/gi,
+  /\btoken\s*[:=]\s*\S+/gi,
+  /\bapi[_-]?key\s*[:=]\s*\S+/gi,
+  /\bsecret\s*[:=]\s*\S+/gi,
+] as const;
 
 const COMMAND_PATTERNS = [
   /\bsudo\b/i,
@@ -33,12 +41,15 @@ const COMMAND_PATTERNS = [
   /\brm\s+-rf\b/i,
   /\bcurl\s+/i,
   /\bwget\s+/i,
-];
+] as const;
 
-const PRIVATE_KEY_BEGIN = /-----BEGIN (?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----/gi;
-const PRIVATE_KEY_BLOCK =
+/** Non-global: safe for repeated .test() predicates (IF-CR01). */
+const PRIVATE_KEY_BEGIN_PREDICATE = /-----BEGIN (?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----/i;
+/** Global: replacement / exec scanning only — never use for shared .test(). */
+const PRIVATE_KEY_BEGIN_GLOBAL = /-----BEGIN (?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----/gi;
+const PRIVATE_KEY_BLOCK_GLOBAL =
   /-----BEGIN (?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----/gi;
-const PRIVATE_KEY_END = /-----END (?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----/gi;
+const PRIVATE_KEY_END_GLOBAL = /-----END (?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----/gi;
 
 const ESC = String.fromCharCode(0x1b);
 const BEL = String.fromCharCode(0x07);
@@ -47,7 +58,8 @@ const ANSI_OSC = new RegExp(`${ESC}\\][^${ESC}${BEL}]*(?:${BEL}|${ESC}\\\\)`, 'g
 const ANSI_INCOMPLETE = new RegExp(`${ESC}(?:\\[[^\n]*)?$`);
 
 export const containsSecretShapedData = (value: string): boolean =>
-  PRIVATE_KEY_BEGIN.test(value) || SECRET_LINE_PATTERNS.some((pattern) => pattern.test(value));
+  PRIVATE_KEY_BEGIN_PREDICATE.test(value) ||
+  SECRET_LINE_PREDICATES.some((pattern) => pattern.test(value));
 
 export const containsCommandShapedData = (value: string): boolean =>
   COMMAND_PATTERNS.some((pattern) => pattern.test(value));
@@ -392,14 +404,17 @@ export const redactSecretsInBuffer = (
     if (text !== before) redactionCount += 1;
   };
 
-  replacePattern(PRIVATE_KEY_BLOCK, '[REDACTED-PRIVATE-KEY]');
+  replacePattern(
+    new RegExp(PRIVATE_KEY_BLOCK_GLOBAL.source, PRIVATE_KEY_BLOCK_GLOBAL.flags),
+    '[REDACTED-PRIVATE-KEY]',
+  );
 
   let beginMatch: RegExpExecArray | null;
-  const beginPattern = new RegExp(PRIVATE_KEY_BEGIN.source, PRIVATE_KEY_BEGIN.flags);
+  const beginPattern = new RegExp(PRIVATE_KEY_BEGIN_GLOBAL.source, PRIVATE_KEY_BEGIN_GLOBAL.flags);
   while ((beginMatch = beginPattern.exec(text)) !== null) {
     const start = beginMatch.index;
     const afterBegin = text.slice(start);
-    const endPattern = new RegExp(PRIVATE_KEY_END.source, PRIVATE_KEY_END.flags);
+    const endPattern = new RegExp(PRIVATE_KEY_END_GLOBAL.source, PRIVATE_KEY_END_GLOBAL.flags);
     const endMatch = endPattern.exec(afterBegin);
     if (endMatch === null) {
       text = `${text.slice(0, start)}[REDACTED-PRIVATE-KEY]`;
@@ -412,9 +427,9 @@ export const redactSecretsInBuffer = (
     beginPattern.lastIndex = start + '[REDACTED-PRIVATE-KEY]'.length;
   }
 
-  for (const pattern of SECRET_LINE_PATTERNS) {
+  for (const pattern of SECRET_LINE_REPLACERS) {
     const before = text;
-    text = text.replace(pattern, (match) => {
+    text = text.replace(new RegExp(pattern.source, pattern.flags), (match) => {
       const label = match.split(/[:=]/)[0] ?? 'secret';
       return `${label}=[REDACTED]`;
     });

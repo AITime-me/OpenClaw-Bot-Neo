@@ -74,18 +74,23 @@ Provider, host and log output are untrusted. Logs pass through a single producti
 bound raw input → ANSI/control neutralization → full-buffer secret redaction (including multiline PEM)
 → line and byte caps. Drift detection reports only; no automatic repair or mutation retry.
 
-Uncertain mutation completion (`outcome-unknown`) never maps to tool success; write-like tools return
-failure with `executionState=outcome-unknown`.
+Uncertain mutation completion never maps to tool success. Connectors express uncertainty via the
+generic typed connector-local `executionOutcome=outcome-unknown` (not free-form reason text). The
+shared `ToolInvocationOrchestrator` maps write-like typed uncertainty to failure with
+`executionState=outcome-unknown`. Secret-shape inventory predicates are deterministic and stateless.
 
 Declared inventory writes validate identifiers, capacities, addressing and paths at runtime before
-sealing immutable copies. Production tool schemas do not accept reference `scenario`/`mode` controls or
-arbitrary SSH `templateId`.
+sealing immutable copies. Production tool schemas do not accept reference `scenario`/`mode` controls,
+`executionState`/`executionOutcome`, or arbitrary SSH `templateId`.
 
 ## Status
 
 Build 3.6B on feature branch `build-3-6b-infrastructure-fleet-foundation`. Initial independent source
-review **BLOCKED** (`BLOCK_BUILD_3_6B_INFRASTRUCTURE_FLEET_FOUNDATION` — 3 HIGH, 7 MEDIUM findings:
-IF-H01–IF-M07). Security corrective package committed locally; **pending independent re-review**.
+review **BLOCKED** (`BLOCK_BUILD_3_6B_INFRASTRUCTURE_FLEET_FOUNDATION` — 3 HIGH, 7 MEDIUM:
+IF-H01–IF-M07). First security corrective re-review **BLOCKED**
+(`BUILD_3_6B_INFRASTRUCTURE_SECURITY_CORRECTIVE_REREVIEW_BLOCKED` — IF-CR01/IF-CR02/IF-CM01 plus residual
+IF-H02/H03/M06). Second security corrective package committed locally; **pending independent
+re-review**. No Build 3.6B closeout yet.
 
 - no Timeweb API client;
 - no SSH implementation;

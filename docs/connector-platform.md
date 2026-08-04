@@ -88,6 +88,15 @@ Cancellation is cooperative via `AbortSignal`. Connectors that ignore the signal
 stopped. Late write-like completion after abort may report `executionState=outcome-unknown`.
 Platform errors do not echo raw connector reason text.
 
+## Connector-local execution outcome
+
+Connector-local failures may carry a closed typed `executionOutcome`:
+`known-failure` (default) or `outcome-unknown`. Only write-like tools may normalize validated
+`outcome-unknown` into `ToolInvocationResult.executionState=outcome-unknown`. Free-form `reason`
+text is display/debug metadata only and has no mapping authority. `READ_ONLY` failures that claim
+`outcome-unknown` remain ordinary bounded failures. Malformed outcome values fail closed as
+`known-failure`. The field is connector-platform owned and is not ToolManifest/model input.
+
 ## Persistence and reference connector
 
 Registries and approval grants are in-memory only in Build 3.5B. The reference connector under

@@ -14,10 +14,33 @@ export interface ConnectorHealthResult {
 export type ConnectorExecutionErrorCode =
   'unavailable' | 'timeout' | 'cancelled' | 'remote-error' | 'invalid-output';
 
+/**
+ * Connector-local execution outcome for failures.
+ * Authority for ToolInvocationOrchestrator write-like mapping; not model/tool input.
+ */
+export const CONNECTOR_LOCAL_EXECUTION_OUTCOMES = Object.freeze([
+  'known-failure',
+  'outcome-unknown',
+] as const);
+
+export type ConnectorLocalExecutionOutcome = (typeof CONNECTOR_LOCAL_EXECUTION_OUTCOMES)[number];
+
+export const parseConnectorLocalExecutionOutcome = (
+  value: unknown,
+): ConnectorLocalExecutionOutcome => {
+  if (value === 'outcome-unknown') return 'outcome-unknown';
+  return 'known-failure';
+};
+
 export interface ConnectorExecutionError {
   readonly code: ConnectorExecutionErrorCode;
   readonly reason: string;
   readonly category: 'remote' | 'timeout' | 'cancelled' | 'internal' | 'invalid-response';
+  /**
+   * Explicit connector-local outcome. Absent or malformed values normalize to known-failure.
+   * Only write-like tools may map outcome-unknown to ToolInvocationResult executionState.
+   */
+  readonly executionOutcome?: ConnectorLocalExecutionOutcome;
 }
 
 export interface ConnectorExecutionSuccess {
@@ -31,6 +54,21 @@ export interface ConnectorExecutionFailure {
 }
 
 export type ConnectorExecutionResult = ConnectorExecutionSuccess | ConnectorExecutionFailure;
+
+export const connectorExecutionFailure = (error: {
+  readonly code: ConnectorExecutionErrorCode;
+  readonly reason: string;
+  readonly category: ConnectorExecutionError['category'];
+  readonly executionOutcome?: ConnectorLocalExecutionOutcome;
+}): ConnectorExecutionFailure => ({
+  ok: false,
+  error: Object.freeze({
+    code: error.code,
+    reason: error.reason,
+    category: error.category,
+    executionOutcome: parseConnectorLocalExecutionOutcome(error.executionOutcome),
+  }),
+});
 
 export interface ConnectorExecutionContext {
   readonly connectorId: ConnectorId;

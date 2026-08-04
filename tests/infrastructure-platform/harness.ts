@@ -121,6 +121,7 @@ export const createInfrastructureHarness = (options?: {
     toolRegistry,
     catalog,
     execution,
+    healthRegistry,
     clock,
     simulation: options?.simulation,
   };
