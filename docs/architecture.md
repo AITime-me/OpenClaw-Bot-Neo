@@ -376,12 +376,18 @@ changed. See
 [R6-H02 closeout record](validation/codex-review-6-r6-h02-durable-memory-secret-boundary-closeout.md),
 and [R6-H01 closeout record](validation/codex-review-6-r6-h01-readiness-race-closeout.md).
 
-**Build 3.5B — Connector Platform Core (local implementation):**
+**Build 3.5B — Connector Platform Core (feature-branch closeout):**
 Adds connector domain contracts, Connector SDK, in-memory registries, deny-by-default tool policy,
-digest-bound approvals, safe audit and secret ports, mandatory `ToolInvocationOrchestrator`, and an
-offline reference connector. No real connectors, OAuth, network clients, production Secret Provider,
-or production composition wiring. `SECRET_PROVIDER_CONFIGURED=false`. Pending independent review.
-See [connector platform](connector-platform.md).
+trusted-decision approval lifecycle, safe audit and secret ports, mandatory
+`ToolInvocationOrchestrator`, and an offline reference connector. Initial independent review blocked
+(`BUILD_3_5B_CONNECTOR_PLATFORM_CORE_SOURCE_REVIEW_BLOCKED`); security corrective re-review
+approved (`BUILD_3_5B_SECURITY_CORRECTIVE_SOURCE_REREVIEW_APPROVED_WITH_NOTES_FOR_CLOSEOUT`).
+Disposition:
+`BUILD_3_5B_CONNECTOR_PLATFORM_CORE_CLOSED_WITH_TRUSTED_APPROVAL_PRIVATE_EXECUTION_BOUNDED_DATA_AND_SAFE_INVOCATION_PIPELINE`.
+No real connectors, OAuth, network clients, production Secret Provider, durable approval/audit
+persistence, or production composition wiring. `SECRET_PROVIDER_CONFIGURED=false`. Feature branch not
+yet integrated into `main`. See [connector platform](connector-platform.md) and
+[closeout record](validation/build-3.5b-connector-platform-core-closeout.md).
 
 Связанные документы: [расширяемость](extensibility.md), [интеграции](integrations.md),
 [VoiceProfile](voice-profile.md), [каналы](channels.md), [безопасность](security-policy.md),

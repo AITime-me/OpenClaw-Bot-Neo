@@ -434,8 +434,14 @@ remain false. Production/VPS/connectors remain prohibited.
 ## Connector platform (Build 3.5B)
 
 Tool invocation uses separate tool-scoped ports (`ToolPolicyEngine`, `ToolApprovalPort`,
-`ToolAuditPort`, `ConnectorSecretProvider`) and does not replace memory approval/audit/secret
-contracts. Secret handles resolve only after policy allow and approval consumption. Connector
-output is always untrusted. `FINANCIAL` side-effect tools are rejected at manifest validation and
-hard-denied by default policy. Read-only financial analysis remains representable as `READ_ONLY`.
-No production Secret Provider is configured (`SECRET_PROVIDER_CONFIGURED=false`).
+`ToolApprovalDecisionPort`, `ToolAuditPort`, `ConnectorSecretProvider`) and does not replace memory
+approval/audit/secret contracts. Pending approval is not executable; trusted grant/deny/revoke is
+required before single-use consumption. Secret handles resolve only after policy allow and approval
+consumption. Connector output is always untrusted. `FINANCIAL` side-effect tools are rejected at
+manifest validation and hard-denied by default policy. Read-only financial analysis remains
+representable as `READ_ONLY`. Build 3.5B closed on feature branch after security corrective
+re-review; disposition:
+`BUILD_3_5B_CONNECTOR_PLATFORM_CORE_CLOSED_WITH_TRUSTED_APPROVAL_PRIVATE_EXECUTION_BOUNDED_DATA_AND_SAFE_INVOCATION_PIPELINE`.
+No production Secret Provider is configured (`SECRET_PROVIDER_CONFIGURED=false`). Durable
+approval/audit persistence absent. `securityApprovalComplete` and `deploymentReady` remain false.
+See [closeout record](validation/build-3.5b-connector-platform-core-closeout.md).

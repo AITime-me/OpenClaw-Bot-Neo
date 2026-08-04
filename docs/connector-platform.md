@@ -97,8 +97,13 @@ Real connectors (GitHub, amoCRM, email, Telegram, Timeweb) are deferred.
 
 ## Status
 
-- Build 3.5B security corrective package applied locally.
-- Pending independent re-review after approval/registry/validation hardening.
+- Build 3.5B closed on feature branch `build-3-5b-connector-platform-core` after security
+  corrective re-review (`APPROVE_WITH_NOTES_BUILD_3_5B_SECURITY_CORRECTIVE_FOR_CLOSEOUT`).
+- Disposition:
+  `BUILD_3_5B_CONNECTOR_PLATFORM_CORE_CLOSED_WITH_TRUSTED_APPROVAL_PRIVATE_EXECUTION_BOUNDED_DATA_AND_SAFE_INVOCATION_PIPELINE`.
+- See
+  [closeout record](validation/build-3.5b-connector-platform-core-closeout.md).
+- Transfer/integration into `main` remains a separate owner-directed Git operation.
 - `SECRET_PROVIDER_CONFIGURED=false`.
-- No production Secret Provider, OAuth, network, or production composition wiring.
-- Diagnostics remain false.
+- No production Secret Provider, OAuth, network, real connectors, or production composition wiring.
+- Durable approval/audit persistence absent. Diagnostics remain false.

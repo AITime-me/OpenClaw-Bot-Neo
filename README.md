@@ -162,6 +162,7 @@ Deployment prohibited.
 | Codex Review №6 R6-M02 Node gate (closeout) | closed for mandatory pre-import Node gate and systemd exit-3 non-restart proof (see `docs/validation/codex-review-6-r6-m02-production-node-gate-systemd-closeout.md`) |
 | Codex Review №6 R6-M03 live process identity (closeout) | closed for live process identity-bound readiness on supported Linux procfs (see `docs/validation/codex-review-6-r6-m03-live-process-identity-closeout.md`) |
 | Codex Review №6 R6-L01—L04 LOW hardening (closeout) | closed for descriptor-safe config, exclusive readiness, correlated evidence, owner-only state (see `docs/validation/codex-review-6-r6-low-hardening-package-closeout.md`) |
+| Build 3.5B connector platform core (closeout) | closed on feature branch for trusted approval, private execution, bounded data, safe invocation pipeline (see `docs/validation/build-3.5b-connector-platform-core-closeout.md`) |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
@@ -307,10 +308,17 @@ remains in-memory; ApprovalPort/AuditPort ephemeral; no cross-port transaction o
 Сервер/VPS не куплен. Deployment запрещён.
 Security approval отсутствует (Codex Review №6 pending). Build №3 целиком не завершён.
 
-**Build 3.5B (Connector Platform Core):** implemented locally; connector contracts, SDK,
-in-memory registries, orchestrator, and offline reference connector only. No real connectors,
-OAuth, network, production Secret Provider (`SECRET_PROVIDER_CONFIGURED=false`), or production
-composition wiring. Pending independent review.
+**Build 3.5B (Connector Platform Core closeout):** closed on feature branch
+`build-3-5b-connector-platform-core` after security corrective re-review
+(`APPROVE_WITH_NOTES_BUILD_3_5B_SECURITY_CORRECTIVE_FOR_CLOSEOUT` /
+`BUILD_3_5B_SECURITY_CORRECTIVE_SOURCE_REREVIEW_APPROVED_WITH_NOTES_FOR_CLOSEOUT`). Initial review
+blocked (`BLOCK_BUILD_3_5B_CONNECTOR_PLATFORM_CORE`). Disposition:
+`BUILD_3_5B_CONNECTOR_PLATFORM_CORE_CLOSED_WITH_TRUSTED_APPROVAL_PRIVATE_EXECUTION_BOUNDED_DATA_AND_SAFE_INVOCATION_PIPELINE`.
+Connector contracts, SDK, in-memory registries, orchestrator, and offline reference connector only.
+No real connectors, OAuth, network, production Secret Provider (`SECRET_PROVIDER_CONFIGURED=false`),
+durable approval/audit persistence, or production composition wiring. Feature branch not yet
+integrated into `main`. See
+[closeout record](docs/validation/build-3.5b-connector-platform-core-closeout.md).
 
 Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate
 (override запрещён). Review/tooling runner может использовать `OPENCLAW_REVIEW_NODE_OVERRIDE=1`

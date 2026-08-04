@@ -1,8 +1,10 @@
 # Будущие integrations
 
 Build 3.5B adds connector platform contracts, SDK, in-memory registries, and an offline reference
-connector only. No real adapter, OAuth, network call, or production Secret Provider is configured.
-See [connector platform](connector-platform.md).
+connector only. Feature-branch closeout recorded; no real adapter, OAuth, network call, production
+connector wiring, or production Secret Provider is configured. See
+[connector platform](connector-platform.md) and
+[closeout record](validation/build-3.5b-connector-platform-core-closeout.md).
 
 Build 2.1B/2.1D/2.1E/2.1H содержат только provider-independent contracts и отключённые example
 manifests. Реальных adapter, integration, webhook endpoint, cryptographic verifier и сетевого
