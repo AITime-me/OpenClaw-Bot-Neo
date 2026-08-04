@@ -9,8 +9,9 @@ wiring, or production Secret Provider is configured. No push performed. See
 
 Build 3.6B adds infrastructure fleet inventory contracts, restricted host/provider operation
 contracts, Timeweb contract only, and offline reference adapters on feature branch
-`build-3-6b-infrastructure-fleet-foundation`; pending independent review; no real Timeweb/SSH/VPS;
-no production connector wiring. See [infrastructure platform](infrastructure-platform.md).
+`build-3-6b-infrastructure-fleet-foundation`. Initial independent source review **BLOCKED** (3 HIGH,
+7 MEDIUM); security corrective package pending independent re-review; no real Timeweb/SSH/VPS; no
+production connector wiring. See [infrastructure platform](infrastructure-platform.md).
 
 Build 2.1B/2.1D/2.1E/2.1H содержат только provider-independent contracts и отключённые example
 manifests. Реальных adapter, integration, webhook endpoint, cryptographic verifier и сетевого

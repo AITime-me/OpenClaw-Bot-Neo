@@ -33,7 +33,9 @@ import type { ConnectorHealthSnapshot } from '../../domain/connector/health.js';
 import type { ConnectorId, ConnectionId, InputDigest } from '../../domain/connector/identity.js';
 import type { ToolApprovalRequestBinding } from '../../domain/connector/approval.js';
 import type { ConnectorExecutionResult } from '../../../connectors/sdk/connector.js';
+import type { ConnectorExecutionError } from '../../../connectors/sdk/connector.js';
 import { isWriteLikeSideEffect } from '../../domain/connector/capabilities.js';
+import { INFRASTRUCTURE_OUTCOME_UNKNOWN_REASON } from '../../domain/infrastructure/constants.js';
 import type { VerifiedToolManifest } from '../../domain/connector/manifest-validation.js';
 
 export interface ToolInvocationOrchestratorDeps {
@@ -105,14 +107,29 @@ const mapAbortedExecution = (
 };
 
 const mapConnectorFailure = (
-  code: 'unavailable' | 'timeout' | 'cancelled' | 'remote-error' | 'invalid-output',
+  error: ConnectorExecutionError,
   signal: AbortSignal,
+  sideEffectClass: VerifiedToolManifest['sideEffectClass'],
 ): ToolExecutionError & {
   readonly health: {
     readonly status: ConnectorHealthSnapshot['status'];
     readonly failureCategory: ConnectorHealthSnapshot['failureCategory'];
   };
 } => {
+  const writeLike = isWriteLikeSideEffect(sideEffectClass);
+  if (
+    !signal.aborted &&
+    error.code === 'unavailable' &&
+    error.reason === INFRASTRUCTURE_OUTCOME_UNKNOWN_REASON &&
+    writeLike
+  ) {
+    return {
+      code: 'internal-error',
+      reason: 'Mutation outcome is unknown.',
+      executionState: 'outcome-unknown',
+      health: { status: 'degraded', failureCategory: 'remote' },
+    };
+  }
   if (signal.aborted)
     return {
       code: signal.reason === 'timeout' ? 'timeout' : 'cancelled',
@@ -123,7 +140,7 @@ const mapConnectorFailure = (
         failureCategory: signal.reason === 'timeout' ? 'timeout' : 'cancelled',
       },
     };
-  switch (code) {
+  switch (error.code) {
     case 'unavailable':
       return {
         code: 'connector-unavailable',
@@ -578,7 +595,11 @@ export const createToolInvocationOrchestrator = (deps: ToolInvocationOrchestrato
     const connectorResult = race.connectorResult;
 
     if (!connectorResult.ok) {
-      const mapped = mapConnectorFailure(connectorResult.error.code, timeoutController.signal);
+      const mapped = mapConnectorFailure(
+        connectorResult.error,
+        timeoutController.signal,
+        tool.sideEffectClass,
+      );
       updateHealth(deps, connectorId, request.connectionId, mapped.health);
       await audit(
         deps,

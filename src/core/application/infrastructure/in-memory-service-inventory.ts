@@ -9,7 +9,7 @@ import {
 } from '../../domain/infrastructure/service.js';
 import { infrastructureError } from '../../domain/infrastructure/errors.js';
 import type { EnvironmentId, ServerId, ServiceId } from '../../domain/infrastructure/identity.js';
-import { parseBoundedText, MAX_DIRECTORY_PATH_LENGTH } from '../../domain/infrastructure/bounds.js';
+import { parseServiceRegistrationInput } from '../../domain/infrastructure/record-parsers.js';
 
 export const createInMemoryServiceInventory = (
   servers: ServerInventoryPort,
@@ -28,24 +28,13 @@ export const createInMemoryServiceInventory = (
       return err(infrastructureError('server-not-found', 'Server does not exist.'));
     if (server.environmentId !== input.environmentId)
       return err(infrastructureError('environment-mismatch', 'Environment does not match server.'));
-    if (input.dependencyServiceIds.includes(input.serviceId))
-      return err(infrastructureError('self-dependency', 'Service cannot depend on itself.'));
-    const root = parseBoundedText(input.deployment.deploymentRoot, {
-      max: MAX_DIRECTORY_PATH_LENGTH,
-      label: 'DeploymentRoot',
-    });
-    if (!root.ok) return err(infrastructureError('invalid-input', root.error.reason));
-    const portSet = new Set<number>();
-    for (const port of input.ports) {
-      if (portSet.has(port))
-        return err(infrastructureError('invalid-input', 'Duplicate service port definition.'));
-      portSet.add(port);
-    }
-    for (const dependencyId of input.dependencyServiceIds) {
+    const parsed = parseServiceRegistrationInput(input);
+    if (!parsed.ok) return parsed;
+    for (const dependencyId of parsed.value.dependencyServiceIds) {
       if (records.get(dependencyId) === undefined)
         return err(infrastructureError('service-not-found', 'Dependency service does not exist.'));
     }
-    return ok(input);
+    return parsed;
   };
 
   return {
@@ -55,7 +44,7 @@ export const createInMemoryServiceInventory = (
       const validated = validate(input);
       if (!validated.ok) return validated;
       const record = sealServiceRecord(validated.value);
-      records.set(input.serviceId, record);
+      records.set(validated.value.serviceId, record);
       return ok(record);
     },
     addDependency(serviceId, dependencyServiceId) {
@@ -67,13 +56,16 @@ export const createInMemoryServiceInventory = (
       if (records.get(dependencyServiceId) === undefined)
         return err(infrastructureError('service-not-found', 'Dependency service not found.'));
       if (existing.dependencyServiceIds.includes(dependencyServiceId)) return ok(existing);
-      const record = sealServiceRecord({
+      const merged: ServiceRegistrationInput = {
         ...existing,
         dependencyServiceIds: Object.freeze([
           ...existing.dependencyServiceIds,
           dependencyServiceId,
         ]),
-      });
+      };
+      const validated = validate(merged);
+      if (!validated.ok) return validated;
+      const record = sealServiceRecord(validated.value);
       records.set(serviceId, record);
       return ok(record);
     },
@@ -81,10 +73,24 @@ export const createInMemoryServiceInventory = (
       const existing = records.get(serviceId);
       if (existing === undefined)
         return err(infrastructureError('service-not-found', 'Service not found.'));
-      const merged = {
-        ...existing,
-        ...update,
+      const merged: ServiceRegistrationInput = {
         serviceId: existing.serviceId,
+        serverId: update.serverId ?? existing.serverId,
+        environmentId: update.environmentId ?? existing.environmentId,
+        productIdReference: update.productIdReference ?? existing.productIdReference,
+        displayName: update.displayName ?? existing.displayName,
+        serviceType: update.serviceType ?? existing.serviceType,
+        runtimeType: update.runtimeType ?? existing.runtimeType,
+        deployment: update.deployment ?? existing.deployment,
+        healthCheck: update.healthCheck ?? existing.healthCheck,
+        systemdUnit: update.systemdUnit ?? existing.systemdUnit,
+        compose: update.compose ?? existing.compose,
+        ports: update.ports ?? existing.ports,
+        dependencyServiceIds: update.dependencyServiceIds ?? existing.dependencyServiceIds,
+        ownerId: update.ownerId ?? existing.ownerId,
+        criticality: update.criticality ?? existing.criticality,
+        desiredState: update.desiredState ?? existing.desiredState,
+        managementCapabilities: update.managementCapabilities ?? existing.managementCapabilities,
         lastDeclaredUpdate: now as ISO8601,
       };
       const validated = validate(merged);

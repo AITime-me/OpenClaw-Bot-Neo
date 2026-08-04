@@ -5,10 +5,11 @@ import type { EnvironmentRegistryPort } from '../../ports/infrastructure-environ
 import {
   sealEnvironmentRecord,
   type EnvironmentRecord,
+  type EnvironmentRegistrationInput,
 } from '../../domain/infrastructure/environment.js';
 import { infrastructureError } from '../../domain/infrastructure/errors.js';
 import type { EnvironmentId } from '../../domain/infrastructure/identity.js';
-import { parseBoundedText } from '../../domain/infrastructure/bounds.js';
+import { parseEnvironmentRegistrationInput } from '../../domain/infrastructure/record-parsers.js';
 
 export const createInMemoryEnvironmentRegistry = (): EnvironmentRegistryPort => {
   const records = new Map<EnvironmentId, EnvironmentRecord>();
@@ -19,33 +20,37 @@ export const createInMemoryEnvironmentRegistry = (): EnvironmentRegistryPort => 
         return err(
           infrastructureError('duplicate-registration', 'Environment already registered.'),
         );
-      const policy = parseBoundedText(input.policyProfileReference, {
-        max: 128,
-        label: 'PolicyProfileReference',
-      });
-      if (!policy.ok) return err(infrastructureError('invalid-input', policy.error.reason));
+      const validated = parseEnvironmentRegistrationInput(input);
+      if (!validated.ok) return validated;
       const record = sealEnvironmentRecord({
-        ...input,
-        policyProfileReference: policy.value,
+        ...validated.value,
         createdAt: now as ISO8601,
         updatedAt: now as ISO8601,
       });
-      records.set(input.environmentId, record);
+      records.set(validated.value.environmentId, record);
       return ok(record);
     },
     updateDeclared(environmentId, update, now) {
       const existing = records.get(environmentId);
       if (existing === undefined)
         return err(infrastructureError('environment-not-found', 'Environment not found.'));
-      const next = sealEnvironmentRecord({
-        ...existing,
-        ...update,
+      const merged: EnvironmentRegistrationInput = {
         environmentId: existing.environmentId,
+        name: update.name ?? existing.name,
+        kind: update.kind ?? existing.kind,
+        ownerId: update.ownerId ?? existing.ownerId,
+        regionAffinity: update.regionAffinity ?? existing.regionAffinity,
+        policyProfileReference: update.policyProfileReference ?? existing.policyProfileReference,
+      };
+      const validated = parseEnvironmentRegistrationInput(merged);
+      if (!validated.ok) return validated;
+      const record = sealEnvironmentRecord({
+        ...validated.value,
         createdAt: existing.createdAt,
         updatedAt: now as ISO8601,
       });
-      records.set(environmentId, next);
-      return ok(next);
+      records.set(environmentId, record);
+      return ok(record);
     },
     get(environmentId) {
       return records.get(environmentId) ?? null;

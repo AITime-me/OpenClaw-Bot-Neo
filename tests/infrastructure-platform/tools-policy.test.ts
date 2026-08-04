@@ -101,7 +101,8 @@ describe('infrastructure tools and policy', () => {
 
 describe('infrastructure bounded logs', () => {
   it('redacts secrets, caps output and keeps content untrusted', async () => {
-    const harness = createInfrastructureHarness();
+    const harness = createInfrastructureHarness({ simulation: { logFixture: 'secrets' } });
+    seedInfrastructureFixtures(harness);
     const result = await invoke(harness, {
       toolId: asToolId('infrastructure.service.logs.read'),
       input: {
@@ -109,7 +110,6 @@ describe('infrastructure bounded logs', () => {
         serviceId: 'svc-1',
         maximumLines: 5,
         maximumBytes: 200,
-        scenario: 'secrets',
       },
     });
     expect(result.kind).toBe('success');

@@ -11,7 +11,7 @@ describe('infrastructure secret and execution boundaries', () => {
     const harness = createInfrastructureHarness();
     await invoke(harness, {
       toolId: asToolId('infrastructure.server.inspect'),
-      input: { serverId: 'missing', mode: 'unavailable' },
+      input: { serverId: 'missing' },
     });
     expect(harness.secretProvider.resolveCalls).toBe(0);
     await invoke(harness, {

@@ -9,7 +9,7 @@ import {
 } from '../../domain/infrastructure/server.js';
 import { infrastructureError } from '../../domain/infrastructure/errors.js';
 import type { ServerId } from '../../domain/infrastructure/identity.js';
-import { parseBoundedText, MAX_PURPOSE_LENGTH } from '../../domain/infrastructure/bounds.js';
+import { parseServerRegistrationInput } from '../../domain/infrastructure/record-parsers.js';
 
 export const createInMemoryServerInventory = (
   environments: EnvironmentRegistryPort,
@@ -25,9 +25,7 @@ export const createInMemoryServerInventory = (
       > => {
     if (environments.get(input.environmentId) === null)
       return err(infrastructureError('environment-not-found', 'Environment does not exist.'));
-    const purpose = parseBoundedText(input.purpose, { max: MAX_PURPOSE_LENGTH, label: 'Purpose' });
-    if (!purpose.ok) return err(infrastructureError('invalid-input', purpose.error.reason));
-    return ok({ ...input, purpose: purpose.value });
+    return parseServerRegistrationInput(input);
   };
 
   return {
@@ -41,14 +39,29 @@ export const createInMemoryServerInventory = (
         createdAt: now as ISO8601,
         updatedAt: now as ISO8601,
       });
-      records.set(input.serverId, record);
+      records.set(validated.value.serverId, record);
       return ok(record);
     },
     updateDeclared(serverId, update, now) {
       const existing = records.get(serverId);
       if (existing === undefined)
         return err(infrastructureError('server-not-found', 'Server not found.'));
-      const merged = { ...existing, ...update, serverId: existing.serverId };
+      const merged: ServerRegistrationInput = {
+        serverId: existing.serverId,
+        providerId: update.providerId ?? existing.providerId,
+        providerServerId: update.providerServerId ?? existing.providerServerId,
+        environmentId: update.environmentId ?? existing.environmentId,
+        regionId: update.regionId ?? existing.regionId,
+        displayName: update.displayName ?? existing.displayName,
+        purpose: update.purpose ?? existing.purpose,
+        lifecycleStatus: update.lifecycleStatus ?? existing.lifecycleStatus,
+        os: update.os ?? existing.os,
+        capacity: update.capacity ?? existing.capacity,
+        addressing: update.addressing ?? existing.addressing,
+        managementCapabilities: update.managementCapabilities ?? existing.managementCapabilities,
+        hostConnection: update.hostConnection ?? existing.hostConnection,
+        ownerId: update.ownerId ?? existing.ownerId,
+      };
       const validated = validateInput(merged);
       if (!validated.ok) return validated;
       const record = sealServerRecord({

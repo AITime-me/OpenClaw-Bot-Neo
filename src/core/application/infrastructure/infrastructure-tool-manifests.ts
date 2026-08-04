@@ -56,10 +56,7 @@ export const INFRASTRUCTURE_TOOLS: readonly VerifiedToolManifest[] = Object.free
     inputSchema: {
       type: 'object',
       additionalProperties: false,
-      properties: {
-        serverId: serverIdProperty,
-        mode: { type: 'string', enum: ['ok', 'unavailable'] },
-      },
+      properties: { serverId: serverIdProperty },
       required: ['serverId'],
     },
     outputSchema: {
@@ -93,13 +90,7 @@ export const INFRASTRUCTURE_TOOLS: readonly VerifiedToolManifest[] = Object.free
     inputSchema: {
       type: 'object',
       additionalProperties: false,
-      properties: {
-        serverId: serverIdProperty,
-        scenario: {
-          type: 'string',
-          enum: ['healthy', 'pressure', 'unavailable', 'invalid'],
-        },
-      },
+      properties: { serverId: serverIdProperty },
       required: ['serverId'],
     },
     outputSchema: {
@@ -166,7 +157,6 @@ export const INFRASTRUCTURE_TOOLS: readonly VerifiedToolManifest[] = Object.free
       properties: {
         serverId: serverIdProperty,
         serviceId: serviceIdProperty,
-        scenario: { type: 'string', enum: ['healthy', 'failed', 'unreachable'] },
       },
       required: ['serverId', 'serviceId'],
     },
@@ -206,7 +196,6 @@ export const INFRASTRUCTURE_TOOLS: readonly VerifiedToolManifest[] = Object.free
         serviceId: serviceIdProperty,
         maximumLines: { type: 'integer', minimum: 1, maximum: 500 },
         maximumBytes: { type: 'integer', minimum: 1, maximum: 65536 },
-        scenario: { type: 'string', enum: ['ok', 'truncated', 'secrets'] },
       },
       required: ['serverId', 'serviceId', 'maximumLines', 'maximumBytes'],
     },
@@ -245,7 +234,6 @@ export const INFRASTRUCTURE_TOOLS: readonly VerifiedToolManifest[] = Object.free
       properties: {
         serverId: serverIdProperty,
         serviceId: serviceIdProperty,
-        scenario: { type: 'string', enum: ['no-drift', 'lifecycle', 'service', 'capacity'] },
       },
       required: ['serverId'],
     },
@@ -282,7 +270,6 @@ export const INFRASTRUCTURE_TOOLS: readonly VerifiedToolManifest[] = Object.free
         serverId: serverIdProperty,
         serviceId: serviceIdProperty,
         environmentId: environmentIdProperty,
-        scenario: { type: 'string', enum: ['ok', 'outcome-unknown', 'cancel'] },
       },
       required: ['serverId', 'serviceId', 'environmentId'],
     },
@@ -318,7 +305,6 @@ export const INFRASTRUCTURE_TOOLS: readonly VerifiedToolManifest[] = Object.free
         serviceId: serviceIdProperty,
         environmentId: environmentIdProperty,
         releaseId: releaseIdProperty,
-        scenario: { type: 'string', enum: ['ok', 'outcome-unknown'] },
       },
       required: ['serverId', 'serviceId', 'environmentId', 'releaseId'],
     },
@@ -354,7 +340,6 @@ export const INFRASTRUCTURE_TOOLS: readonly VerifiedToolManifest[] = Object.free
         serviceId: serviceIdProperty,
         environmentId: environmentIdProperty,
         releaseId: releaseIdProperty,
-        scenario: { type: 'string', enum: ['ok', 'outcome-unknown'] },
       },
       required: ['serverId', 'serviceId', 'environmentId', 'releaseId'],
     },
@@ -389,7 +374,6 @@ export const INFRASTRUCTURE_TOOLS: readonly VerifiedToolManifest[] = Object.free
         serverId: serverIdProperty,
         environmentId: environmentIdProperty,
         providerId: { type: 'string', maxLength: 128 },
-        scenario: { type: 'string', enum: ['ok', 'outcome-unknown'] },
       },
       required: ['serverId', 'environmentId', 'providerId'],
     },

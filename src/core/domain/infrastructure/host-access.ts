@@ -172,8 +172,99 @@ export interface RestrictedHostAccessPort {
 }
 
 /**
- * Restricted SSH adapter contract only. Fixed trusted operation-template identifiers
- * are the preferred future adapter; remote helper is deferred behind the same port.
+ * Closed trusted SSH template identifiers owned by adapter source code.
+ * Model/tool callers must not supply template IDs.
+ */
+export const RESTRICTED_SSH_TRUSTED_TEMPLATE_IDS = Object.freeze([
+  'tpl-inspect-host-identity',
+  'tpl-inspect-operating-system',
+  'tpl-inspect-resource-usage',
+  'tpl-inspect-disk-usage',
+  'tpl-inspect-memory-usage',
+  'tpl-inspect-load-average',
+  'tpl-inspect-process-summary',
+  'tpl-inspect-listening-ports',
+  'tpl-inspect-service-status',
+  'tpl-inspect-systemd-unit',
+  'tpl-read-bounded-service-logs',
+  'tpl-inspect-directory-metadata',
+  'tpl-inspect-release-metadata',
+  'tpl-inspect-compose-status',
+  'tpl-inspect-database-connectivity',
+  'tpl-start-service',
+  'tpl-stop-service',
+  'tpl-restart-service',
+  'tpl-reload-service',
+  'tpl-deploy-approved-release',
+  'tpl-rollback-approved-release',
+  'tpl-prune-approved-artifacts',
+  'tpl-update-approved-configuration',
+] as const);
+
+export type RestrictedSshTrustedTemplateId = (typeof RESTRICTED_SSH_TRUSTED_TEMPLATE_IDS)[number];
+
+export const mapRestrictedHostOperationToSshTemplate = (
+  operation: RestrictedHostOperation['op'],
+): RestrictedSshTrustedTemplateId | null => {
+  switch (operation) {
+    case 'inspect-host-identity':
+      return 'tpl-inspect-host-identity';
+    case 'inspect-operating-system':
+      return 'tpl-inspect-operating-system';
+    case 'inspect-resource-usage':
+      return 'tpl-inspect-resource-usage';
+    case 'inspect-disk-usage':
+      return 'tpl-inspect-disk-usage';
+    case 'inspect-memory-usage':
+      return 'tpl-inspect-memory-usage';
+    case 'inspect-load-average':
+      return 'tpl-inspect-load-average';
+    case 'inspect-process-summary':
+      return 'tpl-inspect-process-summary';
+    case 'inspect-listening-ports':
+      return 'tpl-inspect-listening-ports';
+    case 'inspect-service-status':
+      return 'tpl-inspect-service-status';
+    case 'inspect-systemd-unit':
+      return 'tpl-inspect-systemd-unit';
+    case 'read-bounded-service-logs':
+      return 'tpl-read-bounded-service-logs';
+    case 'inspect-directory-metadata':
+      return 'tpl-inspect-directory-metadata';
+    case 'inspect-release-metadata':
+      return 'tpl-inspect-release-metadata';
+    case 'inspect-compose-status':
+      return 'tpl-inspect-compose-status';
+    case 'inspect-database-connectivity':
+      return 'tpl-inspect-database-connectivity';
+    case 'start-service':
+      return 'tpl-start-service';
+    case 'stop-service':
+      return 'tpl-stop-service';
+    case 'restart-service':
+      return 'tpl-restart-service';
+    case 'reload-service':
+      return 'tpl-reload-service';
+    case 'deploy-approved-release':
+      return 'tpl-deploy-approved-release';
+    case 'rollback-approved-release':
+      return 'tpl-rollback-approved-release';
+    case 'prune-approved-artifacts':
+      return 'tpl-prune-approved-artifacts';
+    case 'update-approved-configuration':
+      return 'tpl-update-approved-configuration';
+    case 'change-firewall-rule':
+    case 'create-system-user':
+    case 'rotate-credential-reference':
+      return null;
+    default:
+      return null;
+  }
+};
+
+/**
+ * Restricted SSH adapter contract only. Trusted template IDs are a closed union;
+ * adapters map RestrictedHostOperation internally — callers never supply template IDs.
  */
 export interface RestrictedSshAdapterContract {
   readonly adapterId: string;
@@ -181,10 +272,9 @@ export interface RestrictedSshAdapterContract {
   readonly pinnedHostFingerprint: string;
   readonly connectionTimeoutMs: number;
   readonly operationTimeoutMs: number;
-  readonly operationTemplateId: string;
   readonly auditCorrelationId: CorrelationId;
-  executeTemplate(
-    templateId: string,
+  executeTrustedTemplate(
+    templateId: RestrictedSshTrustedTemplateId,
     boundedArguments: Readonly<Record<string, string>>,
     signal: AbortSignal,
   ): Promise<RestrictedHostResult>;

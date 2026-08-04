@@ -396,7 +396,8 @@ remains at `16bf1f4` pending owner-directed synchronization. No push performed. 
 Adds infrastructure domain contracts, in-memory environment/server/service inventories, provider-neutral
 and restricted host operation contracts, Timeweb contract only, infrastructure tool manifests routed
 through Build 3.5B `ToolInvocationOrchestrator`, offline reference provider/host adapters, and
-behavioural tests. Pending independent review. No Timeweb API client, SSH implementation, VPS,
+behavioural tests. Initial independent source review **BLOCKED** (3 HIGH, 7 MEDIUM); security
+corrective package pending independent re-review. No Timeweb API client, SSH implementation, VPS,
 production inventory wiring, or deployment. `DEPLOYMENT_READY=false`. See
 [infrastructure platform](infrastructure-platform.md).
 

@@ -454,6 +454,7 @@ Infrastructure inventories are metadata-only and cannot execute operations. Infr
 the Build 3.5B invocation pipeline exclusively. Provider/host/log output is untrusted. Server deletion,
 financial provider actions, firewall mutation and credential rotation are hard-denied in foundation
 policy. Reference infrastructure adapters are test-only. No Timeweb network client or SSH
-implementation. `SECRET_PROVIDER_CONFIGURED=false`. `deploymentReady` remains false. Pending
-independent review on feature branch `build-3-6b-infrastructure-fleet-foundation`. See
+implementation. `SECRET_PROVIDER_CONFIGURED=false`. `deploymentReady` remains false. Initial
+independent source review **BLOCKED** (3 HIGH, 7 MEDIUM); security corrective package pending
+independent re-review on feature branch `build-3-6b-infrastructure-fleet-foundation`. See
 [infrastructure platform](infrastructure-platform.md).

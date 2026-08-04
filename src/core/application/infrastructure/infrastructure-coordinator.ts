@@ -4,15 +4,9 @@ import type { ServiceInventoryPort } from '../../ports/infrastructure-service-in
 import type { InfrastructureObservationRegistryPort } from '../../ports/infrastructure-observation-registry.port.js';
 import { compareDrift } from '../../domain/infrastructure/drift.js';
 import type { DriftComparisonInput } from '../../domain/infrastructure/drift.js';
-import {
-  MAX_LOG_BYTES,
-  MAX_LOG_LINE_LENGTH,
-  MAX_LOG_LINES,
-  redactLogText,
-  replaceUnsafeControlCharacters,
-} from '../../domain/infrastructure/bounds.js';
+import { MAX_LOG_BYTES, MAX_LOG_LINES } from '../../domain/infrastructure/bounds.js';
 import type { InfrastructureLogRequest } from '../../domain/infrastructure/logs.js';
-import { sealLogResult } from '../../domain/infrastructure/logs.js';
+import { sanitizeBoundedLogPayload } from '../../domain/infrastructure/log-sanitization.js';
 import type { ISO8601 } from '../../domain/identity.js';
 import { infrastructureError } from '../../domain/infrastructure/errors.js';
 import { err, ok } from '../../domain/result.js';
@@ -84,38 +78,7 @@ export const createInfrastructureCoordinator = (deps: InfrastructureCoordinatorD
     maximumBytes: number,
     observedAt: ISO8601,
   ) {
-    const lines: string[] = [];
-    let returnedBytes = 0;
-    let redactionCount = 0;
-    let controlCharacterReplacementCount = 0;
-    let truncated = false;
-    for (const rawLine of rawLines) {
-      if (lines.length >= maximumLines) {
-        truncated = true;
-        break;
-      }
-      const redacted = redactLogText(rawLine.slice(0, MAX_LOG_LINE_LENGTH));
-      const cleaned = replaceUnsafeControlCharacters(redacted.text);
-      redactionCount += redacted.redactionCount;
-      controlCharacterReplacementCount += cleaned.count;
-      const lineBytes = Buffer.byteLength(cleaned.text, 'utf8');
-      if (returnedBytes + lineBytes > maximumBytes) {
-        truncated = true;
-        break;
-      }
-      returnedBytes += lineBytes;
-      lines.push(cleaned.text);
-    }
-    return sealLogResult({
-      lines: Object.freeze(lines),
-      contentTrust: 'untrusted',
-      truncated,
-      originalSizeKnown: true,
-      returnedBytes,
-      redactionCount,
-      controlCharacterReplacementCount,
-      observedAt,
-    });
+    return sanitizeBoundedLogPayload(rawLines, maximumLines, maximumBytes, observedAt);
   },
 });
 

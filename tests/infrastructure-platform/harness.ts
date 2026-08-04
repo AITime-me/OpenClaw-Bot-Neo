@@ -22,6 +22,7 @@ import {
   createInfrastructureConnector,
   createInfrastructureConnectorManifest,
 } from '../../src/connectors/infrastructure/index.js';
+import type { InfrastructureConnectorSimulation } from '../../src/connectors/infrastructure/infrastructure-connector-simulation.js';
 import type {
   ActorId,
   ApprovalId,
@@ -64,7 +65,9 @@ export const invocationContext = (
   ...overrides,
 });
 
-export const createInfrastructureHarness = () => {
+export const createInfrastructureHarness = (options?: {
+  readonly simulation?: InfrastructureConnectorSimulation;
+}) => {
   const clock = fixedClock();
   const environments = createInMemoryEnvironmentRegistry();
   const servers = createInMemoryServerInventory(environments);
@@ -78,7 +81,13 @@ export const createInfrastructureHarness = () => {
   });
   const { catalog, execution } = createInMemoryConnectorRegistries();
   const manifest = createInfrastructureConnectorManifest();
-  catalog.register(manifest, createInfrastructureConnector({ coordinator }));
+  catalog.register(
+    manifest,
+    createInfrastructureConnector({
+      coordinator,
+      ...(options?.simulation !== undefined ? { simulation: options.simulation } : {}),
+    }),
+  );
   const toolRegistry = createInMemoryToolRegistry(catalog);
   for (const tool of INFRASTRUCTURE_TOOLS) toolRegistry.register(tool);
   const connectionRegistry = createInMemoryAccountConnectionRegistry(catalog);
@@ -113,6 +122,7 @@ export const createInfrastructureHarness = () => {
     catalog,
     execution,
     clock,
+    simulation: options?.simulation,
   };
 };
 

@@ -70,13 +70,22 @@ behavioural tests only. Reference adapters must not enter production Neo composi
 
 ## Untrusted data
 
-Provider, host and log output are untrusted. Logs are bounded, redacted, and never interpreted as
-instructions. Drift detection reports only; no automatic repair or mutation retry.
+Provider, host and log output are untrusted. Logs pass through a single production sanitization path:
+bound raw input → ANSI/control neutralization → full-buffer secret redaction (including multiline PEM)
+→ line and byte caps. Drift detection reports only; no automatic repair or mutation retry.
+
+Uncertain mutation completion (`outcome-unknown`) never maps to tool success; write-like tools return
+failure with `executionState=outcome-unknown`.
+
+Declared inventory writes validate identifiers, capacities, addressing and paths at runtime before
+sealing immutable copies. Production tool schemas do not accept reference `scenario`/`mode` controls or
+arbitrary SSH `templateId`.
 
 ## Status
 
-Build 3.6B implemented locally on feature branch `build-3-6b-infrastructure-fleet-foundation`;
-pending independent review.
+Build 3.6B on feature branch `build-3-6b-infrastructure-fleet-foundation`. Initial independent source
+review **BLOCKED** (`BLOCK_BUILD_3_6B_INFRASTRUCTURE_FLEET_FOUNDATION` — 3 HIGH, 7 MEDIUM findings:
+IF-H01–IF-M07). Security corrective package committed locally; **pending independent re-review**.
 
 - no Timeweb API client;
 - no SSH implementation;

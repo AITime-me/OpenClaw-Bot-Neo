@@ -122,12 +122,12 @@ export const createReferenceRestrictedHostAccess = (
           data: {
             kind: 'bounded-logs',
             result: {
-              lines: Object.freeze(raw),
+              lines: Object.freeze([...raw]),
               contentTrust: 'untrusted',
               truncated: scenario === 'truncated-logs',
               originalSizeKnown: true,
-              returnedBytes: raw.join('\n').length,
-              redactionCount: scenario === 'redacted-logs' ? 1 : 0,
+              returnedBytes: Buffer.byteLength(raw.join('\n'), 'utf8'),
+              redactionCount: 0,
               controlCharacterReplacementCount: 0,
               observedAt,
             },

@@ -1,6 +1,6 @@
-import { deepFreeze } from '../immutable.js';
 import type { ServerId } from './identity.js';
 import type { ServerLifecycleStatus } from './capabilities.js';
+import { sealValidatedResourceSnapshot } from './snapshot-sealers.js';
 
 export interface ResourceSnapshot {
   readonly serverId: ServerId;
@@ -17,5 +17,8 @@ export interface ResourceSnapshot {
   readonly hostReachable: boolean | null;
 }
 
-export const sealResourceSnapshot = (snapshot: ResourceSnapshot): ResourceSnapshot =>
-  deepFreeze({ ...snapshot });
+export const sealResourceSnapshot = (snapshot: ResourceSnapshot): ResourceSnapshot => {
+  const validated = sealValidatedResourceSnapshot(snapshot);
+  if (!validated.ok) throw new Error(validated.error.reason);
+  return validated.value;
+};
