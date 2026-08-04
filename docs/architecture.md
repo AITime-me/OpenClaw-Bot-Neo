@@ -392,15 +392,19 @@ remains at `16bf1f4` pending owner-directed synchronization. No push performed. 
 [connector platform](connector-platform.md) and
 [closeout record](validation/build-3.5b-connector-platform-core-closeout.md).
 
-**Build 3.6B — Infrastructure Fleet Foundation (local feature branch):**
+**Build 3.6B — Infrastructure Fleet Foundation (local feature branch, closed):**
 Adds infrastructure domain contracts, in-memory environment/server/service inventories, provider-neutral
 and restricted host operation contracts, Timeweb contract only, infrastructure tool manifests routed
 through Build 3.5B `ToolInvocationOrchestrator`, offline reference provider/host adapters, and
-behavioural tests. Initial independent source review **BLOCKED** (3 HIGH, 7 MEDIUM). First security
-corrective re-review **BLOCKED**; second corrective package (typed connector-local
-`executionOutcome`, stateless secret predicates) pending independent re-review. No Build 3.6B
-closeout. No Timeweb API client, SSH implementation, VPS, production inventory wiring, or deployment.
-`DEPLOYMENT_READY=false`. See [infrastructure platform](infrastructure-platform.md).
+behavioural tests. Initial independent source review **BLOCKED**; first security corrective re-review
+**BLOCKED**; final corrective-2 re-review **approved with INFO notes**; documentation closeout
+committed locally. Dispositions:
+`BUILD_3_6B_INFRASTRUCTURE_SECURITY_CORRECTIVES_CLOSED_WITH_STATELESS_SECRET_DETECTION_AND_TYPED_OUTCOME_UNKNOWN`;
+`BUILD_3_6B_INFRASTRUCTURE_FLEET_FOUNDATION_CLOSED_WITH_BOUNDED_INVENTORIES_RESTRICTED_OPERATIONS_AND_UNTRUSTED_OBSERVATIONS`.
+No Timeweb API client, SSH implementation, VPS, production inventory wiring, deployment, or broad
+security approval. `DEPLOYMENT_READY=false`. Integration into local `main` and push pending. See
+[infrastructure platform](infrastructure-platform.md) and
+[closeout record](validation/build-3.6b-infrastructure-fleet-foundation-closeout.md).
 
 Связанные документы: [расширяемость](extensibility.md), [интеграции](integrations.md),
 [VoiceProfile](voice-profile.md), [каналы](channels.md), [безопасность](security-policy.md),

@@ -96,6 +96,12 @@ Connector-local failures may carry a closed typed `executionOutcome`:
 text is display/debug metadata only and has no mapping authority. `READ_ONLY` failures that claim
 `outcome-unknown` remain ordinary bounded failures. Malformed outcome values fail closed as
 `known-failure`. The field is connector-platform owned and is not ToolManifest/model input.
+`ToolInvocationOrchestrator` imports no infrastructure modules; free-form `reason` text has no
+mapping authority.
+
+Build 3.6B infrastructure connector uses this contract for uncertain write-like mutations without
+coupling the shared orchestrator to infrastructure-specific strings. Idempotency remains manifest-
+declared only; no durable cross-process idempotency is claimed.
 
 ## Persistence and reference connector
 
@@ -132,5 +138,8 @@ Expired approval cannot resolve secrets or execute a connector.
 - See
   [closeout record](validation/build-3.5b-connector-platform-core-closeout.md).
 - `SECRET_PROVIDER_CONFIGURED=false`.
+- Build 3.6B infrastructure fleet foundation closed on feature branch with final corrective-2
+  approval; see [infrastructure closeout](validation/build-3.6b-infrastructure-fleet-foundation-closeout.md).
+  `main` integration and push pending.
 - No production Secret Provider, OAuth, network, real connectors, or production composition wiring.
 - Durable approval/audit persistence absent. Diagnostics remain false. No push performed.

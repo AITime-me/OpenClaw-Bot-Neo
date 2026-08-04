@@ -163,6 +163,8 @@ Deployment prohibited.
 | Codex Review №6 R6-M03 live process identity (closeout) | closed for live process identity-bound readiness on supported Linux procfs (see `docs/validation/codex-review-6-r6-m03-live-process-identity-closeout.md`) |
 | Codex Review №6 R6-L01—L04 LOW hardening (closeout) | closed for descriptor-safe config, exclusive readiness, correlated evidence, owner-only state (see `docs/validation/codex-review-6-r6-low-hardening-package-closeout.md`) |
 | Build 3.5B connector platform core (closeout) | closed on local `main` for trusted approval, private execution, bounded data, safe invocation pipeline, and approval clock corrective (see `docs/validation/build-3.5b-connector-platform-core-closeout.md`) |
+| Build 3.6A infrastructure/Timeweb design | design approved (offline contracts; no implementation in 3.6A) |
+| Build 3.6B infrastructure fleet foundation (closeout) | closed on feature branch after corrective packages and final re-review with INFO notes; `main` integration pending (see `docs/validation/build-3.6b-infrastructure-fleet-foundation-closeout.md`) |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
@@ -322,14 +324,21 @@ durable approval/audit persistence, or production composition wiring. Feature br
 `16bf1f4` pending owner-directed synchronization. No push performed. See
 [closeout record](docs/validation/build-3.5b-connector-platform-core-closeout.md).
 
-**Build 3.6B (Infrastructure Fleet Foundation):** implemented locally on feature branch
-`build-3-6b-infrastructure-fleet-foundation`. Initial independent source review **BLOCKED** (3 HIGH,
-7 MEDIUM — IF-H01–IF-M07); first security corrective re-review **BLOCKED**; second corrective package
-pending independent re-review; no Build 3.6B closeout. Fleet inventory contracts, restricted
-operations, infrastructure tool manifests via Build 3.5B orchestrator, offline reference
-provider/host only. No Timeweb API client, SSH implementation, VPS, production inventory wiring, or
-deployment. `DEPLOYMENT_READY=false`. See
-[infrastructure platform](docs/infrastructure-platform.md).
+**Build 3.6B (Infrastructure Fleet Foundation):** source implementation and two security corrective
+packages completed on feature branch `build-3-6b-infrastructure-fleet-foundation`. Initial
+independent source review **BLOCKED**; first security corrective re-review **BLOCKED**; final
+corrective-2 re-review **approved with INFO notes**
+(`BUILD_3_6B_INFRASTRUCTURE_CORRECTIVE_2_REREVIEW_APPROVED_WITH_NOTES_FOR_CLOSEOUT`). Documentation
+closeout committed locally. Dispositions:
+`BUILD_3_6B_INFRASTRUCTURE_SECURITY_CORRECTIVES_CLOSED_WITH_STATELESS_SECRET_DETECTION_AND_TYPED_OUTCOME_UNKNOWN`;
+`BUILD_3_6B_INFRASTRUCTURE_FLEET_FOUNDATION_CLOSED_WITH_BOUNDED_INVENTORIES_RESTRICTED_OPERATIONS_AND_UNTRUSTED_OBSERVATIONS`.
+Fleet inventory contracts, restricted operations, infrastructure tool manifests via Build 3.5B
+orchestrator, offline reference provider/host only. No Timeweb API client, SSH implementation, VPS,
+production inventory wiring, or deployment. `DEPLOYMENT_READY=false`;
+`SECRET_PROVIDER_CONFIGURED=false`; `SECURITY_APPROVAL_COMPLETE=false`. Integration into local
+`main` and push pending. Real Timeweb/SSH implementation remains a later build. See
+[infrastructure platform](docs/infrastructure-platform.md) and
+[closeout record](docs/validation/build-3.6b-infrastructure-fleet-foundation-closeout.md).
 
 Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate
 (override запрещён). Review/tooling runner может использовать `OPENCLAW_REVIEW_NODE_OVERRIDE=1`

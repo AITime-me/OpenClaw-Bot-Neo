@@ -85,17 +85,36 @@ sealing immutable copies. Production tool schemas do not accept reference `scena
 
 ## Status
 
-Build 3.6B on feature branch `build-3-6b-infrastructure-fleet-foundation`. Initial independent source
-review **BLOCKED** (`BLOCK_BUILD_3_6B_INFRASTRUCTURE_FLEET_FOUNDATION` — 3 HIGH, 7 MEDIUM:
-IF-H01–IF-M07). First security corrective re-review **BLOCKED**
-(`BUILD_3_6B_INFRASTRUCTURE_SECURITY_CORRECTIVE_REREVIEW_BLOCKED` — IF-CR01/IF-CR02/IF-CM01 plus residual
-IF-H02/H03/M06). Second security corrective package committed locally; **pending independent
-re-review**. No Build 3.6B closeout yet.
+Build 3.6B **closed** on feature branch `build-3-6b-infrastructure-fleet-foundation` after
+independent source review, two security corrective packages, and final corrective-2 approval with
+INFO notes. Documentation closeout committed locally; integration into local `main` and remote push
+remain pending owner-directed.
+
+Review history:
+
+- initial source review **BLOCKED** (`BLOCK_BUILD_3_6B_INFRASTRUCTURE_FLEET_FOUNDATION`);
+- first security corrective re-review **BLOCKED**
+  (`BUILD_3_6B_INFRASTRUCTURE_SECURITY_CORRECTIVE_REREVIEW_BLOCKED`);
+- final corrective-2 re-review **approved with INFO notes**
+  (`BUILD_3_6B_INFRASTRUCTURE_CORRECTIVE_2_REREVIEW_APPROVED_WITH_NOTES_FOR_CLOSEOUT`).
+
+Final dispositions:
+
+- `BUILD_3_6B_INFRASTRUCTURE_SECURITY_CORRECTIVES_CLOSED_WITH_STATELESS_SECRET_DETECTION_AND_TYPED_OUTCOME_UNKNOWN`;
+- `BUILD_3_6B_INFRASTRUCTURE_FLEET_FOUNDATION_CLOSED_WITH_BOUNDED_INVENTORIES_RESTRICTED_OPERATIONS_AND_UNTRUSTED_OBSERVATIONS`.
+
+See [closeout record](validation/build-3.6b-infrastructure-fleet-foundation-closeout.md).
+
+Still absent / deferred:
 
 - no Timeweb API client;
 - no SSH implementation;
 - no VPS;
 - no production inventory wiring;
 - no deployment;
+- no production connector wiring;
 - `DEPLOYMENT_READY=false`;
-- `SECRET_PROVIDER_CONFIGURED=false`.
+- `SECRET_PROVIDER_CONFIGURED=false`;
+- `SECURITY_APPROVAL_COMPLETE=false`;
+- `AUTHORITATIVE_SECURITY_VALIDATION=false`;
+- `ENCRYPTION_ENABLED=false`.

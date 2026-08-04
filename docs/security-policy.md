@@ -455,8 +455,13 @@ the Build 3.5B invocation pipeline exclusively. Provider/host/log output is untr
 financial provider actions, firewall mutation and credential rotation are hard-denied in foundation
 policy. Reference infrastructure adapters are test-only. No Timeweb network client or SSH
 implementation. `SECRET_PROVIDER_CONFIGURED=false`. `deploymentReady` remains false. Initial
-independent source review **BLOCKED** (3 HIGH, 7 MEDIUM); first security corrective re-review
-**BLOCKED**; second corrective package pending independent re-review on feature branch
-`build-3-6b-infrastructure-fleet-foundation`. No Build 3.6B closeout. Uncertain write-like outcomes use
-a generic typed connector-local `executionOutcome`; free-form reason text has no authority. See
-[infrastructure platform](infrastructure-platform.md).
+independent source review **BLOCKED**; first security corrective re-review **BLOCKED**; final
+corrective-2 re-review **approved with INFO notes** on feature branch
+`build-3-6b-infrastructure-fleet-foundation`. Build 3.6B documentation closeout committed locally;
+`main` integration and push pending. Uncertain write-like outcomes use a generic typed connector-local
+`executionOutcome`; free-form reason text has no authority. Dispositions:
+`BUILD_3_6B_INFRASTRUCTURE_SECURITY_CORRECTIVES_CLOSED_WITH_STATELESS_SECRET_DETECTION_AND_TYPED_OUTCOME_UNKNOWN`;
+`BUILD_3_6B_INFRASTRUCTURE_FLEET_FOUNDATION_CLOSED_WITH_BOUNDED_INVENTORIES_RESTRICTED_OPERATIONS_AND_UNTRUSTED_OBSERVATIONS`.
+`SECURITY_APPROVAL_COMPLETE=false`. `AUTHORITATIVE_SECURITY_VALIDATION=false`.
+`ENCRYPTION_ENABLED=false`. See [infrastructure platform](infrastructure-platform.md) and
+[closeout record](validation/build-3.6b-infrastructure-fleet-foundation-closeout.md).
