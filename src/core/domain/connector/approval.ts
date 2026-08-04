@@ -11,7 +11,8 @@ import type {
 } from './identity.js';
 import type { ISO8601 } from '../identity.js';
 
-export type ToolApprovalStatus = 'pending' | 'granted' | 'consumed' | 'expired' | 'revoked';
+export type ToolApprovalStatus =
+  'pending' | 'granted' | 'consumed' | 'expired' | 'revoked' | 'denied';
 
 export interface ToolApprovalBinding {
   readonly invocationId: InvocationId;
@@ -21,9 +22,12 @@ export interface ToolApprovalBinding {
   readonly inputDigest: InputDigest;
   readonly sideEffectClass: ToolSideEffectClass;
   readonly expiresAt: ISO8601;
-  readonly approvingActorId: ActorId;
+  readonly requestingActorId: ActorId;
+  readonly approvingActorId: ActorId | null;
   readonly nonce: ApprovalNonce;
 }
+
+export type ToolApprovalRequestBinding = Omit<ToolApprovalBinding, 'nonce' | 'approvingActorId'>;
 
 export interface ToolApprovalGrant {
   readonly approvalId: ApprovalId;
@@ -32,7 +36,15 @@ export interface ToolApprovalGrant {
 }
 
 export type ToolApprovalFailureCode =
-  'NOT_FOUND' | 'EXPIRED' | 'CONSUMED' | 'REVOKED' | 'MISMATCH' | 'MALFORMED';
+  | 'NOT_FOUND'
+  | 'EXPIRED'
+  | 'CONSUMED'
+  | 'REVOKED'
+  | 'DENIED'
+  | 'NOT_GRANTED'
+  | 'MISMATCH'
+  | 'MALFORMED'
+  | 'FINANCIAL_DENIED';
 
 export interface ToolApprovalFailure {
   readonly code: ToolApprovalFailureCode;

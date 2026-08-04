@@ -19,13 +19,18 @@ export const CORE_LAYER_RULES = {
   'core/routing': ['core/domain', 'core/ports', 'core/routing'],
   'core/config': ['core/domain', 'core/routing', 'core/config'],
   'core/runtime': ['core/runtime'],
+  'core/application/connector': [
+    'core/domain',
+    'core/ports',
+    'core/application/connector',
+    'connectors/sdk',
+  ],
   'core/application': [
     'core/domain',
     'core/ports',
     'core/policy',
     'core/routing',
     'core/application',
-    'connectors/sdk',
   ],
   'connectors/sdk': ['core/domain', 'connectors/sdk'],
   'connectors/reference': ['core/domain', 'connectors/sdk', 'connectors/reference'],
@@ -284,6 +289,10 @@ export const INTERNAL_MODULE_ALLOWLIST = {
   'host/storage/runtime/posix-process-lock-constants.ts': [
     'host/storage/runtime/acquire-posix-process-lock.ts',
   ],
+  'core/application/connector/connector-execution-registry.port.ts': [
+    'core/application/connector/tool-invocation-orchestrator.ts',
+    'core/application/connector/in-memory-connector-registries.ts',
+  ],
 };
 
 const toPosix = (value) => value.split('\\').join('/');
@@ -351,7 +360,9 @@ export function extractReferences(sourceText, fileName) {
 const layerOf = (relativePath) => {
   const path = toPosix(relativePath);
   const known = Object.keys(CORE_LAYER_RULES).filter((layer) => layer !== 'root');
-  const match = known.find((layer) => path.startsWith(`${layer}/`));
+  const match = known
+    .sort((a, b) => b.length - a.length)
+    .find((layer) => path.startsWith(`${layer}/`) || path === layer);
   if (match) return match;
   return path.includes('/') ? `unknown:${path.split('/').slice(0, -1).join('/')}` : 'root';
 };

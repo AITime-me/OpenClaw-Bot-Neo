@@ -1,4 +1,11 @@
-import type { ApprovalId, ActorId, CorrelationId, IdempotencyKey, OwnerId } from './identity.js';
+import type {
+  ApprovalId,
+  ApprovalNonce,
+  ActorId,
+  CorrelationId,
+  IdempotencyKey,
+  OwnerId,
+} from './identity.js';
 import type { ConnectorId, ConnectionId, InvocationId, ToolId, InputDigest } from './identity.js';
 import type { JsonObject } from './json.js';
 import type { ToolSideEffectClass } from './capabilities.js';
@@ -18,12 +25,14 @@ export interface ToolInvocationRequest {
   readonly connectionId: ConnectionId | null;
   readonly input: JsonObject;
   readonly approvalId: ApprovalId | null;
+  readonly approvalNonce: ApprovalNonce | null;
   readonly idempotencyKey: IdempotencyKey | null;
   readonly timeoutOverrideMs: number | null;
 }
 
 export interface ApprovalRequestMetadata {
   readonly approvalId: ApprovalId;
+  readonly nonce: ApprovalNonce;
   readonly invocationId: InvocationId;
   readonly toolId: ToolId;
   readonly connectorId: ConnectorId;

@@ -1,20 +1,20 @@
-import type { Connector } from '../../../connectors/sdk/connector.js';
 import type { ConnectorId, VerifiedConnectorManifest } from '../../domain/connector/index.js';
 import type { Result } from '../../domain/result.js';
+import type { Connector } from '../../../connectors/sdk/connector.js';
 
-export type ConnectorRegistryFailureCode = 'DUPLICATE' | 'NOT_FOUND';
+export type ConnectorCatalogFailureCode = 'DUPLICATE' | 'NOT_FOUND';
 
-export interface ConnectorRegistryFailure {
-  readonly code: ConnectorRegistryFailureCode;
+export interface ConnectorCatalogFailure {
+  readonly code: ConnectorCatalogFailureCode;
   readonly reason: string;
 }
 
-export interface ConnectorRegistry {
+/** Public connector metadata surface — no execute capability. */
+export interface ConnectorCatalog {
   register(
     manifest: VerifiedConnectorManifest,
     connector: Connector,
-  ): Result<void, ConnectorRegistryFailure>;
+  ): Result<void, ConnectorCatalogFailure>;
   getManifest(connectorId: ConnectorId): VerifiedConnectorManifest | null;
-  getConnector(connectorId: ConnectorId): Connector | null;
   listManifests(): readonly VerifiedConnectorManifest[];
 }

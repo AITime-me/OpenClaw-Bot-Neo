@@ -15,3 +15,7 @@ export const CONNECTOR_MANIFEST_SCHEMA_VERSION = 'connector-platform/1' as const
 export const CONNECTOR_TOOL_MANIFEST_SCHEMA_VERSION = 'connector-tool/1' as const;
 
 export const CONNECTOR_SECRET_PROVIDER_CONFIGURED = false as const;
+
+/** Bounded non-secret account identity stored on AccountConnection. */
+export const CONNECTOR_ACCOUNT_IDENTITY_MAX_LENGTH = 256;
+export const CONNECTOR_ACCOUNT_IDENTITY_MAX_UTF8_BYTES = 512;

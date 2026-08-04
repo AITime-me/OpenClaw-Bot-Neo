@@ -9,10 +9,10 @@ The platform provides:
 
 - connector domain contracts and bounded JSON models;
 - Connector SDK lifecycle contracts;
-- in-memory connector, tool, connection and health registries;
+- in-memory connector catalog, tool, connection and health registries;
 - capability manifests and validated tool manifests;
 - deny-by-default `ToolPolicyEngine`;
-- digest-bound single-use `ToolApprovalPort`;
+- digest-bound single-use `ToolApprovalPort` with separate `ToolApprovalDecisionPort`;
 - safe `ToolAuditPort` and `ConnectorSecretProvider` ports;
 - mandatory `ToolInvocationOrchestrator` pipeline;
 - offline reference connector for tests only.
@@ -35,6 +35,18 @@ The platform provides:
 
 Policy denial, capability denial, and missing approval must not call `ConnectorSecretProvider`.
 
+## Approval requires trusted decision
+
+`ToolApprovalPort.createRequest` creates a `pending` record only. A separate trusted
+`ToolApprovalDecisionPort` (`grant`, `deny`, `revoke`) is required before
+`consumeGrant` can succeed. Approval identifiers and nonces are cryptographically random.
+The requesting execution actor cannot self-grant.
+
+## Executable connector access
+
+Public `ConnectorCatalog` exposes manifest metadata only. Executable `Connector` instances are
+available only through the orchestrator-private `ConnectorExecutionRegistry`.
+
 ## Capability versus authorization
 
 `ToolCapability` discovery in manifests is not authorization. `ToolPolicyEngine` and connection
@@ -51,8 +63,8 @@ decisions; it is not treated as a financial action merely because the domain is 
 ## Approval binding
 
 Approvals bind `invocationId`, `toolId`, `connectorId`, `connectionId`, canonical input digest,
-`sideEffectClass`, expiry, approving actor, and single-use nonce. Canonical digest uses sorted
-object keys and SHA-256.
+`sideEffectClass`, expiry, requesting actor, approving actor, and single-use nonce. Canonical
+digest uses sorted object keys and SHA-256.
 
 ## Secret resolution timing
 
@@ -73,7 +85,8 @@ validation. Connectors must not create platform results, audit events, or policy
 ## Cancellation limits
 
 Cancellation is cooperative via `AbortSignal`. Connectors that ignore the signal are not hard-
-stopped. Write-like tools with `cancellationSupport=none` are denied by default policy.
+stopped. Late write-like completion after abort may report `executionState=outcome-unknown`.
+Platform errors do not echo raw connector reason text.
 
 ## Persistence and reference connector
 
@@ -84,7 +97,8 @@ Real connectors (GitHub, amoCRM, email, Telegram, Timeweb) are deferred.
 
 ## Status
 
-- Build 3.5B implemented locally.
+- Build 3.5B security corrective package applied locally.
+- Pending independent re-review after approval/registry/validation hardening.
 - `SECRET_PROVIDER_CONFIGURED=false`.
 - No production Secret Provider, OAuth, network, or production composition wiring.
-- Pending independent review.
+- Diagnostics remain false.

@@ -61,6 +61,17 @@ module.exports = {
       to: { path: '^src/connectors/reference' },
     },
     {
+      name: 'connector-execution-registry-private',
+      severity: 'error',
+      comment: 'Executable connector registry is orchestrator-private.',
+      from: {
+        path: '^src/',
+        pathNot:
+          '^src/core/application/connector/(tool-invocation-orchestrator|in-memory-connector-registries)\\.ts$',
+      },
+      to: { path: '^src/core/application/connector/connector-execution-registry' },
+    },
+    {
       name: 'neo-runtime-no-connector-internals',
       severity: 'error',
       comment: 'Neo runtime must not import connector platform internals.',

@@ -3,7 +3,8 @@ import type { ToolPolicyEngine } from '../../ports/tool-policy-engine.port.js';
 import type { ToolApprovalPort } from '../../ports/tool-approval.port.js';
 import type { ToolAuditPort } from '../../ports/tool-audit.port.js';
 import type { ConnectorSecretProvider } from '../../ports/connector-secret-provider.port.js';
-import type { ConnectorRegistry } from './connector-registry.port.js';
+import type { ConnectorCatalog } from './connector-catalog.port.js';
+import type { ConnectorExecutionRegistry } from './connector-execution-registry.port.js';
 import type { ToolRegistry } from './tool-registry.port.js';
 import type { AccountConnectionRegistry } from './account-connection-registry.port.js';
 import type { ConnectorHealthRegistry } from './connector-health-registry.port.js';
@@ -29,19 +30,15 @@ import { CONNECTOR_PLATFORM_MAX_TIMEOUT_MS } from '../../domain/connector/consta
 import type { SafeToolAuditEvent } from '../../domain/connector/policy.js';
 import type { SecretReferenceMetadata } from '../../domain/connector/secret.js';
 import type { ConnectorHealthSnapshot } from '../../domain/connector/health.js';
-import type {
-  ConnectorId,
-  ConnectionId,
-  InputDigest,
-  ApprovalNonce,
-} from '../../domain/connector/identity.js';
-import type {
-  ConnectorExecutionError,
-  ConnectorExecutionResult,
-} from '../../../connectors/sdk/connector.js';
+import type { ConnectorId, ConnectionId, InputDigest } from '../../domain/connector/identity.js';
+import type { ToolApprovalRequestBinding } from '../../domain/connector/approval.js';
+import type { ConnectorExecutionResult } from '../../../connectors/sdk/connector.js';
+import { isWriteLikeSideEffect } from '../../domain/connector/capabilities.js';
+import type { VerifiedToolManifest } from '../../domain/connector/manifest-validation.js';
 
 export interface ToolInvocationOrchestratorDeps {
-  readonly connectorRegistry: ConnectorRegistry;
+  readonly connectorCatalog: ConnectorCatalog;
+  readonly connectorExecution: ConnectorExecutionRegistry;
   readonly toolRegistry: ToolRegistry;
   readonly connectionRegistry: AccountConnectionRegistry;
   readonly healthRegistry: ConnectorHealthRegistry;
@@ -81,8 +78,118 @@ const effectiveTimeout = (manifestTimeout: number, override: number | null): num
   return Math.min(capped, override);
 };
 
-const approvalNonceFor = (invocationId: string): ApprovalNonce =>
-  `nonce.${invocationId}` as ApprovalNonce;
+const absorbLateCompletion = (promise: Promise<unknown>): void => {
+  void promise.then(() => undefined).catch(() => undefined);
+};
+
+const mapAbortedExecution = (
+  signal: AbortSignal,
+  sideEffectClass: VerifiedToolManifest['sideEffectClass'],
+): ToolExecutionError & {
+  readonly health: {
+    readonly status: ConnectorHealthSnapshot['status'];
+    readonly failureCategory: ConnectorHealthSnapshot['failureCategory'];
+  };
+} => {
+  const timedOut = signal.reason === 'timeout';
+  const writeLike = isWriteLikeSideEffect(sideEffectClass);
+  return {
+    code: timedOut ? 'timeout' : 'cancelled',
+    reason: timedOut ? 'Execution timed out.' : 'Execution was cancelled.',
+    executionState: writeLike ? 'outcome-unknown' : 'completed',
+    health: {
+      status: 'degraded',
+      failureCategory: timedOut ? 'timeout' : 'cancelled',
+    },
+  };
+};
+
+const mapConnectorFailure = (
+  code: 'unavailable' | 'timeout' | 'cancelled' | 'remote-error' | 'invalid-output',
+  signal: AbortSignal,
+): ToolExecutionError & {
+  readonly health: {
+    readonly status: ConnectorHealthSnapshot['status'];
+    readonly failureCategory: ConnectorHealthSnapshot['failureCategory'];
+  };
+} => {
+  if (signal.aborted)
+    return {
+      code: signal.reason === 'timeout' ? 'timeout' : 'cancelled',
+      reason: signal.reason === 'timeout' ? 'Execution timed out.' : 'Execution was cancelled.',
+      executionState: 'completed',
+      health: {
+        status: 'degraded',
+        failureCategory: signal.reason === 'timeout' ? 'timeout' : 'cancelled',
+      },
+    };
+  switch (code) {
+    case 'unavailable':
+      return {
+        code: 'connector-unavailable',
+        reason: 'Connector is unavailable.',
+        executionState: 'completed',
+        health: { status: 'unavailable', failureCategory: 'remote' },
+      };
+    case 'timeout':
+      return {
+        code: 'timeout',
+        reason: 'Connector execution timed out.',
+        executionState: 'completed',
+        health: { status: 'degraded', failureCategory: 'timeout' },
+      };
+    case 'cancelled':
+      return {
+        code: 'cancelled',
+        reason: 'Connector execution was cancelled.',
+        executionState: 'completed',
+        health: { status: 'degraded', failureCategory: 'cancelled' },
+      };
+    case 'remote-error':
+      return {
+        code: 'remote-error',
+        reason: 'Remote connector error.',
+        executionState: 'completed',
+        health: { status: 'degraded', failureCategory: 'remote' },
+      };
+    case 'invalid-output':
+      return {
+        code: 'invalid-remote-response',
+        reason: 'Connector returned invalid output.',
+        executionState: 'completed',
+        health: { status: 'degraded', failureCategory: 'invalid-response' },
+      };
+    default:
+      return {
+        code: 'internal-error',
+        reason: 'Connector execution failed.',
+        executionState: 'completed',
+        health: { status: 'unavailable', failureCategory: 'internal' },
+      };
+  }
+};
+
+const updateHealth = (
+  deps: ToolInvocationOrchestratorDeps,
+  connectorId: ConnectorId,
+  connectionId: ConnectionId | null,
+  health: {
+    readonly status: ConnectorHealthSnapshot['status'];
+    readonly failureCategory: ConnectorHealthSnapshot['failureCategory'];
+  },
+): void => {
+  const now = iso8601FromDate(new Date());
+  const previous = deps.healthRegistry.get(connectorId, connectionId);
+  deps.healthRegistry.update({
+    connectorId,
+    connectionId,
+    status: health.status,
+    lastSuccessAt: health.status === 'healthy' ? now : (previous?.lastSuccessAt ?? null),
+    lastFailureAt: health.status === 'healthy' ? (previous?.lastFailureAt ?? null) : now,
+    failureCategory: health.failureCategory,
+    retryAfterMs: health.status === 'unavailable' ? 30_000 : null,
+  });
+};
 
 export const createToolInvocationOrchestrator = (deps: ToolInvocationOrchestratorDeps) => ({
   async invoke(
@@ -97,7 +204,7 @@ export const createToolInvocationOrchestrator = (deps: ToolInvocationOrchestrato
         executionState: 'not-started',
       });
 
-    const connectorManifest = deps.connectorRegistry.getManifest(tool.connectorId);
+    const connectorManifest = deps.connectorCatalog.getManifest(tool.connectorId);
     if (connectorManifest === null)
       return failure(request.invocationId, request.toolId, {
         code: 'connector-not-found',
@@ -262,7 +369,7 @@ export const createToolInvocationOrchestrator = (deps: ToolInvocationOrchestrato
         executionState: 'not-started',
       });
 
-    const binding = {
+    const requestBinding: ToolApprovalRequestBinding = {
       invocationId: request.invocationId,
       toolId: request.toolId,
       connectorId,
@@ -270,13 +377,12 @@ export const createToolInvocationOrchestrator = (deps: ToolInvocationOrchestrato
       inputDigest,
       sideEffectClass: tool.sideEffectClass,
       expiresAt: iso8601FromDate(new Date(deps.clock.now().getTime() + 300_000)),
-      approvingActorId: context.actorId,
-      nonce: approvalNonceFor(request.invocationId),
+      requestingActorId: context.actorId,
     };
 
     if (policyDecision.decision === 'require-approval') {
       if (request.approvalId === null) {
-        const created = await deps.approvalPort.createRequest(binding, context);
+        const created = await deps.approvalPort.createRequest(requestBinding, context);
         await audit(
           deps,
           auditEvent({
@@ -298,20 +404,32 @@ export const createToolInvocationOrchestrator = (deps: ToolInvocationOrchestrato
           toolId: request.toolId,
           approvalRequest: {
             approvalId: created.value.approvalId,
+            nonce: created.value.binding.nonce,
             invocationId: request.invocationId,
             toolId: request.toolId,
             connectorId,
             connectionId: request.connectionId,
             inputDigest,
             sideEffectClass: tool.sideEffectClass,
-            expiresAt: binding.expiresAt,
+            expiresAt: requestBinding.expiresAt,
           },
         };
       }
+      if (request.approvalNonce === null)
+        return failure(request.invocationId, request.toolId, {
+          code: 'approval-denied',
+          reason: 'Approval nonce is required.',
+          executionState: 'not-started',
+        });
+      const consumeBinding = {
+        ...requestBinding,
+        approvingActorId: null,
+        nonce: request.approvalNonce,
+      };
       const consumed = await deps.approvalPort.consumeGrant(
         request.approvalId,
-        binding.nonce,
-        binding,
+        request.approvalNonce,
+        consumeBinding,
         context,
       );
       await audit(
@@ -324,7 +442,12 @@ export const createToolInvocationOrchestrator = (deps: ToolInvocationOrchestrato
         context,
       );
       if (!consumed.ok) {
-        const code = consumed.error.code === 'EXPIRED' ? 'approval-expired' : 'approval-denied';
+        const code =
+          consumed.error.code === 'EXPIRED'
+            ? 'approval-expired'
+            : consumed.error.code === 'NOT_GRANTED' || consumed.error.code === 'DENIED'
+              ? 'approval-denied'
+              : 'approval-denied';
         return failure(request.invocationId, request.toolId, {
           code,
           reason: consumed.error.reason.slice(0, 256),
@@ -333,7 +456,20 @@ export const createToolInvocationOrchestrator = (deps: ToolInvocationOrchestrato
       }
     }
 
-    const connector = deps.connectorRegistry.getConnector(tool.connectorId);
+    if (context.signal.aborted) {
+      await audit(
+        deps,
+        auditEvent({ kind: 'invocation-completed', outcome: 'failure', errorCode: 'cancelled' }),
+        context,
+      );
+      return failure(request.invocationId, request.toolId, {
+        code: 'cancelled',
+        reason: 'Execution was cancelled.',
+        executionState: 'not-started',
+      });
+    }
+
+    const connector = deps.connectorExecution.getConnector(tool.connectorId);
     if (connector === null)
       return failure(request.invocationId, request.toolId, {
         code: 'connector-unavailable',
@@ -344,7 +480,7 @@ export const createToolInvocationOrchestrator = (deps: ToolInvocationOrchestrato
     const timeoutMs = effectiveTimeout(tool.timeoutMs, request.timeoutOverrideMs);
     const timeoutController = new AbortController();
     const onCallerAbort = (): void => {
-      timeoutController.abort();
+      timeoutController.abort(context.signal.reason ?? 'cancelled');
     };
     context.signal.addEventListener('abort', onCallerAbort, { once: true });
     const timeoutId = setTimeout(() => {
@@ -377,28 +513,91 @@ export const createToolInvocationOrchestrator = (deps: ToolInvocationOrchestrato
       secretHandle = resolved.value;
     }
 
-    let connectorResult: ConnectorExecutionResult;
-    try {
-      connectorResult = await connector.execute({
-        tool,
-        input: boundedInput.value,
-        secretHandle,
-        idempotencyKey: request.idempotencyKey,
-        signal: timeoutController.signal,
-        context: { connectorId, invocationLabel: request.invocationId },
-      });
-    } catch {
-      connectorResult = {
+    const executeRequest = {
+      tool,
+      input: boundedInput.value,
+      secretHandle,
+      idempotencyKey: request.idempotencyKey,
+      signal: timeoutController.signal,
+      context: { connectorId, invocationLabel: request.invocationId },
+    };
+
+    const executionPromise = connector
+      .execute(executeRequest)
+      .then((result) => result)
+      .catch((): ConnectorExecutionResult => ({
         ok: false,
-        error: { code: 'unavailable', reason: 'Connector execution failed.', category: 'internal' },
-      };
-    } finally {
-      clearTimeout(timeoutId);
-      context.signal.removeEventListener('abort', onCallerAbort);
+        error: {
+          code: 'unavailable',
+          reason: 'Connector execution failed.',
+          category: 'internal',
+        },
+      }));
+
+    const abortPromise = new Promise<'aborted'>((resolve) => {
+      if (timeoutController.signal.aborted) {
+        resolve('aborted');
+        return;
+      }
+      timeoutController.signal.addEventListener(
+        'abort',
+        () => {
+          resolve('aborted');
+        },
+        { once: true },
+      );
+    });
+
+    const race = await Promise.race([
+      executionPromise.then((connectorResult) => ({ kind: 'done' as const, connectorResult })),
+      abortPromise.then(() => ({ kind: 'aborted' as const })),
+    ]);
+
+    clearTimeout(timeoutId);
+    context.signal.removeEventListener('abort', onCallerAbort);
+
+    if (race.kind === 'aborted') {
+      absorbLateCompletion(executionPromise);
+      const mapped = mapAbortedExecution(timeoutController.signal, tool.sideEffectClass);
+      updateHealth(deps, connectorId, request.connectionId, mapped.health);
+      await audit(
+        deps,
+        auditEvent({ kind: 'execution-finished', outcome: 'failure', errorCode: mapped.code }),
+        context,
+      );
+      const completionAudit = await audit(
+        deps,
+        auditEvent({ kind: 'invocation-completed', outcome: 'failure', errorCode: mapped.code }),
+        context,
+      );
+      if (completionAudit !== null)
+        return failure(request.invocationId, request.toolId, completionAudit);
+      return failure(request.invocationId, request.toolId, mapped);
     }
 
+    const connectorResult = race.connectorResult;
+
     if (!connectorResult.ok) {
-      const mapped = mapConnectorError(connectorResult.error, timeoutController.signal);
+      const mapped = mapConnectorFailure(connectorResult.error.code, timeoutController.signal);
+      updateHealth(deps, connectorId, request.connectionId, mapped.health);
+      await audit(
+        deps,
+        auditEvent({ kind: 'execution-finished', outcome: 'failure', errorCode: mapped.code }),
+        context,
+      );
+      const completionAudit = await audit(
+        deps,
+        auditEvent({ kind: 'invocation-completed', outcome: 'failure', errorCode: mapped.code }),
+        context,
+      );
+      if (completionAudit !== null)
+        return failure(request.invocationId, request.toolId, completionAudit);
+      return failure(request.invocationId, request.toolId, mapped);
+    }
+
+    if (timeoutController.signal.aborted) {
+      absorbLateCompletion(Promise.resolve(connectorResult));
+      const mapped = mapAbortedExecution(timeoutController.signal, tool.sideEffectClass);
       updateHealth(deps, connectorId, request.connectionId, mapped.health);
       await audit(
         deps,
@@ -419,7 +618,7 @@ export const createToolInvocationOrchestrator = (deps: ToolInvocationOrchestrato
     if (!boundedOutput.ok) {
       const error: ToolExecutionError = {
         code: 'invalid-remote-response',
-        reason: boundedOutput.error.reason.slice(0, 256),
+        reason: 'Connector output failed platform bounds.',
         executionState: 'completed',
       };
       updateHealth(deps, connectorId, request.connectionId, {
@@ -497,92 +696,5 @@ export const createToolInvocationOrchestrator = (deps: ToolInvocationOrchestrato
     };
   },
 });
-
-const mapConnectorError = (
-  error: ConnectorExecutionError,
-  signal: AbortSignal,
-): ToolExecutionError & {
-  readonly health: {
-    readonly status: ConnectorHealthSnapshot['status'];
-    readonly failureCategory: ConnectorHealthSnapshot['failureCategory'];
-  };
-} => {
-  if (signal.aborted)
-    return {
-      code: signal.reason === 'timeout' ? 'timeout' : 'cancelled',
-      reason: 'Execution was aborted.',
-      executionState: 'completed',
-      health: {
-        status: 'degraded',
-        failureCategory: signal.reason === 'timeout' ? 'timeout' : 'cancelled',
-      },
-    };
-  switch (error.code) {
-    case 'unavailable':
-      return {
-        code: 'connector-unavailable',
-        reason: error.reason.slice(0, 256),
-        executionState: 'completed',
-        health: { status: 'unavailable', failureCategory: 'remote' },
-      };
-    case 'timeout':
-      return {
-        code: 'timeout',
-        reason: 'Connector execution timed out.',
-        executionState: 'completed',
-        health: { status: 'degraded', failureCategory: 'timeout' },
-      };
-    case 'cancelled':
-      return {
-        code: 'cancelled',
-        reason: 'Connector execution was cancelled.',
-        executionState: 'completed',
-        health: { status: 'degraded', failureCategory: 'cancelled' },
-      };
-    case 'remote-error':
-      return {
-        code: 'remote-error',
-        reason: 'Remote connector error.',
-        executionState: 'completed',
-        health: { status: 'degraded', failureCategory: 'remote' },
-      };
-    case 'invalid-output':
-      return {
-        code: 'invalid-remote-response',
-        reason: 'Connector returned invalid output.',
-        executionState: 'completed',
-        health: { status: 'degraded', failureCategory: 'invalid-response' },
-      };
-    default:
-      return {
-        code: 'internal-error',
-        reason: 'Connector execution failed.',
-        executionState: 'completed',
-        health: { status: 'unavailable', failureCategory: 'internal' },
-      };
-  }
-};
-
-const updateHealth = (
-  deps: ToolInvocationOrchestratorDeps,
-  connectorId: ConnectorId,
-  connectionId: ConnectionId | null,
-  health: {
-    readonly status: ConnectorHealthSnapshot['status'];
-    readonly failureCategory: ConnectorHealthSnapshot['failureCategory'];
-  },
-): void => {
-  const now = iso8601FromDate(new Date());
-  const previous = deps.healthRegistry.get(connectorId, connectionId);
-  deps.healthRegistry.update({
-    connectorId,
-    connectionId,
-    status: health.status,
-    lastSuccessAt: health.status === 'healthy' ? now : (previous?.lastSuccessAt ?? null),
-    lastFailureAt: health.status === 'healthy' ? (previous?.lastFailureAt ?? null) : now,
-    failureCategory: health.failureCategory,
-    retryAfterMs: health.status === 'unavailable' ? 30_000 : null,
-  });
-};
 
 export type ToolInvocationOrchestrator = ReturnType<typeof createToolInvocationOrchestrator>;

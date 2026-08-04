@@ -27,7 +27,16 @@ export type ConnectionFailureCode =
   | 'UNDECLARED_CAPABILITY'
   | 'INVALID_STATUS'
   | 'CREDENTIAL_FIELD'
+  | 'INVALID_IDENTITY'
   | 'DUPLICATE';
+
+export type AccountIdentityFailureCode =
+  'EMPTY' | 'TOO_LONG' | 'CONTROL_CHAR' | 'NUL' | 'CREDENTIAL_FIELD' | 'UTF8_TOO_LARGE';
+
+export interface AccountIdentityFailure {
+  readonly code: AccountIdentityFailureCode;
+  readonly reason: string;
+}
 
 export interface ConnectionFailure {
   readonly code: ConnectionFailureCode;

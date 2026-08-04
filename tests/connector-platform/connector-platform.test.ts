@@ -6,6 +6,7 @@ import {
   asInvocation,
   asIdempotency,
   asConnection,
+  asApprover,
   iso,
   NOW,
 } from './harness.js';
@@ -15,7 +16,7 @@ import {
   computeInputDigest,
 } from '../../src/core/domain/connector/index.js';
 import {
-  createInMemoryConnectorRegistry,
+  createInMemoryConnectorRegistries,
   createInMemoryToolRegistry,
   createInMemoryToolAuditPort,
 } from '../../src/core/application/connector/index.js';
@@ -26,13 +27,30 @@ import {
 } from '../../src/connectors/reference/index.js';
 import { readFileSync } from 'node:fs';
 
+const approveAndInvoke = async (
+  harness: ReturnType<typeof createPlatformHarness>,
+  pending: Extract<Awaited<ReturnType<typeof invoke>>, { kind: 'approval-required' }>,
+  overrides: Parameters<typeof invoke>[1] = { toolId: pending.toolId },
+) => {
+  const granted = await harness.decisionPort.grant(
+    pending.approvalRequest.approvalId,
+    asApprover(),
+  );
+  expect(granted.ok).toBe(true);
+  return invoke(harness, {
+    ...overrides,
+    approvalId: pending.approvalRequest.approvalId,
+    approvalNonce: pending.approvalRequest.nonce,
+  });
+};
+
 describe('connector platform registration and manifests', () => {
   it('registers connector and tools with validation', () => {
-    const connectorRegistry = createInMemoryConnectorRegistry();
+    const { catalog } = createInMemoryConnectorRegistries();
     const manifest = createReferenceConnectorManifest();
-    expect(connectorRegistry.register(manifest, createReferenceConnector()).ok).toBe(true);
-    expect(connectorRegistry.register(manifest, createReferenceConnector()).ok).toBe(false);
-    const toolRegistry = createInMemoryToolRegistry(connectorRegistry);
+    expect(catalog.register(manifest, createReferenceConnector()).ok).toBe(true);
+    expect(catalog.register(manifest, createReferenceConnector()).ok).toBe(false);
+    const toolRegistry = createInMemoryToolRegistry(catalog);
     const echoTool = REFERENCE_TOOLS.find(
       (tool) => tool.toolId === asToolId('reference.echo.read'),
     );
@@ -43,15 +61,15 @@ describe('connector platform registration and manifests', () => {
   });
 
   it('rejects missing connector, mismatch and unsafe combinations', () => {
-    const connectorRegistry = createInMemoryConnectorRegistry();
-    const toolRegistry = createInMemoryToolRegistry(connectorRegistry);
+    const { catalog } = createInMemoryConnectorRegistries();
+    const toolRegistry = createInMemoryToolRegistry(catalog);
     const echoTool = REFERENCE_TOOLS.find(
       (tool) => tool.toolId === asToolId('reference.echo.read'),
     );
     if (echoTool === undefined) throw new Error('missing echo tool');
     expect(toolRegistry.register(echoTool).ok).toBe(false);
     const manifest = createReferenceConnectorManifest();
-    connectorRegistry.register(manifest, createReferenceConnector());
+    catalog.register(manifest, createReferenceConnector());
     const mismatch = validateToolManifest({
       ...JSON.parse(JSON.stringify(echoTool)),
       connectorId: 'other',
@@ -89,6 +107,12 @@ describe('connector platform registration and manifests', () => {
       Object.assign(listed as object, { title: 'mutated' });
     }).toThrow();
   });
+
+  it('does not expose execute on public catalog', () => {
+    const harness = createPlatformHarness();
+    expect('getConnector' in harness.catalog).toBe(false);
+    expect(typeof harness.execution.getConnector).toBe('function');
+  });
 });
 
 describe('connector platform policy and execution', () => {
@@ -121,12 +145,11 @@ describe('connector platform policy and execution', () => {
     });
     expect(pending.kind).toBe('approval-required');
     if (pending.kind !== 'approval-required') return;
-    const approved = await invoke(harness, {
+    const approved = await approveAndInvoke(harness, pending, {
       invocationId: asInvocation('inv-write'),
       toolId: asToolId('reference.note.write'),
       input: { note: 'approved' },
       idempotencyKey: asIdempotency('k1'),
-      approvalId: pending.approvalRequest.approvalId,
     });
     expect(approved.kind).toBe('success');
     const finance = await invoke(harness, {

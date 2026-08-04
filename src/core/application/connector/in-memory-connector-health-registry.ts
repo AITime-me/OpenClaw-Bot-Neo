@@ -2,28 +2,49 @@ import type { ConnectorHealthSnapshot } from '../../domain/connector/health.js';
 import type { ConnectorId, ConnectionId } from '../../domain/connector/identity.js';
 import type { ConnectorHealthRegistry } from './connector-health-registry.port.js';
 
-export const createInMemoryConnectorHealthRegistry = (): ConnectorHealthRegistry => {
-  const snapshots = new Map<string, ConnectorHealthSnapshot>();
+const CONNECTOR_ONLY = Symbol('connector-only');
 
-  const keyOf = (connectorId: ConnectorId, connectionId: ConnectionId | null | undefined): string =>
-    `${connectorId as string}:${connectionId === null || connectionId === undefined ? '_' : (connectionId as string)}`;
+export const createInMemoryConnectorHealthRegistry = (): ConnectorHealthRegistry => {
+  const byConnector = new Map<
+    string,
+    Map<typeof CONNECTOR_ONLY | string, ConnectorHealthSnapshot>
+  >();
+
+  const bucketFor = (
+    connectorId: ConnectorId,
+  ): Map<typeof CONNECTOR_ONLY | string, ConnectorHealthSnapshot> => {
+    const connectorKey = String(connectorId);
+    let bucket = byConnector.get(connectorKey);
+    if (bucket === undefined) {
+      bucket = new Map();
+      byConnector.set(connectorKey, bucket);
+    }
+    return bucket;
+  };
+
+  const keyFor = (connectionId: ConnectionId | null | undefined): typeof CONNECTOR_ONLY | string =>
+    connectionId === null || connectionId === undefined ? CONNECTOR_ONLY : String(connectionId);
 
   return {
     get(
       connectorId: ConnectorId,
       connectionId?: ConnectionId | null,
     ): ConnectorHealthSnapshot | null {
-      const snapshot = snapshots.get(keyOf(connectorId, connectionId ?? null));
+      const bucket = byConnector.get(String(connectorId));
+      if (bucket === undefined) return null;
+      const snapshot = bucket.get(keyFor(connectionId));
       return snapshot === undefined ? null : Object.freeze({ ...snapshot });
     },
     update(snapshot: ConnectorHealthSnapshot): void {
-      snapshots.set(
-        keyOf(snapshot.connectorId, snapshot.connectionId),
-        Object.freeze({ ...snapshot }),
-      );
+      const bucket = bucketFor(snapshot.connectorId);
+      bucket.set(keyFor(snapshot.connectionId), Object.freeze({ ...snapshot }));
     },
     list(): readonly ConnectorHealthSnapshot[] {
-      return Object.freeze([...snapshots.values()].map((item) => Object.freeze({ ...item })));
+      const all: ConnectorHealthSnapshot[] = [];
+      for (const bucket of byConnector.values()) {
+        for (const snapshot of bucket.values()) all.push(Object.freeze({ ...snapshot }));
+      }
+      return Object.freeze(all);
     },
   };
 };

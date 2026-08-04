@@ -147,14 +147,28 @@ const validateAgainst = (
       return typeof value === 'boolean'
         ? ok(undefined)
         : fail('TYPE_MISMATCH', path, 'Expected boolean.');
-    case 'number':
-      return typeof value === 'number' && !Number.isInteger(value)
-        ? ok(undefined)
-        : fail('TYPE_MISMATCH', path, 'Expected number.');
-    case 'integer':
-      return typeof value === 'number' && Number.isInteger(value)
-        ? ok(undefined)
-        : fail('TYPE_MISMATCH', path, 'Expected integer.');
+    case 'number': {
+      if (typeof value !== 'number' || !Number.isFinite(value))
+        return fail('TYPE_MISMATCH', path, 'Expected number.');
+      if (schema.minimum !== undefined && value < schema.minimum)
+        return fail('BOUND_VIOLATION', path, 'Number is below minimum.');
+      if (schema.maximum !== undefined && value > schema.maximum)
+        return fail('BOUND_VIOLATION', path, 'Number is above maximum.');
+      if (schema.enum !== undefined && !schema.enum.some((item) => item === value))
+        return fail('ENUM_MISMATCH', path, 'Value not in enum.');
+      return ok(undefined);
+    }
+    case 'integer': {
+      if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value))
+        return fail('TYPE_MISMATCH', path, 'Expected integer.');
+      if (schema.minimum !== undefined && value < schema.minimum)
+        return fail('BOUND_VIOLATION', path, 'Number is below minimum.');
+      if (schema.maximum !== undefined && value > schema.maximum)
+        return fail('BOUND_VIOLATION', path, 'Number is above maximum.');
+      if (schema.enum !== undefined && !schema.enum.some((item) => item === value))
+        return fail('ENUM_MISMATCH', path, 'Value not in enum.');
+      return ok(undefined);
+    }
     case 'string': {
       if (typeof value !== 'string') return fail('TYPE_MISMATCH', path, 'Expected string.');
       if (schema.minLength !== undefined && value.length < schema.minLength)

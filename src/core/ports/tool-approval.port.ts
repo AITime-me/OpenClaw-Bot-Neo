@@ -1,4 +1,5 @@
 import type {
+  ToolApprovalRequestBinding,
   ToolApprovalBinding,
   ToolApprovalFailure,
   ToolApprovalGrant,
@@ -9,7 +10,7 @@ import type { ToolInvocationContext } from '../domain/connector/invocation.js';
 
 export interface ToolApprovalPort {
   createRequest(
-    binding: ToolApprovalBinding,
+    binding: ToolApprovalRequestBinding,
     context: ToolInvocationContext,
   ): Promise<Result<ToolApprovalGrant, ToolApprovalFailure>>;
   consumeGrant(

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { createPlatformHarness, invoke, asToolId, asInvocation, asIdempotency } from './harness.js';
+import {
+  createPlatformHarness,
+  invoke,
+  asToolId,
+  asInvocation,
+  asIdempotency,
+  asApprover,
+} from './harness.js';
 import { computeInputDigest } from '../../src/core/domain/connector/index.js';
 import { validateToolManifest } from '../../src/core/domain/connector/manifest-validation.js';
 import { createInMemoryToolAuditPort } from '../../src/core/application/connector/index.js';
@@ -16,12 +23,14 @@ describe('connector platform approval semantics', () => {
     });
     expect(pending.kind).toBe('approval-required');
     if (pending.kind !== 'approval-required') return;
+    await harness.decisionPort.grant(pending.approvalRequest.approvalId, asApprover());
     const ok = await invoke(harness, {
       invocationId: asInvocation('inv-a'),
       toolId: asToolId('reference.note.write'),
       input: { note: 'one' },
       idempotencyKey: asIdempotency('k-a'),
       approvalId: pending.approvalRequest.approvalId,
+      approvalNonce: pending.approvalRequest.nonce,
     });
     expect(ok.kind).toBe('success');
     const replay = await invoke(harness, {
@@ -30,6 +39,7 @@ describe('connector platform approval semantics', () => {
       input: { note: 'one' },
       idempotencyKey: asIdempotency('k-a'),
       approvalId: pending.approvalRequest.approvalId,
+      approvalNonce: pending.approvalRequest.nonce,
     });
     expect(replay.kind).toBe('failure');
     const changed = await invoke(harness, {
@@ -38,6 +48,7 @@ describe('connector platform approval semantics', () => {
       input: { note: 'two' },
       idempotencyKey: asIdempotency('k-b'),
       approvalId: pending.approvalRequest.approvalId,
+      approvalNonce: pending.approvalRequest.nonce,
     });
     expect(changed.kind).toBe('failure');
   });

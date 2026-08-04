@@ -36,7 +36,15 @@ export const REFERENCE_TOOLS: readonly VerifiedToolManifest[] = Object.freeze([
         message: { type: 'string', maxLength: 256 },
         mode: {
           type: 'string',
-          enum: ['ok', 'unavailable', 'remote-error', 'invalid-output', 'timeout', 'cancel'],
+          enum: [
+            'ok',
+            'unavailable',
+            'remote-error',
+            'invalid-output',
+            'timeout',
+            'cancel',
+            'slow-success',
+          ],
         },
       },
       required: ['message'],
@@ -68,7 +76,10 @@ export const REFERENCE_TOOLS: readonly VerifiedToolManifest[] = Object.freeze([
     inputSchema: {
       type: 'object',
       additionalProperties: false,
-      properties: { note: { type: 'string', maxLength: 256 } },
+      properties: {
+        note: { type: 'string', maxLength: 256 },
+        slowMs: { type: 'integer', minimum: 0, maximum: 5000 },
+      },
       required: ['note'],
     },
     outputSchema: {
@@ -193,10 +204,30 @@ export const createReferenceConnector = (): Connector => ({
             error: { code: 'cancelled', reason: 'Cancelled.', category: 'cancelled' },
           };
       }
+      if (mode === 'slow-success') {
+        await delay(200, request.signal);
+        if (request.signal.aborted)
+          return {
+            ok: false,
+            error: { code: 'cancelled', reason: 'Cancelled.', category: 'cancelled' },
+          };
+        return { ok: true, output: { echoed: message } };
+      }
       return { ok: true, output: { echoed: message } };
     }
     if (toolId === 'reference.note.write') {
-      const note = (request.input as { note?: string }).note ?? '';
+      const note = (request.input as { note?: string; slowMs?: number }).note ?? '';
+      const slowMs = (request.input as { slowMs?: number }).slowMs ?? 0;
+      if (slowMs > 0) {
+        try {
+          await delay(slowMs, request.signal);
+        } catch {
+          return {
+            ok: false,
+            error: { code: 'cancelled', reason: 'Cancelled.', category: 'cancelled' },
+          };
+        }
+      }
       const key = request.idempotencyKey === null ? 'default' : (request.idempotencyKey as string);
       if (request.signal.aborted)
         return {

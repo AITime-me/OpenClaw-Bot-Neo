@@ -33,7 +33,12 @@ const walk = (
   if (depth > CONNECTOR_JSON_MAX_DEPTH)
     return err({ code: 'TOO_DEEP', reason: 'JSON exceeds maximum nesting depth.' });
   if (value === null) return ok(null);
-  if (typeof value === 'boolean' || typeof value === 'number') return ok(value);
+  if (typeof value === 'boolean') return ok(value);
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value))
+      return err({ code: 'UNSUPPORTED_VALUE', reason: 'Unsupported JSON value.' });
+    return ok(value);
+  }
   if (typeof value === 'string') {
     if (value.length > CONNECTOR_JSON_MAX_STRING_LENGTH)
       return err({ code: 'STRING_TOO_LONG', reason: 'JSON string exceeds maximum length.' });

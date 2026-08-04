@@ -15,6 +15,7 @@ export * from './json-bounds.js';
 export * from './canonical-digest.js';
 export * from './json-schema-validator.js';
 export * from './manifest-validation.js';
+export * from './account-identity.js';
 
 export type { VerifiedConnectorManifest, VerifiedToolManifest } from './manifest-validation.js';
 export {

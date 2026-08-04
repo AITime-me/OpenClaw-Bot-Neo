@@ -32,6 +32,19 @@ for (const file of neoRuntimeFiles) {
     failures.push(`NEO_CONNECTOR_WIRING: ${file} references connector internals.`);
 }
 
+const executionRegistryPattern = /connector-execution-registry/;
+const allowedExecutionImporters = new Set([
+  'src/core/application/connector/tool-invocation-orchestrator.ts',
+  'src/core/application/connector/in-memory-connector-registries.ts',
+]);
+
+for (const file of listFiles('src').filter((path) => path.endsWith('.ts'))) {
+  const normalized = file.replace(/\\/g, '/');
+  if (!executionRegistryPattern.test(readFileSync(file, 'utf8'))) continue;
+  if (!allowedExecutionImporters.has(normalized))
+    failures.push(`EXECUTION_REGISTRY_LEAK: ${normalized} imports executable connector registry.`);
+}
+
 if (failures.length > 0) {
   console.error(failures.join('\n'));
   process.exit(1);

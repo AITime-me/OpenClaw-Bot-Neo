@@ -3,10 +3,17 @@ import type { InputDigest } from './identity.js';
 import type { JsonObject } from './json.js';
 import { CONNECTOR_JSON_MAX_DEPTH } from './constants.js';
 
+const canonicalNumber = (value: number): string => {
+  if (!Number.isFinite(value)) throw new RangeError('Input contains a non-finite number.');
+  if (Object.is(value, -0)) return '0';
+  return JSON.stringify(value);
+};
+
 const canonical = (value: unknown, depth: number, seen: ReadonlySet<object>): string => {
   if (depth > CONNECTOR_JSON_MAX_DEPTH) throw new RangeError('Input is nested too deeply.');
-  if (value === null || typeof value === 'number' || typeof value === 'boolean')
-    return JSON.stringify(value);
+  if (value === null) return 'null';
+  if (typeof value === 'boolean') return JSON.stringify(value);
+  if (typeof value === 'number') return canonicalNumber(value);
   if (typeof value === 'string') return JSON.stringify(value);
   if (typeof value === 'object') {
     if (seen.has(value)) throw new RangeError('Input contains a cycle.');
