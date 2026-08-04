@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { ClockPort } from '../../ports/clock.port.js';
 import type { ToolApprovalPort } from '../../ports/tool-approval.port.js';
 import type { ToolApprovalDecisionPort } from '../../ports/tool-approval-decision.port.js';
 import type {
@@ -22,6 +23,11 @@ type StoredRecord = {
   consumed: boolean;
 };
 
+type ExpiryEvaluation =
+  | { readonly kind: 'valid' }
+  | { readonly kind: 'expired' }
+  | { readonly kind: 'clock-unavailable' };
+
 const bindingsMatch = (left: ToolApprovalBinding, right: ToolApprovalBinding): boolean =>
   left.invocationId === right.invocationId &&
   left.toolId === right.toolId &&
@@ -42,12 +48,27 @@ const generateApprovalId = (records: Map<string, StoredRecord>): ApprovalId | nu
 
 const generateNonce = (): ApprovalNonce => randomUUID() as ApprovalNonce;
 
-const isExpired = (binding: ToolApprovalBinding): boolean => {
-  const expiresAt = Date.parse(binding.expiresAt);
-  return !Number.isFinite(expiresAt) || expiresAt <= Date.now();
+const evaluateApprovalExpiry = (
+  binding: ToolApprovalBinding,
+  clock: ClockPort,
+): ExpiryEvaluation => {
+  const expiresAtMs = Date.parse(binding.expiresAt);
+  if (!Number.isFinite(expiresAtMs)) return { kind: 'expired' };
+  const nowMs = clock.now().getTime();
+  if (!Number.isFinite(nowMs)) return { kind: 'clock-unavailable' };
+  if (nowMs >= expiresAtMs) return { kind: 'expired' };
+  return { kind: 'valid' };
 };
 
-export const createInMemoryToolApprovalPorts = (): {
+const expiryFailure = (evaluation: ExpiryEvaluation): Result<void, ToolApprovalFailure> => {
+  if (evaluation.kind === 'clock-unavailable')
+    return err({ code: 'MALFORMED', reason: 'Approval clock is unavailable.' });
+  return err({ code: 'EXPIRED', reason: 'Approval grant expired.' });
+};
+
+export const createInMemoryToolApprovalPorts = (
+  clock: ClockPort,
+): {
   readonly approvalPort: ToolApprovalPort;
   readonly decisionPort: ToolApprovalDecisionPort;
 } => {
@@ -118,8 +139,8 @@ export const createInMemoryToolApprovalPorts = (): {
         return Promise.resolve(
           err({ code: 'NOT_GRANTED', reason: 'Approval has no approving actor.' }),
         );
-      if (isExpired(stored.binding))
-        return Promise.resolve(err({ code: 'EXPIRED', reason: 'Approval grant expired.' }));
+      const expiry = evaluateApprovalExpiry(stored.binding, clock);
+      if (expiry.kind !== 'valid') return Promise.resolve(expiryFailure(expiry));
       stored.consumed = true;
       stored.status = 'consumed';
       return Promise.resolve(ok(undefined));
@@ -146,8 +167,8 @@ export const createInMemoryToolApprovalPorts = (): {
         return Promise.resolve(
           err({ code: 'FINANCIAL_DENIED', reason: 'FINANCIAL actions cannot be approved.' }),
         );
-      if (isExpired(stored.binding))
-        return Promise.resolve(err({ code: 'EXPIRED', reason: 'Approval grant expired.' }));
+      const expiry = evaluateApprovalExpiry(stored.binding, clock);
+      if (expiry.kind !== 'valid') return Promise.resolve(expiryFailure(expiry));
       if (stored.status !== 'pending' && stored.status !== 'granted')
         return Promise.resolve(err({ code: 'MALFORMED', reason: 'Approval is not grantable.' }));
       stored.binding = { ...stored.binding, approvingActorId };
@@ -190,7 +211,7 @@ export const createInMemoryToolApprovalPorts = (): {
 };
 
 /** @internal Back-compat for tests that only need the invocation port surface. */
-export const createInMemoryToolApprovalPort = (): ToolApprovalPort =>
-  createInMemoryToolApprovalPorts().approvalPort;
+export const createInMemoryToolApprovalPort = (clock: ClockPort): ToolApprovalPort =>
+  createInMemoryToolApprovalPorts(clock).approvalPort;
 
 export { generateNonce as generateApprovalNonceForTest };

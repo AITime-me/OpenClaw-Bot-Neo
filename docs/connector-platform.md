@@ -95,15 +95,25 @@ Registries and approval grants are in-memory only in Build 3.5B. The reference c
 
 Real connectors (GitHub, amoCRM, email, Telegram, Timeweb) are deferred.
 
+## Approval clock
+
+In-memory approval ports require an explicit injected `ClockPort`. Request creation, trusted
+grant/deny/revoke decisions, and grant consumption evaluate expiry in the same clock domain
+(`now < expiresAt` is valid; `now === expiresAt` is expired). Malformed stored expiry timestamps
+fail closed as expired; malformed clock readings return bounded `MALFORMED` failures.
+
 ## Status
 
-- Build 3.5B closed on feature branch `build-3-5b-connector-platform-core` after security
-  corrective re-review (`APPROVE_WITH_NOTES_BUILD_3_5B_SECURITY_CORRECTIVE_FOR_CLOSEOUT`).
+- Build 3.5B fast-forwarded to `main` after feature-branch closeout.
+- Post-integration Windows EOL mismatch was worktree-only (`core.autocrlf=true`); committed blobs
+  remained LF.
+- Postcheck exposed approval expiry using real wall time instead of the injected clock; a
+  deterministic clock corrective was added on `main` after the original closeout.
+- Build 3.5B remains pending focused independent re-review after the clock corrective.
 - Disposition:
   `BUILD_3_5B_CONNECTOR_PLATFORM_CORE_CLOSED_WITH_TRUSTED_APPROVAL_PRIVATE_EXECUTION_BOUNDED_DATA_AND_SAFE_INVOCATION_PIPELINE`.
 - See
   [closeout record](validation/build-3.5b-connector-platform-core-closeout.md).
-- Transfer/integration into `main` remains a separate owner-directed Git operation.
 - `SECRET_PROVIDER_CONFIGURED=false`.
 - No production Secret Provider, OAuth, network, real connectors, or production composition wiring.
 - Durable approval/audit persistence absent. Diagnostics remain false.

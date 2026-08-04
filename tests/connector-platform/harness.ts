@@ -41,6 +41,22 @@ export const fixedClock = (instant = NOW): ClockPort => ({
   now: () => new Date(instant),
 });
 
+export const createMutableClock = (initial = NOW) => {
+  let instant = initial;
+  const clock: ClockPort = {
+    now: () => new Date(instant),
+  };
+  return {
+    clock,
+    set: (value: string) => {
+      instant = value;
+    },
+    advanceMs: (ms: number) => {
+      instant = iso8601FromDate(new Date(Date.parse(instant) + ms));
+    },
+  };
+};
+
 export const asOwner = (value = 'owner-1'): OwnerId => value as OwnerId;
 export const asActor = (value = 'actor-1'): ActorId => value as ActorId;
 export const asApprover = (value = 'approver-1'): ActorId => value as ActorId;
@@ -67,8 +83,10 @@ export const createPlatformHarness = (
     readonly audit?: ReturnType<typeof createInMemoryToolAuditPort>;
     readonly approval?: ToolApprovalPort;
     readonly decision?: ToolApprovalDecisionPort;
+    readonly clock?: ClockPort;
   } = {},
 ) => {
+  const clock = options.clock ?? fixedClock();
   const { catalog, execution } = createInMemoryConnectorRegistries();
   const connectorManifest = createReferenceConnectorManifest();
   const connector = createReferenceConnector();
@@ -81,7 +99,7 @@ export const createPlatformHarness = (
   const approvalBundle =
     options.approval !== undefined && options.decision !== undefined
       ? { approvalPort: options.approval, decisionPort: options.decision }
-      : createInMemoryToolApprovalPorts();
+      : createInMemoryToolApprovalPorts(clock);
   const approvalPort = options.approval ?? approvalBundle.approvalPort;
   const decisionPort = options.decision ?? approvalBundle.decisionPort;
   const auditPort = options.audit ?? createInMemoryToolAuditPort();
@@ -96,7 +114,7 @@ export const createPlatformHarness = (
     approvalPort,
     auditPort,
     secretProvider,
-    clock: fixedClock(),
+    clock,
   });
   return {
     catalog,
@@ -110,6 +128,7 @@ export const createPlatformHarness = (
     secretProvider,
     orchestrator,
     connectorManifest,
+    clock,
   };
 };
 

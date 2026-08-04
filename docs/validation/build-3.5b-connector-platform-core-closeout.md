@@ -253,7 +253,11 @@ imported by production composition.
 ## Branch and integration status
 
 - feature branch closeout completed on `build-3-5b-connector-platform-core`;
-- transfer/integration into `main` remains a separate owner-directed Git operation;
+- fast-forward integration into `main` completed locally at `16bf1f4136641de4901218c721237b64ee1651fe`;
+- post-integration Windows EOL mismatch was worktree-only; committed blobs/index remained LF;
+- postcheck exposed approval expiry using real wall time instead of the injected clock; a
+  deterministic clock corrective on `main` followed the original closeout (pending focused
+  re-review);
 - no merge, rebase, cherry-pick or push occurred in this closeout task.
 
 ## Final Build 3.5B disposition

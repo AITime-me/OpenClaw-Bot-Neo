@@ -97,9 +97,7 @@ describe('Build 3.5B connector platform core closeout record', () => {
     expect(record).toContain('production Secret Provider absent');
     expect(record).toContain('durable approval/audit persistence absent');
     expect(record).toContain('test/development-only');
-    expect(record).toContain(
-      'transfer/integration into `main` remains a separate owner-directed Git operation',
-    );
+    expect(record).toContain('fast-forward integration into `main` completed locally');
     expect(record).toContain('no merge, rebase, cherry-pick or push occurred');
     expect(record).toContain('Linux/systemd/full L1–L5 are **not required**');
   });
