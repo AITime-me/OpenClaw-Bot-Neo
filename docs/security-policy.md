@@ -439,9 +439,11 @@ approval/audit/secret contracts. Pending approval is not executable; trusted gra
 required before single-use consumption. Secret handles resolve only after policy allow and approval
 consumption. Connector output is always untrusted. `FINANCIAL` side-effect tools are rejected at
 manifest validation and hard-denied by default policy. Read-only financial analysis remains
-representable as `READ_ONLY`. Build 3.5B closed on feature branch after security corrective
-re-review; disposition:
-`BUILD_3_5B_CONNECTOR_PLATFORM_CORE_CLOSED_WITH_TRUSTED_APPROVAL_PRIVATE_EXECUTION_BOUNDED_DATA_AND_SAFE_INVOCATION_PIPELINE`.
+representable as `READ_ONLY`. Build 3.5B integrated into local `main` after security corrective
+re-review and approval clock corrective; dispositions:
+`BUILD_3_5B_CONNECTOR_PLATFORM_CORE_CLOSED_WITH_TRUSTED_APPROVAL_PRIVATE_EXECUTION_BOUNDED_DATA_AND_SAFE_INVOCATION_PIPELINE`;
+`BUILD_3_5B_APPROVAL_CLOCK_CORRECTIVE_CLOSED_WITH_SINGLE_INJECTED_TIME_DOMAIN`. In-memory approval
+ports require an injected `ClockPort`; grant and consume evaluate expiry in the same clock domain.
 No production Secret Provider is configured (`SECRET_PROVIDER_CONFIGURED=false`). Durable
 approval/audit persistence absent. `securityApprovalComplete` and `deploymentReady` remain false.
-See [closeout record](validation/build-3.5b-connector-platform-core-closeout.md).
+No push performed. See [closeout record](validation/build-3.5b-connector-platform-core-closeout.md).

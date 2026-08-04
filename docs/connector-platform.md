@@ -97,23 +97,31 @@ Real connectors (GitHub, amoCRM, email, Telegram, Timeweb) are deferred.
 
 ## Approval clock
 
-In-memory approval ports require an explicit injected `ClockPort`. Request creation, trusted
-grant/deny/revoke decisions, and grant consumption evaluate expiry in the same clock domain
-(`now < expiresAt` is valid; `now === expiresAt` is expired). Malformed stored expiry timestamps
-fail closed as expired; malformed clock readings return bounded `MALFORMED` failures.
+In-memory approval ports require an explicit injected `ClockPort`. Expiry is evaluated when a
+trusted decision attempts to grant a pending request; expiry is evaluated when execution attempts to
+consume a granted approval; `createRequest` stores the requested expiry; deny and revoke are
+terminal state transitions and do not need an expiry evaluation to become more permissive; no
+expired approval can become executable. Grant and consume expiry checks use the same injected clock
+domain (`now < expiresAt` is valid; `now === expiresAt` is expired). Malformed stored expiry
+timestamps fail closed as expired; malformed clock readings return bounded `MALFORMED` failures.
+Expired approval cannot resolve secrets or execute a connector.
 
 ## Status
 
-- Build 3.5B fast-forwarded to `main` after feature-branch closeout.
+- Build 3.5B integrated into local `main` via fast-forward after feature-branch closeout; approval
+  clock corrective at `2237bd726eb1f65374d835e2584724718da325a5`.
 - Post-integration Windows EOL mismatch was worktree-only (`core.autocrlf=true`); committed blobs
-  remained LF.
-- Postcheck exposed approval expiry using real wall time instead of the injected clock; a
-  deterministic clock corrective was added on `main` after the original closeout.
-- Build 3.5B remains pending focused independent re-review after the clock corrective.
-- Disposition:
+  and index remained LF; no EOL corrective commit required.
+- Approval clock corrective independently approved
+  (`BUILD_3_5B_APPROVAL_CLOCK_CORRECTIVE_REREVIEW_APPROVED_WITH_NOTES`); full local postcheck green
+  (47/47 focused, 1771 passed / 3 skipped).
+- Dispositions:
+  `BUILD_3_5B_APPROVAL_CLOCK_CORRECTIVE_CLOSED_WITH_SINGLE_INJECTED_TIME_DOMAIN`;
   `BUILD_3_5B_CONNECTOR_PLATFORM_CORE_CLOSED_WITH_TRUSTED_APPROVAL_PRIVATE_EXECUTION_BOUNDED_DATA_AND_SAFE_INVOCATION_PIPELINE`.
+- Feature branch `build-3-5b-connector-platform-core` remains at `16bf1f4` pending owner-directed
+  synchronization.
 - See
   [closeout record](validation/build-3.5b-connector-platform-core-closeout.md).
 - `SECRET_PROVIDER_CONFIGURED=false`.
 - No production Secret Provider, OAuth, network, real connectors, or production composition wiring.
-- Durable approval/audit persistence absent. Diagnostics remain false.
+- Durable approval/audit persistence absent. Diagnostics remain false. No push performed.

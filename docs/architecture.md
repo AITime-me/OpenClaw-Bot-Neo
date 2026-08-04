@@ -376,17 +376,20 @@ changed. See
 [R6-H02 closeout record](validation/codex-review-6-r6-h02-durable-memory-secret-boundary-closeout.md),
 and [R6-H01 closeout record](validation/codex-review-6-r6-h01-readiness-race-closeout.md).
 
-**Build 3.5B — Connector Platform Core (feature-branch closeout):**
+**Build 3.5B — Connector Platform Core (integrated on local `main`):**
 Adds connector domain contracts, Connector SDK, in-memory registries, deny-by-default tool policy,
 trusted-decision approval lifecycle, safe audit and secret ports, mandatory
 `ToolInvocationOrchestrator`, and an offline reference connector. Initial independent review blocked
 (`BUILD_3_5B_CONNECTOR_PLATFORM_CORE_SOURCE_REVIEW_BLOCKED`); security corrective re-review
-approved (`BUILD_3_5B_SECURITY_CORRECTIVE_SOURCE_REREVIEW_APPROVED_WITH_NOTES_FOR_CLOSEOUT`).
-Disposition:
-`BUILD_3_5B_CONNECTOR_PLATFORM_CORE_CLOSED_WITH_TRUSTED_APPROVAL_PRIVATE_EXECUTION_BOUNDED_DATA_AND_SAFE_INVOCATION_PIPELINE`.
+approved (`BUILD_3_5B_SECURITY_CORRECTIVE_SOURCE_REREVIEW_APPROVED_WITH_NOTES_FOR_CLOSEOUT`);
+fast-forwarded to local `main`; approval clock corrective independently approved
+(`BUILD_3_5B_APPROVAL_CLOCK_CORRECTIVE_REREVIEW_APPROVED_WITH_NOTES`). Dispositions:
+`BUILD_3_5B_CONNECTOR_PLATFORM_CORE_CLOSED_WITH_TRUSTED_APPROVAL_PRIVATE_EXECUTION_BOUNDED_DATA_AND_SAFE_INVOCATION_PIPELINE`;
+`BUILD_3_5B_APPROVAL_CLOCK_CORRECTIVE_CLOSED_WITH_SINGLE_INJECTED_TIME_DOMAIN`.
 No real connectors, OAuth, network clients, production Secret Provider, durable approval/audit
-persistence, or production composition wiring. `SECRET_PROVIDER_CONFIGURED=false`. Feature branch not
-yet integrated into `main`. See [connector platform](connector-platform.md) and
+persistence, or production composition wiring. `SECRET_PROVIDER_CONFIGURED=false`. Feature branch
+remains at `16bf1f4` pending owner-directed synchronization. No push performed. See
+[connector platform](connector-platform.md) and
 [closeout record](validation/build-3.5b-connector-platform-core-closeout.md).
 
 Связанные документы: [расширяемость](extensibility.md), [интеграции](integrations.md),

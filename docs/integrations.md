@@ -1,8 +1,9 @@
 # Будущие integrations
 
 Build 3.5B adds connector platform contracts, SDK, in-memory registries, and an offline reference
-connector only. Feature-branch closeout recorded; no real adapter, OAuth, network call, production
-connector wiring, or production Secret Provider is configured. See
+connector only. Integrated into local `main` via fast-forward after feature-branch closeout;
+approval clock corrective approved; no real adapter, OAuth, network call, production connector
+wiring, or production Secret Provider is configured. No push performed. See
 [connector platform](connector-platform.md) and
 [closeout record](validation/build-3.5b-connector-platform-core-closeout.md).
 
