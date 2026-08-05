@@ -12,6 +12,7 @@ import {
 } from '../../../../core/communication/ports/offline-communication-persistence.contract.js';
 import {
   defaultCommunicationQueueConfig,
+  parseCommunicationQueueConfig,
   type CommunicationQueueConfig,
 } from '../../../../core/communication/domain/communication-turn.js';
 import { sealFreshObservedAdmissionEvidenceForPersistence } from '../../../../core/communication/domain/fresh-observed-admission-evidence.persistence.internal.js';
@@ -211,6 +212,23 @@ const openOfflineSqliteCommunicationPortsInternal = (
     });
   }
 
+  let resolvedQueueConfig: CommunicationQueueConfig;
+  if (options.queueConfig === undefined) {
+    resolvedQueueConfig = defaultCommunicationQueueConfig();
+  } else {
+    const parsedQueue = parseCommunicationQueueConfig(options.queueConfig);
+    if (!parsedQueue.ok) {
+      return Object.freeze({
+        ok: false as const,
+        error: {
+          code: 'SQLITE_OPEN_FAILED' as const,
+          reason: 'Offline communication ports queueConfig failed runtime validation.',
+        },
+      });
+    }
+    resolvedQueueConfig = parsedQueue.value;
+  }
+
   const acquired = acquireOpenedPosixStorageRootLease(openedRoot);
   if (!acquired.ok) return Object.freeze({ ok: false as const, error: acquired.error });
   const lease = acquired.value;
@@ -354,7 +372,7 @@ const openOfflineSqliteCommunicationPortsInternal = (
             });
           },
         },
-        options.queueConfig ?? defaultCommunicationQueueConfig(),
+        resolvedQueueConfig,
       );
       conversationState = createSqliteConversationStatePort(db, assertOpen, options.scanner);
       audit = createSqliteCommunicationAuditPort(db, assertOpen, options.scanner);

@@ -32,8 +32,8 @@ export const fakeSensitiveDataScanner = (
     void context;
     return Promise.resolve(
       ok({
-        decision: 'allow',
-        findings: [],
+        decision,
+        findings: [...findings],
         redactedEntries: {},
       }),
     );

@@ -30,8 +30,12 @@ END_BUILD_3_7C_MARKERS
 - `CommunicationTurnLedgerPort`, `ConversationStatePort`, `CommunicationAuditPort`,
   `CommunicationDeliveryOutboxPort`
 - Package-private `createOfflineSqliteCommunicationPorts` with shared connection/lifecycle/lease
+- Runtime-validated optional `queueConfig` via `parseCommunicationQueueConfig` (default
+  `maxGlobalPending=1` unchanged)
+- Phase-aware audit scanner taxonomy (`SECRET_SCAN_UNAVAILABLE` vs start/completion failures)
 - Offline diagnostics with fixed false live/encryption/delivery/resend/production flags
-- Persistence, migration, concurrency, restart/recovery, retention, and boundary coverage
+- Persistence, migration, concurrency, restart/recovery, retention, tamper, queue/TTL, and
+  boundary behavioral coverage
 
 ## Still absent
 

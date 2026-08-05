@@ -206,8 +206,8 @@ export const createSqliteConversationStatePort = (
           ) as SnapshotRow | undefined;
           const expected = command.expectedRevision;
           if (current === undefined) {
-            if (expected !== 0 && expected !== command.nextSnapshot.revision)
-              return { kind: 'stale-revision' };
+            // Initial snapshot creation requires expectedRevision === 0 only.
+            if (expected !== 0) return { kind: 'stale-revision' };
           } else {
             if (!assertSafeIntegerValue(current.revision))
               return { kind: 'unavailable', reason: 'Malformed conversation revision.' };

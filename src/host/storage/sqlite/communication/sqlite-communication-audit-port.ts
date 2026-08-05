@@ -57,16 +57,25 @@ const prepare = (db: SqliteDatabase): Prepared =>
     ),
   });
 
+type AuditScanPhase = 'start' | 'completion';
+
 const scanMetadataFailClosed = async (
   scanner: SensitiveDataScannerPort,
   metadata: Readonly<Record<string, string>>,
   operationContext: OperationContext,
+  phase: AuditScanPhase,
 ): Promise<CommunicationError | null> => {
   const scanned = await scanner.scanMetadata(metadata, operationContext);
   if (!scanned.ok)
     return communicationError('SECRET_SCAN_UNAVAILABLE', 'Sensitive data scanner unavailable.');
-  if (scanned.value.decision !== 'allow' || scanned.value.findings.length > 0)
-    return communicationError('AUDIT_START_FAILED', 'Audit metadata failed sensitive-data scan.');
+  if (scanned.value.decision !== 'allow' || scanned.value.findings.length > 0) {
+    if (phase === 'start')
+      return communicationError('AUDIT_START_FAILED', 'Audit metadata failed sensitive-data scan.');
+    return communicationError(
+      'AUDIT_COMPLETION_FAILED',
+      'Audit metadata failed sensitive-data scan.',
+    );
+  }
   return null;
 };
 
@@ -91,6 +100,7 @@ export const createSqliteCommunicationAuditPort = (
         scanner,
         event.redactedMetadata,
         operationContext,
+        'start',
       );
       if (scanError) return err(scanError);
 
@@ -139,11 +149,9 @@ export const createSqliteCommunicationAuditPort = (
         scanner,
         event.redactedMetadata,
         operationContext,
+        'completion',
       );
-      if (scanError)
-        return err(
-          communicationError('SECRET_SCAN_UNAVAILABLE', 'Sensitive data scanner unavailable.'),
-        );
+      if (scanError) return err(scanError);
 
       const encoded = encodeAuditMetadata(event.redactedMetadata);
       if (!encoded.ok) return ok({ kind: 'rejected', reason: 'Audit metadata encoding rejected.' });
