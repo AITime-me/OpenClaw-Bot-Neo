@@ -9,23 +9,27 @@
 ```mermaid
 flowchart LR
   Owner[Владелец] --> TelegramAdapter
-  FutureMobile[Future mobile] --> MobileAdapter
+  FutureMobile[Private mobile messenger] --> MobileAdapter
 
-  subgraph BotVPS[Foreign TimeWeb Cloud Bot VPS]
-    TelegramAdapter[Telegram adapter] --> Core[Stable channel-agnostic core]
-    MobileAdapter[Mobile adapter] --> Core
-    Core --> Policy[Policy and approvals]
-    Core --> Roles[8 business role profiles]
-    Core --> Runtime[Replaceable OpenClaw runtime]
-    Core --> Media[Media facade]
-    Core --> Memory[Memory facade]
-    Core --> Scheduler[Scheduler facade]
-    Runtime --> LLM[Subscription OAuth LLM]
+  subgraph BotVPS[Foreign TimeWeb Cloud Bot VPS planned]
+    TelegramAdapter[Temporary Telegram adapter] --> CommCore[Channel-independent communication core]
+    MobileAdapter[Future mobile adapter] --> CommCore
+    CommCore --> Policy[Policy and approvals]
+    CommCore --> Roles[8 business role profiles]
+    CommCore --> Runtime[Replaceable OpenClaw runtime hypothesis]
+    CommCore --> Media[Media facade]
+    CommCore --> Memory[Memory facade]
+    CommCore --> Scheduler[Scheduler facade]
+    Runtime --> LLM[Subscription OAuth LLM hypothesis]
   end
 
   BotVPS -->|A: outbound read-only| RussianProd[Russian production]
   BotVPS -->|outbound allowlisted| External[External systems]
 ```
+
+Target diagram only. Build 3.7A designs the text slice; adapters/LLM/runtime integration are not
+implemented. Telegram is temporary; private mobile messenger is the intended long-term peer
+adapter on the same communication core.
 
 ## Границы доверия и серверов
 
@@ -402,10 +406,21 @@ committed locally. Dispositions:
 `BUILD_3_6B_INFRASTRUCTURE_SECURITY_CORRECTIVES_CLOSED_WITH_STATELESS_SECRET_DETECTION_AND_TYPED_OUTCOME_UNKNOWN`;
 `BUILD_3_6B_INFRASTRUCTURE_FLEET_FOUNDATION_CLOSED_WITH_BOUNDED_INVENTORIES_RESTRICTED_OPERATIONS_AND_UNTRUSTED_OBSERVATIONS`.
 No Timeweb API client, SSH implementation, VPS, production inventory wiring, deployment, or broad
-security approval. `DEPLOYMENT_READY=false`. Integration into local `main` and push pending. See
+security approval. `DEPLOYMENT_READY=false`. See
 [infrastructure platform](infrastructure-platform.md) and
 [closeout record](validation/build-3.6b-infrastructure-fleet-foundation-closeout.md).
 
-Связанные документы: [расширяемость](extensibility.md), [интеграции](integrations.md),
+**Build 3.7A — Text Communication Vertical Slice Architecture Design (documentation only):**
+Fixes target owner-only text contour: temporary Telegram **or** future private mobile messenger
+adapter → channel-independent ingress → `AuthenticatedCommunicationPrincipal` (separate from
+memory capability) → durable turn ledger / FIFO / two-phase audit → tools-free LLM port →
+encrypted-before-live outbox → sealed delivery. Design package under
+[docs/communication/](communication/text-architecture.md). **No** runtime implementation, live
+Telegram/LLM, new diagnostics, or production claims. Subscription route feasibility is gated by
+future Build **3.7E0**. See
+[closeout record](validation/build-3.7a-text-communication-design-closeout.md).
+
+Связанные документы: [text communication](communication/text-architecture.md),
+[расширяемость](extensibility.md), [интеграции](integrations.md),
 [VoiceProfile](voice-profile.md), [каналы](channels.md), [безопасность](security-policy.md),
 [deployment](deployment.md), [ADR runtime](adr/0001-openclaw-as-runtime.md).

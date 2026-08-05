@@ -1,25 +1,64 @@
 # Каналы
 
-## Общий контракт
+## Статус
 
-Channel adapter преобразует транспорт в:
+**Verified fact:** в репозитории есть тонкие channel-agnostic типы (`IncomingMessage` /
+`OutgoingMessage`) и порт `ChannelPort`. Исполняемого Telegram/mobile adapter, communication
+ingress loop и trusted channel envelope **нет**.
+
+**Build 3.7A (design-only):** целевая модель текстового vertical slice зафиксирована в
+[docs/communication/](communication/text-architecture.md). Реализация отсутствует.
+
+## Целевой контракт (Build 3.7A)
+
+Transport adapter (временный Telegram **или** будущий private mobile messenger) остаётся
+app-private и после структурного parsing передаёт в core только
+**validated-but-untrusted** channel-independent observation:
 
 ```text
-InboundEnvelope {
-  channelKind, conversationRef, senderRef, receivedAt,
-  text?, attachments[], locale?, replyTo?, idempotencyKey
-}
-
-OutboundEnvelope {
-  conversationRef, content[], classification,
-  notificationKind, correlationId, approvalRef?
+TransportTextObservation {
+  transportInstanceRef,   // untrusted / opaque
+  externalMessageRef,     // untrusted
+  externalConversationRef,// untrusted
+  externalSenderRef,      // untrusted
+  sourceTimestamp?,       // untrusted metadata only — NOT ordering authority
+  text                    // bounded raw text
 }
 ```
 
-Идентификаторы opaque и не используются как полномочия. Adapter отвечает за transport authentication, rate limits, replay protection, size validation, delivery receipts и redaction. Core отвечает за intent, роли, approval и policy. В core и будущих skills запрещены Telegram-типы, SDK-объекты, update/chat/message identifiers и transport-specific markup.
+Raw SDK DTO (Telegram update и т.п.) не покидает adapter.
 
-## Первая граница
+Trusted local boundary (не adapter) назначает:
 
-Telegram планируется первым интерфейсом, но существует только на границе будущего адаптера. Bot token хранится вне репозитория, входящие данные недоверенные, webhook/polling и команды не считаются подтверждёнными до проверки runtime и threat model. Этот документ не создаёт бота или соединение.
+- owner / canonical `ConversationId` binding;
+- `TurnId`, `CorrelationId`, derived idempotency key;
+- trusted `observedAt`;
+- monotonic `conversationSequence`.
 
-Future mobile использует тот же контракт и не меняет core. См. [архитектуру](architecture.md).
+Transport **не** задаёт trusted `OwnerId`, `ActorId`, authority, canonical conversation/session/turn
+ids, correlation/idempotency keys или `observedAt`.
+
+Opaque capabilities после binding:
+
+- `AuthenticatedCommunicationPrincipal` — communication authority;
+- отдельно авторизованный read-only `AuthenticatedMemoryAccess` — memory authority.
+
+Обычный object literal не является authenticated evidence. См.
+[text-architecture](communication/text-architecture.md) и
+[trust model](communication/text-trust-and-threat-model.md).
+
+Legacy doc names `InboundEnvelope` / `OutboundEnvelope` **не** являются реализованными TS-типами и
+не должны читаться как уже существующий trusted channel contract.
+
+## Временный Telegram / конечный mobile
+
+Telegram — только временный app-private transport adapter. Конечный интерфейс — собственное
+мобильное приложение / закрытый мессенджер владельца с Neo. Communication core не зависит от
+Telegram и должен позволять замену adapter без переписывания conversation state, semantic memory,
+LLM routing, orchestration и security policy.
+
+Bot token хранится вне репозитория. Webhook/polling и команды не считаются подтверждёнными до
+будущей реализации, threat-model controls и encryption live gate для persisted conversational
+content. Этот документ не создаёт бота или соединение.
+
+См. [архитектуру](architecture.md), [Build 3.7A closeout](validation/build-3.7a-text-communication-design-closeout.md).

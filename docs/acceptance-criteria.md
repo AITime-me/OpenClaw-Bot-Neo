@@ -130,8 +130,22 @@
   закрывают internal subpaths).
 - Build 2.1H — FIN-004/005/006 implemented, pending independent confirmation.
 - Build 2.1I — FIN-007—FIN-014 implemented, pending independent confirmation.
-  Окончательный security approval до нового Codex review не объявляется. Build №3 не начат.
-  Реальный authentication/provider adapter отсутствует.
+  Окончательный security approval до нового Codex review не объявляется.
+  Builds 3.0–3.6B foundation stages exist (host, durable memory path, connector platform,
+  infrastructure fleet); they are not a completed product and not production-ready.
+  Build 3.7A is **design-only** for the text communication vertical slice — runtime/adapters absent.
+  Реальный channel/LLM authentication/provider adapter для text slice отсутствует.
+
+## Text communication (Build 3.7A design)
+
+- Owner-only text contour designed under [docs/communication/](communication/text-architecture.md).
+- Communication principal and memory capability are separate opaque families (target).
+- Durable turn ledger, FIFO, two-phase audit, tools-free LLM port, encryption live gate — designed,
+  not implemented.
+- Temporary Telegram and future private mobile messenger are equal adapter slots on one core.
+- Subscription route is an unresolved hypothesis gated by Build 3.7E0.
+- Acceptance of live text chat requires later implementation Builds plus independent review;
+  3.7A alone does not satisfy channel/LLM runtime acceptance.
 
 ## Deployment
 

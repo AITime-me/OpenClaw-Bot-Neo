@@ -17,7 +17,10 @@
 
 Multimodal workflow — общая техническая capability обработки текста, изображений, аудио и документов, а не девятая роль.
 
-Первый интерфейс — Telegram через изолированный адаптер; в будущем возможен мобильный клиент. Стабильное ядро не зависит от канала.
+Временный интерфейс — Telegram через изолированный app-private адаптер; конечный интерфейс —
+собственный закрытый мобильный мессенджер владельца с Neo. Стабильное communication core не зависит
+от Telegram и должно допускать замену adapter без переписывания ядра. Text communication runtime
+пока **не реализован** (Build 3.7A — design-only).
 
 ## Принципы
 
@@ -329,23 +332,35 @@ packages completed on feature branch `build-3-6b-infrastructure-fleet-foundation
 independent source review **BLOCKED**; first security corrective re-review **BLOCKED**; final
 corrective-2 re-review **approved with INFO notes**
 (`BUILD_3_6B_INFRASTRUCTURE_CORRECTIVE_2_REREVIEW_APPROVED_WITH_NOTES_FOR_CLOSEOUT`). Documentation
-closeout committed locally. Dispositions:
+closeout committed locally (integrated baseline includes closeout commit `b662376` on current
+design branch parent). Dispositions:
 `BUILD_3_6B_INFRASTRUCTURE_SECURITY_CORRECTIVES_CLOSED_WITH_STATELESS_SECRET_DETECTION_AND_TYPED_OUTCOME_UNKNOWN`;
 `BUILD_3_6B_INFRASTRUCTURE_FLEET_FOUNDATION_CLOSED_WITH_BOUNDED_INVENTORIES_RESTRICTED_OPERATIONS_AND_UNTRUSTED_OBSERVATIONS`.
 Fleet inventory contracts, restricted operations, infrastructure tool manifests via Build 3.5B
 orchestrator, offline reference provider/host only. No Timeweb API client, SSH implementation, VPS,
 production inventory wiring, or deployment. `DEPLOYMENT_READY=false`;
-`SECRET_PROVIDER_CONFIGURED=false`; `SECURITY_APPROVAL_COMPLETE=false`. Integration into local
-`main` and push pending. Real Timeweb/SSH implementation remains a later build. See
+`SECRET_PROVIDER_CONFIGURED=false`; `SECURITY_APPROVAL_COMPLETE=false`. Real Timeweb/SSH
+implementation remains a later build. See
 [infrastructure platform](docs/infrastructure-platform.md) and
 [closeout record](docs/validation/build-3.6b-infrastructure-fleet-foundation-closeout.md).
+
+**Build 3.7A (Text Communication Vertical Slice — Architecture Design):** documentation/validation
+only on `build-3-7a-text-communication-design`. Designs owner-only text contour, separate
+`AuthenticatedCommunicationPrincipal` vs memory capability, durable turn ledger, FIFO, two-phase
+audit, tools-free LLM port, encryption live gate, and temporary Telegram vs final private mobile
+adapter. **No** communication runtime, Telegram/LLM adapters, SQLite communication stores,
+production composition, or new runtime diagnostics. Subscription route remains an unresolved
+hypothesis gated by future **Build 3.7E0**. See
+[text architecture](docs/communication/text-architecture.md) and
+[closeout record](docs/validation/build-3.7a-text-communication-design-closeout.md).
 
 Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate
 (override запрещён). Review/tooling runner может использовать `OPENCLAW_REVIEW_NODE_OVERRIDE=1`
 только для локального tooling вне production gate; это не замена verified Node 22.13.0 PASS.
 Публичные контракты экспортируются из `src/index.ts`.
 
-Навигация: [архитектура](docs/architecture.md), [расширяемость](docs/extensibility.md),
+Навигация: [архитектура](docs/architecture.md), [text communication](docs/communication/text-architecture.md),
+[расширяемость](docs/extensibility.md),
 [интеграции](docs/integrations.md), [VoiceProfile](docs/voice-profile.md),
 [роли](docs/roles.md), [безопасность](docs/security-policy.md),
 [критерии приёмки](docs/acceptance-criteria.md),

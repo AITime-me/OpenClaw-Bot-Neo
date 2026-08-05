@@ -35,3 +35,8 @@ finding → deny с generic codes (`VOICE_PROFILE_SENSITIVE_DATA` /
 
 Конкретный TTS provider не выбран и не реализован. Example:
 [`config/voice/neo.example.json`](../config/voice/neo.example.json) проходит тот же Neo validator.
+
+Build 3.7A text-communication design uses the same masculine Neo tone tags for **text** persona
+presentation. Voice/TTS remains out of scope for the first text vertical slice; text-only is the
+slice invariant. Persona still is not security authority. See
+[text architecture](communication/text-architecture.md).

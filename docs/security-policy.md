@@ -465,3 +465,15 @@ corrective-2 re-review **approved with INFO notes** on feature branch
 `SECURITY_APPROVAL_COMPLETE=false`. `AUTHORITATIVE_SECURITY_VALIDATION=false`.
 `ENCRYPTION_ENABLED=false`. See [infrastructure platform](infrastructure-platform.md) and
 [closeout record](validation/build-3.6b-infrastructure-fleet-foundation-closeout.md).
+
+## Text communication design (Build 3.7A)
+
+Build 3.7A is documentation-only. It records that future text turns must use a distinct
+`AuthenticatedCommunicationPrincipal` capability, must not treat transport observations as trusted
+identities, must admit turns through a durable ledger before live LLM spend, must use two-phase
+audit, and must keep connector/infrastructure tools out of the text agent. Encryption at rest remains
+absent (`ENCRYPTION_ENABLED=false`); live Telegram/model routes that persist conversational content
+are blocked until encryption (or an approved alternative) exists — BLOCKER for live, not for offline
+reference simulation. Subscription OAuth as headless completion remains an unresolved hypothesis
+(Build 3.7E0). See [text trust model](communication/text-trust-and-threat-model.md) and
+[closeout](validation/build-3.7a-text-communication-design-closeout.md).

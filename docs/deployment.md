@@ -36,6 +36,12 @@ decompression-bomb limits, quarantine, persistent atomic replay/idempotency stor
 provider/auth stores и VPS hardening ниже являются **planned requirements**, а не действующими
 deployment controls.
 
+Build 3.7A designs a future text communication vertical slice but adds **no** deployment capability.
+Live Telegram/model routes that would persist conversational content remain blocked while
+`encryptionEnabled=false` (encryption live gate). Subscription provider feasibility is gated by
+Build 3.7E0 before large live-oriented communication implementation. See
+[text architecture](communication/text-architecture.md).
+
 ## Минимальный профиль
 
 - bind loopback-first; inbound ports закрыты, кроме отдельно обоснованного termination point;
