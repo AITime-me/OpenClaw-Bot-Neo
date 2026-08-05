@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   getValidatedTextOutputView,
   parseCommunicationBindingVersion,
@@ -632,6 +632,10 @@ describe('offline SQLite communication ports', () => {
 });
 
 describe('Build 3.7C corrective behavioral coverage', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   const defaultQueue = Object.freeze({
     maxDepthPerConversation: 8,
     maxGlobalPending: 64,
@@ -929,68 +933,59 @@ describe('Build 3.7C corrective behavioral coverage', () => {
       admissionEvidence: observed.value.admissionEvidence,
     });
     if (!principal.ok) throw new Error('principal');
-    const sealed = sealValidatedTextOutput({ source: 'llm', text: 'ttl-safe-text' });
-    if (!sealed.ok) throw new Error('seal');
-    const view = getValidatedTextOutputView(sealed.value);
-    if (view === null) throw new Error('view');
 
-    const putAt = async (expiresAtMs: number) =>
-      handle.outbox.put(
+    const putWithText = async (expiresAtMs: number, text: string, correlationSeed: string) => {
+      const sealed = sealValidatedTextOutput({ source: 'llm', text });
+      if (!sealed.ok) throw new Error(`seal:${text}`);
+      const view = getValidatedTextOutputView(sealed.value);
+      if (view === null) throw new Error(`view:${text}`);
+      return handle.outbox.put(
         {
           output: sealed.value,
           principal: principal.value,
           turnId,
-          correlationId: must(parseCorrelationId(`corr-ttl-${String(expiresAtMs)}`)),
+          correlationId: must(parseCorrelationId(correlationSeed)),
           outputDigest: view.payloadDigest,
           expiresAt: must(parseISO8601(new Date(expiresAtMs).toISOString())),
         },
         ctx(),
       );
+    };
 
-    const nowMs = Date.now();
-    const atNow = await putAt(nowMs);
-    expect(atNow.ok && atNow.value.kind === 'rejected').toBe(true);
+    // Freeze only Date so Date.now()/new Date stay fixed across awaited puts.
+    // Do not fake setTimeout/promises — restores in finally to avoid leaking timers.
+    const frozenNowMs = Date.parse('2026-08-05T15:00:00.000Z');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(frozenNowMs);
+      expect(Date.now()).toBe(frozenNowMs);
 
-    const plusOne = await putAt(nowMs + 1);
-    expect(plusOne.ok && plusOne.value.kind === 'stored').toBe(true);
+      const atNow = await putWithText(frozenNowMs, 'ttl-safe-text-now', 'corr-ttl-now');
+      expect(atNow.ok && atNow.value.kind === 'rejected').toBe(true);
 
-    const sealed2 = sealValidatedTextOutput({ source: 'llm', text: 'ttl-safe-text-2' });
-    if (!sealed2.ok) throw new Error('seal2');
-    const view2 = getValidatedTextOutputView(sealed2.value);
-    if (view2 === null) throw new Error('view2');
-    const at24h = await handle.outbox.put(
-      {
-        output: sealed2.value,
-        principal: principal.value,
-        turnId,
-        correlationId: must(parseCorrelationId('corr-ttl-24h')),
-        outputDigest: view2.payloadDigest,
-        expiresAt: must(
-          parseISO8601(new Date(Date.now() + OFFLINE_OUTBOX_MAX_TTL_MS).toISOString()),
-        ),
-      },
-      ctx(),
-    );
-    expect(at24h.ok && at24h.value.kind === 'stored').toBe(true);
+      const plusOne = await putWithText(
+        frozenNowMs + 1,
+        'ttl-safe-text-plus-one',
+        'corr-ttl-plus-one',
+      );
+      expect(plusOne.ok && plusOne.value.kind === 'stored').toBe(true);
 
-    const sealed3 = sealValidatedTextOutput({ source: 'llm', text: 'ttl-safe-text-3' });
-    if (!sealed3.ok) throw new Error('seal3');
-    const view3 = getValidatedTextOutputView(sealed3.value);
-    if (view3 === null) throw new Error('view3');
-    const over24h = await handle.outbox.put(
-      {
-        output: sealed3.value,
-        principal: principal.value,
-        turnId,
-        correlationId: must(parseCorrelationId('corr-ttl-over')),
-        outputDigest: view3.payloadDigest,
-        expiresAt: must(
-          parseISO8601(new Date(Date.now() + OFFLINE_OUTBOX_MAX_TTL_MS + 1).toISOString()),
-        ),
-      },
-      ctx(),
-    );
-    expect(over24h.ok && over24h.value.kind === 'rejected').toBe(true);
+      const at24h = await putWithText(
+        frozenNowMs + OFFLINE_OUTBOX_MAX_TTL_MS,
+        'ttl-safe-text-24h',
+        'corr-ttl-24h',
+      );
+      expect(at24h.ok && at24h.value.kind === 'stored').toBe(true);
+
+      const over24h = await putWithText(
+        frozenNowMs + OFFLINE_OUTBOX_MAX_TTL_MS + 1,
+        'ttl-safe-text-over',
+        'corr-ttl-over',
+      );
+      expect(over24h.ok && over24h.value.kind === 'rejected').toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
 
     handle.close();
     root.close();
