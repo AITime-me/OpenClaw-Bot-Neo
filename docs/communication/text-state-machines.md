@@ -126,14 +126,15 @@ or recipient, and do **not** authorize LLM, delivery, or resend.
 
 | Prior durable state | After restart |
 |---------------------|---------------|
-| `accepted` / `queued` | May restore and continue under current kill-switch snapshot. |
-| `llm_started` without completion | Record `LLM_OUTCOME_UNKNOWN`; **no automatic** model re-invoke; deterministic notice **forbidden**. |
-| `llm_known_failed` | Notice-eligible → may continue notice/delivery; notice-ineligible → complete without delivery; no LLM re-invoke. |
-| `deterministic_notice_prepared` | May continue notice/delivery path if statuses allow; no LLM re-invoke. |
-| `delivery_started` without outcome | Record `DELIVERY_OUTCOME_UNKNOWN`; **no automatic** resend. |
-| `delivered` + `checkpointStatus=failed` | Keep delivered; reconcile checkpoint only; no LLM/delivery replay. |
-| `delivered` | Remains delivered; idempotent completion-audit retry allowed. |
-| Ephemeral-only simulation store | Lost; offline reference simulation only. |
+| `observed` / `authenticated` / `accepted` / `queued` / `llm_completed` / `deterministic_notice_prepared` / `output_validated` | Fail-safe **cancel → completed**; no principal/admission/output/recipient rehydration; no LLM/notice/delivery. |
+| `llm_started` without durable result | Record `LLM_OUTCOME_UNKNOWN`; cancel → completed; **no automatic** model re-invoke; deterministic notice **forbidden**; checkpoint barrier. |
+| `llm_known_failed` | Complete without LLM re-invoke; notice/delivery **not** resumed (authority lost). |
+| `delivery_started` | Read-only `readDeliveryOutcome`; restore delivered / known-failure / outcome-unknown; not-recorded/not-found → durable outcome-unknown; **no automatic** resend; then complete. |
+| `delivered` / `delivery_failed` / `delivery_outcome_unknown` / `authentication_rejected` | Transition to `completed` when still unfinished; no LLM/delivery replay. |
+| `cancelled` | `cancelled → completed`. |
+| Ingress | Enabled only after all recovery candidates are classified and durably fixed; recovery error keeps ingress disabled. |
+
+`delivery_started → cancelled` is illegal. Recovery candidates never authorize resume.
 
 ## 5. Duplicate / replay
 

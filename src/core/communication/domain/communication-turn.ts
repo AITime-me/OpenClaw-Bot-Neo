@@ -88,16 +88,17 @@ export interface CommunicationTurnRecord {
  * Admission order before queue: observed → authenticated|authentication_rejected → accepted → queued.
  */
 const legalTransitions = {
-  observed: ['authenticated', 'authentication_rejected'],
+  observed: ['authenticated', 'authentication_rejected', 'cancelled'],
   authentication_rejected: ['completed'],
-  authenticated: ['accepted'],
-  accepted: ['queued'],
+  authenticated: ['accepted', 'cancelled'],
+  accepted: ['queued', 'cancelled'],
   queued: ['llm_started', 'cancelled'],
   llm_started: ['llm_completed', 'llm_known_failed', 'cancelled'],
   llm_known_failed: ['deterministic_notice_prepared', 'completed'],
-  deterministic_notice_prepared: ['output_validated'],
-  llm_completed: ['output_validated'],
-  output_validated: ['delivery_started'],
+  deterministic_notice_prepared: ['output_validated', 'cancelled'],
+  llm_completed: ['output_validated', 'cancelled'],
+  output_validated: ['delivery_started', 'cancelled'],
+  // delivery_started must not cancel — authoritative outbox outcome only.
   delivery_started: ['delivered', 'delivery_failed', 'delivery_outcome_unknown'],
   delivered: ['completed'],
   delivery_failed: ['completed'],

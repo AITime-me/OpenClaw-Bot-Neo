@@ -163,11 +163,15 @@
 - No executable runtime, adapters, SQLite communication stores, or package-root exports.
 - Build 3.7B status: offline contracts implemented; live runtime absent.
 - Build 3.7C status: offline SQLite communication persistence implemented; live runtime absent.
+- Build 3.7D status: offline executable communication runtime implemented (fake LLM/delivery only);
+  fail-safe no-resume recovery; schema v1 unchanged.
 - Build 3.7E1 status: BLOCKED
 - Build 3.7F status: BLOCKED
-- Build 3.7C next stage: 3.7D
+- Build 3.7D next stage: 3.7E1
 - See [3.7B closeout](validation/build-3.7b-communication-contracts-closeout.md).
 - See [3.7C closeout](validation/build-3.7c-communication-persistence-closeout.md).
+- See [3.7D0 decisions](validation/build-3.7d0-communication-runtime-decisions.md).
+- See [3.7D closeout](validation/build-3.7d-communication-runtime-closeout.md).
 
 ## Deployment
 

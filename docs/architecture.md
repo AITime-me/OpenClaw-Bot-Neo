@@ -429,6 +429,17 @@ package-root exports. Build 3.7B status: offline contracts implemented; live run
 Build 3.7E1 status: BLOCKED. Build 3.7F status: BLOCKED. Build 3.7B next stage: 3.7C.
 See [3.7B closeout](validation/build-3.7b-communication-contracts-closeout.md).
 
+**Build 3.7C — Offline SQLite Communication Persistence:**
+Package-private `createOfflineSqliteCommunicationPorts` against `neo-communication.sqlite`
+(schema v1). Runtime/Telegram/provider/encryption/production remain absent. Next: 3.7D.
+See [3.7C closeout](validation/build-3.7c-communication-persistence-closeout.md).
+
+**Build 3.7D — Offline Executable Communication Runtime:**
+Package-private application orchestrator + reference fake LLM/delivery; fail-safe no-resume
+recovery; schema v1 unchanged. E1/F blocked; production/security approval false.
+See [3.7D0 decisions](validation/build-3.7d0-communication-runtime-decisions.md) and
+[3.7D closeout](validation/build-3.7d-communication-runtime-closeout.md).
+
 Связанные документы: [text communication](communication/text-architecture.md),
 [расширяемость](extensibility.md), [интеграции](integrations.md),
 [VoiceProfile](voice-profile.md), [каналы](channels.md), [безопасность](security-policy.md),

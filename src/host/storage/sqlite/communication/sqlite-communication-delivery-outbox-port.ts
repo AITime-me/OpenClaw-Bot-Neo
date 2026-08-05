@@ -58,6 +58,7 @@ type Prepared = {
   readonly loadPending: SqliteStatement;
   readonly selectOutcome: SqliteStatement;
   readonly insertOutcome: SqliteStatement;
+  readonly selectAnyEntry: SqliteStatement;
   readonly selectReconcileByKey: SqliteStatement;
   readonly selectReconcileByTurn: SqliteStatement;
   readonly insertReconcile: SqliteStatement;
@@ -101,6 +102,11 @@ const prepare = (db: SqliteDatabase): Prepared =>
     insertOutcome: db.prepare(
       `INSERT INTO outbox_outcomes (turn_id, correlation_id, idempotency_key, outcome, recorded_at)
        VALUES (?, ?, ?, ?, ?)`,
+    ),
+    selectAnyEntry: db.prepare(
+      `SELECT turn_id FROM outbox_entries
+        WHERE turn_id = ? AND correlation_id = ?
+        LIMIT 1`,
     ),
     selectReconcileByKey: db.prepare(
       `SELECT idempotency_key FROM outbox_reconcile_ops WHERE idempotency_key = ? LIMIT 1`,
@@ -300,6 +306,32 @@ export const createSqliteCommunicationDeliveryOutboxPort = (
         if (isSqliteBusyOrLocked(error))
           return ok({ kind: 'unavailable', reason: 'SQLite database is busy or locked.' });
         return ok({ kind: 'unavailable', reason: 'Outbox delivery outcome persistence failed.' });
+      }
+    },
+
+    async readDeliveryOutcome(query, _operationContext) {
+      await Promise.resolve();
+      void _operationContext;
+      const closed = requireOpen();
+      if (closed) return err(closed);
+      scrubBeforeMethod();
+      try {
+        const existing = statements.selectOutcome.get(query.turnId, query.correlationId) as
+          OutcomeRow | undefined;
+        if (existing !== undefined) {
+          if (existing.outcome === 'delivered') return ok({ kind: 'delivered' });
+          if (existing.outcome === 'known-failure') return ok({ kind: 'known-failure' });
+          if (existing.outcome === 'outcome-unknown') return ok({ kind: 'outcome-unknown' });
+          return ok({ kind: 'unavailable', reason: 'Stored delivery outcome is malformed.' });
+        }
+        const entry = statements.selectAnyEntry.get(query.turnId, query.correlationId) as
+          { turn_id: string } | undefined;
+        if (entry === undefined) return ok({ kind: 'not-found' });
+        return ok({ kind: 'not-recorded' });
+      } catch (error) {
+        if (isSqliteBusyOrLocked(error))
+          return ok({ kind: 'unavailable', reason: 'SQLite database is busy or locked.' });
+        return ok({ kind: 'unavailable', reason: 'Outbox delivery outcome lookup failed.' });
       }
     },
 

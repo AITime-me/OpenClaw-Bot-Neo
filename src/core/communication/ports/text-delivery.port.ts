@@ -13,6 +13,8 @@ export interface TextDeliveryRequest {
   readonly principal: AuthenticatedCommunicationPrincipal;
   readonly turnId: TurnId;
   readonly correlationId: CorrelationId;
+  /** Optional abort/deadline signal; cancellation without durable proof → outcome-unknown. */
+  readonly abortSignal?: AbortSignal | null;
 }
 
 export type TextDeliveryOutcome =

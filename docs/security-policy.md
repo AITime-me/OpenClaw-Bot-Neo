@@ -526,3 +526,14 @@ Encryption, live delivery, runtime, Telegram, provider integration, and producti
 remain absent. Build 3.7C mode: OFFLINE_ONLY. LIVE_ENCRYPTION: NOT_IMPLEMENTED.
 Build 3.7E1 status: BLOCKED. Build 3.7F status: BLOCKED. Next stage: 3.7D.
 See [3.7C closeout](validation/build-3.7c-communication-persistence-closeout.md).
+
+## Text communication offline executable runtime (Build 3.7D)
+
+Build 3.7D implements package-private offline application/runtime under
+`src/core/communication/application/**` and local reference adapters under
+`src/communication/reference/**`, against 3.7D0 contract delta (fail-safe no-resume recovery,
+cancel transitions, `readDeliveryOutcome`, checkpoint barrier). Fake LLM/delivery only.
+Encryption, provider/Telegram/network, production composition, and package-root exports remain
+absent. SQLite schema version stays 1. Build 3.7E1 status: BLOCKED. Build 3.7F status: BLOCKED.
+Next stage: 3.7E1. See [3.7D0 decisions](validation/build-3.7d0-communication-runtime-decisions.md)
+and [3.7D closeout](validation/build-3.7d-communication-runtime-closeout.md).

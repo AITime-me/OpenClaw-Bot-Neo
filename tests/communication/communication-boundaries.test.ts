@@ -55,6 +55,10 @@ describe('communication boundary fixtures', () => {
     ['forbidden-communication-persistence-export-equals', 'PERSISTENCE_FACADE_EXTRA_EXPORT'],
     ['forbidden-communication-persistence-export-star-as', 'PERSISTENCE_FACADE_EXPORT_STAR'],
     ['forbidden-communication-persistence-unclassified-export', 'PERSISTENCE_FACADE_EXTRA_EXPORT'],
+    ['forbidden-communication-application-imports-host', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-communication-application-imports-provider', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-communication-reference-imports-host', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-communication-reference-imports-telegram', 'FORBIDDEN_DEPENDENCY'],
   ])('rejects fixture %s with %s', (name, code) => {
     const report = analyzeBoundaries({ rootDir: fixture(name), requiredLayers: [] });
     expect(codes(report)).toContain(code);
@@ -69,6 +73,8 @@ describe('production communication tree', () => {
         'core/communication/domain',
         'core/communication/ports',
         'core/communication/policy',
+        'core/communication/application',
+        'communication/reference',
       ],
     });
     expect(report.violations).toEqual([]);

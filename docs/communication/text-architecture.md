@@ -324,7 +324,8 @@ root.
 2. **3.7E0** — subscription route feasibility (closed research; this outcome).
 3. **3.7B** — package-private domain/ports/policies (**next**; offline only).
 4. **3.7C** — durable SQLite communication foundation (offline only).
-5. **3.7D** — orchestrator + offline reference / fake completion.
+5. **3.7D** — orchestrator + offline reference / fake completion (**implemented**; see
+   [3.7D closeout](../validation/build-3.7d-communication-runtime-closeout.md)).
 6. **3.7E1** — Codex/OpenClaw route **blocked** pending capability probe and live gates.
 7. **3.7F** — temporary Telegram adapter **blocked** pending E1, encryption, operational approval.
 8. Later: files/images → voice → masculine TTS → plans/reminders → private mobile → Telegram

@@ -10,6 +10,7 @@ import { parseConversationRevision } from '../../../../core/communication/domain
 import {
   isConversationCheckpointReconcileEligible,
   type ConversationCheckpointReconcileIneligibleStatus,
+  type ConversationStateCheckpointBarrierOutcome,
   type ConversationStateCheckpointOutcome,
   type ConversationStateLoadOutcome,
   type ConversationStatePort,
@@ -212,6 +213,8 @@ export const createSqliteConversationStatePort = (
             if (!assertSafeIntegerValue(current.revision))
               return { kind: 'unavailable', reason: 'Malformed conversation revision.' };
             if (current.revision !== expected) return { kind: 'stale-revision' };
+            if (current.checkpoint_status === 'failed' && current.pause_state === 'degraded')
+              return { kind: 'barrier-active' };
           }
 
           if (command.nextSnapshot.ownerId !== command.key.ownerId)
@@ -264,6 +267,185 @@ export const createSqliteConversationStatePort = (
         if (isSqliteBusyOrLocked(error))
           return ok({ kind: 'unavailable', reason: 'SQLite database is busy or locked.' });
         return ok({ kind: 'unavailable', reason: 'Conversation checkpoint failed.' });
+      }
+    },
+
+    async recordCheckpointBarrier(command, _operationContext) {
+      await Promise.resolve();
+      void _operationContext;
+      const closed = requireOpen();
+      if (closed) return err(closed);
+      try {
+        const outcome = runImmediate(db, (): ConversationStateCheckpointBarrierOutcome => {
+          const existingOp = statements.selectOp.get(
+            command.key.ownerId,
+            command.key.conversationId,
+            command.idempotencyKey,
+          ) as CheckpointOpRow | undefined;
+          if (existingOp !== undefined) {
+            if (existingOp.op_kind !== 'barrier')
+              return { kind: 'unavailable', reason: 'Idempotency key conflict.' };
+            if (
+              existingOp.revision_after !== null &&
+              assertSafeIntegerValue(existingOp.revision_after)
+            )
+              return {
+                kind: 'already-recorded',
+                revision: asRevision(existingOp.revision_after),
+              };
+            return { kind: 'unavailable', reason: 'Malformed barrier idempotency record.' };
+          }
+
+          const current = statements.selectSnapshot.get(
+            command.key.ownerId,
+            command.key.conversationId,
+          ) as SnapshotRow | undefined;
+          const expected = command.expectedRevision;
+
+          if (current === undefined) {
+            if (expected !== 0) return { kind: 'stale-revision', currentRevision: asRevision(0) };
+            const nextRevision = 1;
+            const protective = freezeConversationStateSnapshot({
+              conversationId: command.key.conversationId,
+              ownerId: command.key.ownerId,
+              revision: asRevision(nextRevision),
+              activeContext: Object.freeze([]),
+              modelDerivedSummary: null,
+              pauseState: 'degraded',
+              checkpoint: Object.freeze({
+                status: 'failed' as const,
+                revision: asRevision(nextRevision),
+              }),
+            });
+            const encoded = encodeConversationSnapshotParts(protective);
+            if (!encoded.ok)
+              return {
+                kind: 'unavailable',
+                reason: 'Protective barrier snapshot encoding failed.',
+              };
+            const updatedAt = nowIso();
+            statements.upsertSnapshot.run(
+              command.key.ownerId,
+              command.key.conversationId,
+              nextRevision,
+              'degraded',
+              'failed',
+              nextRevision,
+              encoded.activeContextJson,
+              encoded.summaryJson,
+              encoded.fingerprint,
+              updatedAt,
+            );
+            try {
+              statements.insertOp.run(
+                command.key.ownerId,
+                command.key.conversationId,
+                command.idempotencyKey,
+                'barrier',
+                encoded.fingerprint,
+                nextRevision,
+                updatedAt,
+              );
+            } catch (error) {
+              if (isSqliteUniqueConstraint(error)) {
+                const raced = statements.selectOp.get(
+                  command.key.ownerId,
+                  command.key.conversationId,
+                  command.idempotencyKey,
+                ) as CheckpointOpRow | undefined;
+                if (
+                  raced?.op_kind === 'barrier' &&
+                  raced.revision_after !== null &&
+                  assertSafeIntegerValue(raced.revision_after)
+                )
+                  return {
+                    kind: 'already-recorded',
+                    revision: asRevision(raced.revision_after),
+                  };
+                return { kind: 'unavailable', reason: 'Barrier idempotency conflict.' };
+              }
+              throw error;
+            }
+            return { kind: 'recorded', revision: asRevision(nextRevision) };
+          }
+
+          if (!assertSafeIntegerValue(current.revision))
+            return { kind: 'unavailable', reason: 'Malformed conversation revision.' };
+          if (current.revision !== expected)
+            return {
+              kind: 'stale-revision',
+              currentRevision: asRevision(current.revision),
+            };
+
+          const nextRevision = current.revision + 1;
+          if (!Number.isSafeInteger(nextRevision))
+            return { kind: 'unavailable', reason: 'Conversation revision overflow.' };
+
+          const decoded = decodeConversationSnapshot({
+            ownerId: current.owner_id,
+            conversationId: current.conversation_id,
+            revision: nextRevision,
+            pauseState: 'degraded',
+            checkpointStatus: 'failed',
+            checkpointRevision: nextRevision,
+            activeContextJson: current.active_context_json,
+            summaryJson: current.summary_json,
+          });
+          if (!decoded.ok)
+            return { kind: 'unavailable', reason: 'Stored conversation snapshot is malformed.' };
+
+          const fingerprint = fingerprintConversationSnapshot(decoded.snapshot);
+          const updatedAt = nowIso();
+          // Keep active_context_json / summary_json byte-identical; only pause/checkpoint/revision change.
+          statements.upsertSnapshot.run(
+            current.owner_id,
+            current.conversation_id,
+            nextRevision,
+            'degraded',
+            'failed',
+            nextRevision,
+            current.active_context_json,
+            current.summary_json,
+            fingerprint,
+            updatedAt,
+          );
+          try {
+            statements.insertOp.run(
+              command.key.ownerId,
+              command.key.conversationId,
+              command.idempotencyKey,
+              'barrier',
+              fingerprint,
+              nextRevision,
+              updatedAt,
+            );
+          } catch (error) {
+            if (isSqliteUniqueConstraint(error)) {
+              const raced = statements.selectOp.get(
+                command.key.ownerId,
+                command.key.conversationId,
+                command.idempotencyKey,
+              ) as CheckpointOpRow | undefined;
+              if (
+                raced?.op_kind === 'barrier' &&
+                raced.revision_after !== null &&
+                assertSafeIntegerValue(raced.revision_after)
+              )
+                return {
+                  kind: 'already-recorded',
+                  revision: asRevision(raced.revision_after),
+                };
+              return { kind: 'unavailable', reason: 'Barrier idempotency conflict.' };
+            }
+            throw error;
+          }
+          return { kind: 'recorded', revision: asRevision(nextRevision) };
+        });
+        return ok(outcome);
+      } catch (error) {
+        if (isSqliteBusyOrLocked(error))
+          return ok({ kind: 'unavailable', reason: 'SQLite database is busy or locked.' });
+        return ok({ kind: 'unavailable', reason: 'Checkpoint barrier persistence failed.' });
       }
     },
 

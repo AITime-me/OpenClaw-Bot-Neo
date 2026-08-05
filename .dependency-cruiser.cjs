@@ -52,6 +52,29 @@ module.exports = {
       },
     },
     {
+      name: 'communication-application-depend-on-allowed-only',
+      severity: 'error',
+      comment:
+        'Communication application may depend on core domain/ports and communication domain/ports/policy/application.',
+      from: { path: '^src/core/communication/application' },
+      to: {
+        path: '^src/',
+        pathNot: '^src/core/(domain|ports|communication/(domain|ports|policy|application))',
+      },
+    },
+    {
+      name: 'communication-reference-depend-on-allowed-only',
+      severity: 'error',
+      comment:
+        'Communication reference adapters may depend on communication contracts/application only.',
+      from: { path: '^src/communication/reference' },
+      to: {
+        path: '^src/',
+        pathNot:
+          '^src/(core/(domain|ports|communication/(domain|ports|policy|application))|communication/reference)',
+      },
+    },
+    {
       name: 'communication-no-connectors-infrastructure-host',
       severity: 'error',
       comment:
@@ -425,7 +448,7 @@ module.exports = {
       comment: 'Only the sealing owners may import a *.internal module.',
       from: {
         pathNot:
-          '^src/(core/(domain/(index|extension-permission|extension-registry-entry|extension-registry-entry\\.internal|sanitized\\.internal|verified-memory-write-guard)\\.ts|policy/(confirmation-gate|extension-manifest|extension-permissions|namespace-isolation|voice-profile|webhook-ingress|memory-secret-boundary)\\.ts|application/(memory-write\\.service|memory-access\\.gateway|extension-registration\\.service|extension-activation\\.service|extension-activation\\.gateway|runtime-risk-classification\\.service|extension-permission\\.gateway|voice-resolution\\.gateway|webhook-ingress\\.service)\\.ts|communication/(domain/(index|fresh-observed-admission-evidence\\.persistence\\.internal|authenticated-communication-principal\\.persistence\\.internal|validated-text-output\\.persistence\\.internal)\\.ts|policy/(communication-memory-authorization|text-output-policy)\\.ts))|host/storage/runtime/(open-posix-storage-root|posix-storage-root-resolve\\.internal|posix-storage-root-lease\\.internal)\\.ts)$',
+          '^src/(core/(domain/(index|extension-permission|extension-registry-entry|extension-registry-entry\\.internal|sanitized\\.internal|verified-memory-write-guard)\\.ts|policy/(confirmation-gate|extension-manifest|extension-permissions|namespace-isolation|voice-profile|webhook-ingress|memory-secret-boundary)\\.ts|application/(memory-write\\.service|memory-access\\.gateway|extension-registration\\.service|extension-activation\\.service|extension-activation\\.gateway|runtime-risk-classification\\.service|extension-permission\\.gateway|voice-resolution\\.gateway|webhook-ingress\\.service)\\.ts|communication/(domain/(index|fresh-observed-admission-evidence\\.persistence\\.internal|authenticated-communication-principal\\.persistence\\.internal|validated-text-output\\.persistence\\.internal)\\.ts|policy/(communication-memory-authorization|text-output-policy)\\.ts|application/(communication-orchestrator|process-text-turn\\.service)\\.ts))|communication/reference/reference-memory-authorization\\.ts|host/storage/runtime/(open-posix-storage-root|posix-storage-root-resolve\\.internal|posix-storage-root-lease\\.internal)\\.ts)$',
       },
       to: {
         path: '\\.internal\\.ts$',

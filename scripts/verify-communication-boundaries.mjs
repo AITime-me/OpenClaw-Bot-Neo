@@ -41,14 +41,22 @@ if (!existsSync(communicationRoot)) {
   }
 
   const forbiddenTrees = [
-    'src/core/communication/application',
-    'src/communication',
     'src/core/communication/runtime',
     'src/core/communication/adapters',
+    'src/communication/adapters',
   ];
   for (const tree of forbiddenTrees) {
     if (existsSync(tree))
-      failures.push(`FORBIDDEN_TREE: ${tree} must not exist before later communication Builds.`);
+      failures.push(`FORBIDDEN_TREE: ${tree} must not exist until a later live Build.`);
+  }
+
+  const requiredRuntimeTrees = [
+    'src/core/communication/application',
+    'src/communication/reference',
+  ];
+  for (const tree of requiredRuntimeTrees) {
+    if (!existsSync(tree) || listFiles(tree).filter((path) => path.endsWith('.ts')).length === 0)
+      failures.push(`MISSING_TREE: ${tree} is required for Build 3.7D.`);
   }
 
   const offlineFactory =
@@ -137,12 +145,15 @@ if (!existsSync(communicationRoot)) {
       'core/communication/domain',
       'core/communication/ports',
       'core/communication/policy',
+      'core/communication/application',
+      'communication/reference',
     ],
   });
   for (const violation of report.violations) {
     if (
       violation.code === 'MISSING_LAYER' &&
-      !String(violation.message).includes('core/communication/')
+      !String(violation.message).includes('core/communication/') &&
+      !String(violation.message).includes('communication/reference')
     ) {
       continue;
     }

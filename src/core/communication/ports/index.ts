@@ -15,6 +15,8 @@ export type {
   CommunicationDeliveryOutboxPort,
   CommunicationDeliveryOutboxPutCommand,
   CommunicationDeliveryOutboxPutOutcome,
+  CommunicationDeliveryOutboxReadOutcomeQuery,
+  CommunicationDeliveryOutboxReadOutcomeResult,
   CommunicationDeliveryOutboxReconcileCommand,
   CommunicationDeliveryOutboxReconcileOutcome,
   CommunicationDeliveryOutboxReconciliationCandidateOutcome,
@@ -70,8 +72,11 @@ export type {
 } from './communication-turn-ledger.port.js';
 
 export type {
+  ConversationCheckpointBarrierReason,
   ConversationCheckpointReconcileEligibleFrom,
   ConversationCheckpointReconcileIneligibleStatus,
+  ConversationStateCheckpointBarrierCommand,
+  ConversationStateCheckpointBarrierOutcome,
   ConversationStateCheckpointCommand,
   ConversationStateCheckpointOutcome,
   ConversationStateKey,
@@ -81,6 +86,7 @@ export type {
   ConversationStateReconcileCheckpointOutcome,
 } from './conversation-state.port.js';
 export {
+  CONVERSATION_CHECKPOINT_BARRIER_REASONS,
   CONVERSATION_CHECKPOINT_RECONCILE_ELIGIBLE_FROM,
   isConversationCheckpointReconcileEligible,
 } from './conversation-state.port.js';

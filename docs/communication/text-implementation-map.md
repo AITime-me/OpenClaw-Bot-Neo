@@ -131,24 +131,30 @@ Build 3.7C next stage: 3.7D
 
 ### 3.7D — application / orchestrator / reference
 
+Status: **implemented** (offline executable runtime; fake LLM/delivery only). See
+[3.7D0 decisions](../validation/build-3.7d0-communication-runtime-decisions.md) and
+[3.7D closeout](../validation/build-3.7d-communication-runtime-closeout.md).
+
 ```text
-src/core/communication/application/normalize-transport-observation.service.ts
-src/core/communication/application/authenticate-communication-principal.service.ts
-src/core/communication/application/derive-communication-memory-access.service.ts
-src/core/communication/application/admit-communication-turn.service.ts
+src/core/communication/application/communication-orchestrator.ts
 src/core/communication/application/per-conversation-turn-dispatcher.ts
-src/core/communication/application/assemble-text-prompt.service.ts
-src/core/communication/application/validate-model-output.service.ts
 src/core/communication/application/process-text-turn.service.ts
 src/core/communication/application/recover-communication-turns.service.ts
+src/core/communication/application/communication-runtime-diagnostics.ts
+src/core/communication/application/reference-queue-config.ts
 src/core/communication/application/index.ts
 
-src/communication/reference/reference-text-ingress.ts
+src/communication/reference/create-reference-text-slice.ts
 src/communication/reference/reference-identity-binding.ts
 src/communication/reference/reference-llm-completion.ts
 src/communication/reference/reference-text-delivery.ts
-src/communication/reference/create-reference-text-slice.ts
+src/communication/reference/reference-memory-authorization.ts
+src/communication/reference/reference-kill-switch.ts
+src/communication/reference/reference-id-generator.ts
+src/communication/reference/index.ts
 ```
+
+Build 3.7D next stage: 3.7E1 (blocked).
 
 ### 3.7E0
 

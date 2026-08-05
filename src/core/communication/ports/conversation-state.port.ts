@@ -31,6 +31,32 @@ export type ConversationStateCheckpointOutcome =
   | { readonly kind: 'stored' }
   | { readonly kind: 'already-applied' }
   | { readonly kind: 'stale-revision' }
+  | { readonly kind: 'barrier-active' }
+  | { readonly kind: 'unavailable'; readonly reason: string };
+
+/** Durable checkpoint barrier reasons (Build 3.7D0). */
+export const CONVERSATION_CHECKPOINT_BARRIER_REASONS = Object.freeze([
+  'checkpoint-failed',
+  'llm-outcome-unknown',
+  'delivery-outcome-unknown',
+  'recovery-context-unavailable-after-delivery',
+] as const);
+
+export type ConversationCheckpointBarrierReason =
+  (typeof CONVERSATION_CHECKPOINT_BARRIER_REASONS)[number];
+
+export interface ConversationStateCheckpointBarrierCommand {
+  readonly key: ConversationStateKey;
+  readonly expectedRevision: ConversationRevision;
+  readonly correlationId: CorrelationId;
+  readonly idempotencyKey: string;
+  readonly reason: ConversationCheckpointBarrierReason;
+}
+
+export type ConversationStateCheckpointBarrierOutcome =
+  | { readonly kind: 'recorded'; readonly revision: ConversationRevision }
+  | { readonly kind: 'already-recorded'; readonly revision: ConversationRevision }
+  | { readonly kind: 'stale-revision'; readonly currentRevision: ConversationRevision }
   | { readonly kind: 'unavailable'; readonly reason: string };
 
 /**
@@ -88,6 +114,16 @@ export interface ConversationStatePort {
     command: ConversationStateCheckpointCommand,
     operationContext: OperationContext,
   ): Promise<Result<ConversationStateCheckpointOutcome, CommunicationError>>;
+
+  /**
+   * Records a durable checkpoint barrier: CAS revision+1, pause=degraded, status=failed.
+   * Context/summary remain byte-equivalent (or protective empty snapshot when absent).
+   * Does not invoke LLM, delivery, audit, or memory. Automatic unpause is forbidden.
+   */
+  recordCheckpointBarrier(
+    command: ConversationStateCheckpointBarrierCommand,
+    operationContext: OperationContext,
+  ): Promise<Result<ConversationStateCheckpointBarrierOutcome, CommunicationError>>;
 
   reconcileCheckpoint(
     command: ConversationStateReconcileCheckpointCommand,

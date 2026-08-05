@@ -85,6 +85,23 @@ export type CommunicationDeliveryOutboxReconcileOutcome =
   | { readonly kind: 'not-eligible'; readonly reason: string }
   | { readonly kind: 'unavailable'; readonly reason: string };
 
+export interface CommunicationDeliveryOutboxReadOutcomeQuery {
+  readonly turnId: TurnId;
+  readonly correlationId: CorrelationId;
+}
+
+/**
+ * Read-only authoritative delivery outcome lookup (Build 3.7D0).
+ * Never returns payload, digest, recipient, principal, or capability and never resends.
+ */
+export type CommunicationDeliveryOutboxReadOutcomeResult =
+  | { readonly kind: 'delivered' }
+  | { readonly kind: 'known-failure' }
+  | { readonly kind: 'outcome-unknown' }
+  | { readonly kind: 'not-recorded' }
+  | { readonly kind: 'not-found' }
+  | { readonly kind: 'unavailable'; readonly reason: string };
+
 /**
  * Short-lived encrypted-before-live outbox contract.
  * No recipient strings, chat ids, or transport SDK types.
@@ -104,6 +121,11 @@ export interface CommunicationDeliveryOutboxPort {
     command: CommunicationDeliveryOutboxRecordOutcomeCommand,
     operationContext: OperationContext,
   ): Promise<Result<CommunicationDeliveryOutboxRecordOutcomeResult, CommunicationError>>;
+
+  readDeliveryOutcome(
+    query: CommunicationDeliveryOutboxReadOutcomeQuery,
+    operationContext: OperationContext,
+  ): Promise<Result<CommunicationDeliveryOutboxReadOutcomeResult, CommunicationError>>;
 
   getReconciliationCandidate(
     query: CommunicationDeliveryOutboxReconciliationCandidateQuery,

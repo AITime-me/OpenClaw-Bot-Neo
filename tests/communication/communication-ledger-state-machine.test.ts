@@ -12,10 +12,14 @@ import {
 
 describe('communication turn LEGAL_TRANSITIONS', () => {
   it('matches the normative transition table', () => {
-    expect(LEGAL_TRANSITIONS.observed).toEqual(['authenticated', 'authentication_rejected']);
+    expect(LEGAL_TRANSITIONS.observed).toEqual([
+      'authenticated',
+      'authentication_rejected',
+      'cancelled',
+    ]);
     expect(LEGAL_TRANSITIONS.authentication_rejected).toEqual(['completed']);
-    expect(LEGAL_TRANSITIONS.authenticated).toEqual(['accepted']);
-    expect(LEGAL_TRANSITIONS.accepted).toEqual(['queued']);
+    expect(LEGAL_TRANSITIONS.authenticated).toEqual(['accepted', 'cancelled']);
+    expect(LEGAL_TRANSITIONS.accepted).toEqual(['queued', 'cancelled']);
     expect(LEGAL_TRANSITIONS.queued).toEqual(['llm_started', 'cancelled']);
     expect(LEGAL_TRANSITIONS.llm_started).toEqual([
       'llm_completed',
@@ -26,14 +30,19 @@ describe('communication turn LEGAL_TRANSITIONS', () => {
       'deterministic_notice_prepared',
       'completed',
     ]);
-    expect(LEGAL_TRANSITIONS.deterministic_notice_prepared).toEqual(['output_validated']);
-    expect(LEGAL_TRANSITIONS.llm_completed).toEqual(['output_validated']);
-    expect(LEGAL_TRANSITIONS.output_validated).toEqual(['delivery_started']);
+    expect(LEGAL_TRANSITIONS.deterministic_notice_prepared).toEqual([
+      'output_validated',
+      'cancelled',
+    ]);
+    expect(LEGAL_TRANSITIONS.llm_completed).toEqual(['output_validated', 'cancelled']);
+    expect(LEGAL_TRANSITIONS.output_validated).toEqual(['delivery_started', 'cancelled']);
     expect(LEGAL_TRANSITIONS.delivery_started).toEqual([
       'delivered',
       'delivery_failed',
       'delivery_outcome_unknown',
     ]);
+    expect(canTransitionCommunicationTurnState('delivery_started', 'cancelled')).toBe(false);
+    expect(LEGAL_TRANSITIONS.cancelled).toEqual(['completed']);
     expect(LEGAL_TRANSITIONS.completed).toEqual([]);
   });
 

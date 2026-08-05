@@ -30,6 +30,31 @@ export const CORE_LAYER_RULES = {
     'core/communication/ports',
     'core/communication/policy',
   ],
+  /**
+   * Offline communication application/runtime (Build 3.7D).
+   * May use communication domain/ports/policy and public core surfaces.
+   * Must not import host, connectors, infrastructure, neo-runtime, or Telegram/provider SDKs.
+   */
+  'core/communication/application': [
+    'core/domain',
+    'core/ports',
+    'core/communication/domain',
+    'core/communication/ports',
+    'core/communication/policy',
+    'core/communication/application',
+  ],
+  /**
+   * App-private offline reference adapters (Build 3.7D).
+   */
+  'communication/reference': [
+    'core/domain',
+    'core/ports',
+    'core/communication/domain',
+    'core/communication/ports',
+    'core/communication/policy',
+    'core/communication/application',
+    'communication/reference',
+  ],
   'core/ports': ['core/domain', 'core/domain/infrastructure', 'core/ports'],
   'core/policy': ['core/domain', 'core/ports', 'core/policy'],
   'core/routing': ['core/domain', 'core/ports', 'core/routing'],
@@ -307,6 +332,8 @@ export const INTERNAL_MODULE_ALLOWLIST = {
     'core/communication/policy/communication-memory-authorization.ts',
     'core/communication/domain/authenticated-communication-principal.persistence.internal.ts',
     'core/communication/domain/fresh-observed-admission-evidence.persistence.internal.ts',
+    'core/communication/application/communication-orchestrator.ts',
+    'communication/reference/reference-memory-authorization.ts',
   ],
   /**
    * Validated text-output seal (Build 3.7B). Public view helpers re-export; output policy seals.
@@ -316,6 +343,7 @@ export const INTERNAL_MODULE_ALLOWLIST = {
     'core/communication/domain/index.ts',
     'core/communication/policy/text-output-policy.ts',
     'core/communication/domain/validated-text-output.persistence.internal.ts',
+    'core/communication/application/process-text-turn.service.ts',
   ],
   /**
    * Narrow persistence facades (Build 3.7C0). Exact offline SQLite communication factory only.

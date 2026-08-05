@@ -31,6 +31,7 @@ export const COMMUNICATION_ERROR_CODES = Object.freeze([
   'OUTBOX_UNAVAILABLE',
   'CONFIG_INVALID',
   'ENCRYPTION_LIVE_GATE_BLOCKED',
+  'RECOVERY_CONTEXT_UNAVAILABLE',
 ] as const);
 
 export type CommunicationErrorCode = (typeof COMMUNICATION_ERROR_CODES)[number];
