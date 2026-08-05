@@ -3,56 +3,85 @@
 ## Политика доступа (target + verified config posture)
 
 Default — только subscription OAuth через ChatGPT Plus/Codex при подтверждённой
-runtime-совместимости. `OPENAI_API_KEY` и `CODEX_API_KEY` запрещены. API billing не является
-fallback; автоматический API fallback и paid fallback выключены. При сбое OAuth, исчерпании
-subscription quota или отсутствии совместимого runtime результат — `provider unavailable`, а не
-скрытая платная маршрутизация.
+runtime-совместимости.
+
+### Repository-controlled behavior
+
+Neo:
+
+- не инициирует API-key fallback;
+- не инициирует OpenAI Platform API route;
+- не переключает provider автоматически;
+- сохраняет `apiFallbackEnabled=false`;
+- сохраняет `paidFallbackEnabled=false`;
+- запрещает API-key auth mode;
+- запрещает `OPENAI_API_KEY` и `CODEX_API_KEY`;
+- запрещает token-billed OpenAI Platform API;
+- запрещает silent fallback.
+
+`paidFallbackEnabled=false` запрещает платный fallback, инициируемый или контролируемый Neo. Это
+**не** upstream spend-control для ChatGPT account.
+
+### Upstream ChatGPT account behavior
+
+- После included subscription quota OpenAI может расходовать уже существующий ChatGPT/Codex credit
+  balance.
+- Repository flags не управляют upstream ChatGPT credit accounting.
+- Выключенный auto top-up запрещает автоматическую покупку новых credits, но не запрещает
+  использование уже имеющегося credit balance.
+- ChatGPT/Codex credits не являются OpenAI Platform API billing; при расходе это дополнительный
+  платный расход.
+
+### Fail-closed after included quota
+
+Состояние `provider unavailable` после исчерпания included quota можно ожидать только при
+подтверждённых account-level prerequisites (не заявлены выполненными):
+
+- ChatGPT/Codex credit balance = 0;
+- auto top-up выключен;
+- отдельно активированный paid route отсутствует;
+- forced login method = chatgpt;
+- `OPENAI_API_KEY` отсутствует;
+- `CODEX_API_KEY` отсутствует;
+- API-key auth mode отсутствует.
 
 **Verified fact:** parsers конфигурации model-routing требуют
 `defaultProviderMode: subscription-oauth-only` и `apiFallbackEnabled` / `paidFallbackEnabled` =
 false. Pure `resolveRoute` существует. **Live LLM client / OAuth session / OpenClaw route в коде
 отсутствуют.**
 
-Subscription quota не равна API billing и не даёт права использовать API credit. Модели не
-hardcode-ятся: routing опирается на абстрактные capability tiers, а доступные identifiers
-обнаруживаются и подтверждаются при runtime validation.
+Модели не hardcode-ятся: routing опирается на абстрактные capability tiers.
 
 Multimedia — отдельная capability и отдельный provider policy. Она не наследует LLM credentials, не
-активирует платные сервисы и предпочитает локальную обработку. Перед каждым provider request
-выполняются классификация, минимизация и sensitive-data scan.
+активирует платные сервисы и предпочитает локальную обработку.
 
 ## Text communication LLM port (Build 3.7A design)
 
-Целевой порт — provider-independent tools-free `LlmCompletionPort`: bounded I/O, timeout,
-cancellation, explicit outcomes including `outcome-unknown`. Tools/functions/connector/infrastructure
-registries отсутствуют. См. [text architecture](communication/text-architecture.md).
+Целевой порт — provider-independent tools-free `LlmCompletionPort`. См.
+[text architecture](communication/text-architecture.md).
 
 ## Build 3.7E0 — Subscription Route Feasibility (closed, research-only)
 
-Build 3.7E0 закрыт как research/documentation record. Официальное исследование Codex зафиксировано
-без нового network research в этом Build.
+Build 3.7E0 research verdict: FAIL_UNDER_ABSOLUTE_ZERO_PAID_FALLBACK_CRITERION
 
-Separated verdicts:
+Build 3.7E0 technical subscription route: PASS
 
-| Layer | Verdict |
-|-------|---------|
-| Research executive (absolute zero-paid-fallback criterion) | `FAIL_UNDER_ABSOLUTE_ZERO_PAID_FALLBACK_CRITERION` |
-| `TECHNICAL_SUBSCRIPTION_ROUTE` | `PASS` |
-| `LIVE_OPERATIONAL_APPROVAL` | `UNRESOLVED` |
-| `PROVIDER_STRATEGY` | `RETAIN_CHATGPT_CODEX_AS_PRIMARY_CANDIDATE` |
+Build 3.7E0 live operational approval: UNRESOLVED
 
-Ключевые факты:
+Build 3.7E0 provider strategy: RETAIN_CHATGPT_CODEX_AS_PRIMARY_CANDIDATE
 
-- ChatGPT auth mode (`auth_mode=chatgpt`) технически подтверждён и не требует manual API key;
-- OpenAI Platform API / API-key auth / token-billed API / silent API fallback запрещены;
-- already-purchased ChatGPT credits могут расходоваться после included Codex limit — это не Platform
-  API billing, но дополнительный платный расход;
-- абсолютная гарантия zero-additional-spend требует account-level prerequisites, не только
-  repository config;
-- capability probe = `NOT_RUN`;
-- Builds 3.7B–D разрешены только offline/reference/fake completion;
-- Build 3.7E1 и 3.7F заблокированы до capability probe и live gates;
-- следующий implementation stage = **3.7B**.
+Build 3.7E0 capability probe: NOT_RUN
+
+Build 3.7E1 status: BLOCKED
+
+Build 3.7F status: BLOCKED
+
+Build 3.7E0 next stage: 3.7B
+
+Additional norms:
+
+- existing ChatGPT/Codex credits may be consumed;
+- zero additional spend requires account-level prerequisites.
 
 См. [3.7E0 closeout](validation/build-3.7e0-subscription-route-feasibility.md),
 [ADR OAuth](adr/0002-openai-subscription-auth.md), [ADR routing](adr/0009-risk-based-model-routing.md),

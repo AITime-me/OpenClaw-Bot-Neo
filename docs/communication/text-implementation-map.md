@@ -16,9 +16,19 @@
 8. Later: files/images → voice input → masculine voice output → plans/reminders → private mobile
    app → Telegram removal → read-only eyes → safe hands.
 
-Build 3.7E0 outcomes: technical subscription route PASS; live operational approval UNRESOLVED;
-research executive FAIL under absolute zero-paid-fallback criterion; provider strategy retains
-ChatGPT/Codex. See [3.7E0 closeout](../validation/build-3.7e0-subscription-route-feasibility.md).
+Build 3.7B–D are offline only
+
+Build 3.7E1 status: BLOCKED
+
+Build 3.7F status: BLOCKED
+
+Build 3.7E0 next stage: 3.7B
+
+Build 3.7E0 capability probe: NOT_RUN
+
+Research executive verdict remains FAIL under the absolute zero-paid-fallback criterion; technical
+subscription route remains PASS; live operational approval remains UNRESOLVED. See
+[3.7E0 closeout](../validation/build-3.7e0-subscription-route-feasibility.md).
 
 Offline B–D work may proceed; live-oriented E1/F remain blocked.
 

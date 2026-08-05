@@ -244,17 +244,22 @@ must not disclose internal provider/security details.
 
 ## 11. Subscription route — Build 3.7E0 (closed research)
 
-Build 3.7E0 closed the official-source feasibility research:
+Build 3.7E0 closed the official-source feasibility research. Exact status contract:
 
-- `TECHNICAL_SUBSCRIPTION_ROUTE: PASS` — ChatGPT OAuth route exists and remains Neo’s primary
-  candidate;
-- `LIVE_OPERATIONAL_APPROVAL: UNRESOLVED` — not production/live approved;
-- `RESEARCH_EXECUTIVE_VERDICT: FAIL_UNDER_ABSOLUTE_ZERO_PAID_FALLBACK_CRITERION` — absolute
-  zero-additional-spend (including already-held ChatGPT credits) was not met by the strict research
-  criterion;
-- API-key / token-billed Platform API / silent fallback remain forbidden;
-- Builds 3.7B–D allowed offline/reference only; 3.7E1 and 3.7F blocked;
-- next implementation stage: **3.7B**.
+Build 3.7E0 provider strategy: RETAIN_CHATGPT_CODEX_AS_PRIMARY_CANDIDATE
+
+Build 3.7B–D are offline only
+
+Build 3.7E1 status: BLOCKED
+
+Build 3.7F status: BLOCKED
+
+Build 3.7E0 live operational approval: UNRESOLVED
+
+Research executive verdict remains FAIL under the absolute zero-paid-fallback criterion. Technical
+subscription route remains PASS. API-key / token-billed Platform API / silent fallback remain
+forbidden. Repository flags do not control upstream ChatGPT credit accounting; existing
+ChatGPT/Codex credits may still be consumed after included quota.
 
 See [3.7E0 closeout](../validation/build-3.7e0-subscription-route-feasibility.md).
 

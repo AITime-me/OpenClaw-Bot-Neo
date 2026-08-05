@@ -37,12 +37,16 @@
 
 ## LLM authentication and billing
 
-- Default auth — subscription OAuth; subscription quota не трактуется как API billing.
+- Default auth — subscription OAuth; ChatGPT/Codex credits не называются OpenAI Platform API billing.
 - `OPENAI_API_KEY` отсутствует в tracked examples и **в фактическом environment процесса OpenClaw**; проверять только source/config недостаточно.
 - `OPENAI_API_KEY` в runtime environment — critical error и блокирует startup/readiness.
 - API-key auth profile — critical error; runtime не продолжает работу.
-- API fallback и paid fallback выключены; скрытого fallback нет.
-- При недоступности subscription provider/registry/model discovery маршрут возвращает unavailable, а не выбирает платный или неподтверждённый provider.
+- API fallback и paid fallback выключены; скрытого fallback нет; Neo не инициирует Platform API route.
+- `paidFallbackEnabled=false` запрещает платный fallback, контролируемый Neo, и не является upstream
+  spend-control для ChatGPT account.
+- После included quota upstream может расходовать уже существующий ChatGPT/Codex credit balance;
+  `provider unavailable` после exhaustion ожидается только при подтверждённых account-level
+  prerequisites (credit balance = 0, auto top-up off, no paid route, chatgpt login, no API keys).
 
 ## Channel boundaries
 
@@ -143,9 +147,12 @@
 - Durable turn ledger, FIFO, two-phase audit, tools-free LLM port, encryption live gate — designed,
   not implemented.
 - Temporary Telegram and future private mobile messenger are equal adapter slots on one core.
-- Build 3.7E0: technical subscription route PASS; live operational approval UNRESOLVED; research
-  executive FAIL under absolute zero-paid-fallback criterion; ChatGPT/Codex retained as primary
-  candidate; 3.7E1/3.7F blocked; next stage 3.7B offline.
+- technical PASS does not satisfy live acceptance
+- Build 3.7E0 live operational approval: UNRESOLVED
+- Build 3.7E1 status: BLOCKED
+- Build 3.7F status: BLOCKED
+- Build 3.7E0 next stage: 3.7B
+- 3.7B is offline only
 - Acceptance of live text chat requires later implementation Builds, capability probe, encryption
   gate, and independent review; 3.7A/3.7E0 alone do not satisfy channel/LLM runtime acceptance.
 

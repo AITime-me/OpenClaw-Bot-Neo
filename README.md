@@ -351,19 +351,26 @@ audit, tools-free LLM port, encryption live gate, and temporary Telegram vs fina
 adapter. Independent review REQUEST CHANGES closed by documentation corrective
 (`docs(communication): correct Build 3.7A review findings`). **No** communication runtime,
 Telegram/LLM adapters, SQLite communication stores, production composition, or new runtime
-diagnostics. Build 3.7A integrated into `main` and published. Subscription route research closed in
-**Build 3.7E0**: technical ChatGPT/Codex subscription route = PASS; live operational approval =
-UNRESOLVED; research executive verdict under absolute zero-paid-fallback criterion = FAIL; provider
-strategy retains ChatGPT/Codex as primary candidate. Builds 3.7B–D offline-only allowed; 3.7E1/3.7F
-blocked. See [text architecture](docs/communication/text-architecture.md),
-[3.7A closeout](docs/validation/build-3.7a-text-communication-design-closeout.md), and
-[3.7E0 closeout](docs/validation/build-3.7e0-subscription-route-feasibility.md).
+diagnostics. Build 3.7A integrated into `main` and published. See
+[text architecture](docs/communication/text-architecture.md) and
+[3.7A closeout](docs/validation/build-3.7a-text-communication-design-closeout.md).
 
 **Build 3.7E0 (Subscription Route Feasibility):** research/documentation only. Official Codex
-research recorded without new network investigation in-repo. Technical subscription route PASS;
-live operational approval UNRESOLVED; no production/live/security approval; capability probe not
-run; next stage Build 3.7B offline contracts. See
-[closeout record](docs/validation/build-3.7e0-subscription-route-feasibility.md).
+research recorded without new network investigation in-repo. No production/live/security approval.
+
+Build 3.7E0 technical subscription route: PASS
+
+Build 3.7E0 live operational approval: UNRESOLVED
+
+Build 3.7E0 provider strategy: RETAIN_CHATGPT_CODEX_AS_PRIMARY_CANDIDATE
+
+Build 3.7E1 status: BLOCKED
+
+Build 3.7F status: BLOCKED
+
+Build 3.7E0 next stage: 3.7B
+
+See [3.7E0 closeout](docs/validation/build-3.7e0-subscription-route-feasibility.md).
 
 Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate
 (override запрещён). Review/tooling runner может использовать `OPENCLAW_REVIEW_NODE_OVERRIDE=1`
