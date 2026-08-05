@@ -525,12 +525,14 @@ export function extractExportedNames(sourceText, fileName) {
   };
 
   for (const statement of source.statements) {
-    // `export as namespace Name;` — no ExportKeyword modifier; must not be skipped.
+    // `export as namespace Name;` — unconditionally forbidden on persistence facades.
+    // Do not rely on name-set membership: a same-name collision with an allowed export
+    // must still fail closed.
     if (
       typeof ts.isNamespaceExportDeclaration === 'function' &&
       ts.isNamespaceExportDeclaration(statement)
     ) {
-      names.add(statement.name.text);
+      markUnclassified();
       continue;
     }
 

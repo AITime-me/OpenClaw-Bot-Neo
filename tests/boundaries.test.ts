@@ -303,6 +303,10 @@ describe('allowlist-based layer rules', () => {
       'forbidden-communication-persistence-namespace-export-declaration',
       'PERSISTENCE_FACADE_EXTRA_EXPORT',
     ],
+    [
+      'forbidden-communication-persistence-namespace-export-same-name',
+      'PERSISTENCE_FACADE_EXTRA_EXPORT',
+    ],
     ['forbidden-communication-persistence-type-only-export', 'PERSISTENCE_FACADE_EXTRA_EXPORT'],
     ['forbidden-communication-persistence-export-equals', 'PERSISTENCE_FACADE_EXTRA_EXPORT'],
     ['forbidden-communication-persistence-export-star-as', 'PERSISTENCE_FACADE_EXPORT_STAR'],
