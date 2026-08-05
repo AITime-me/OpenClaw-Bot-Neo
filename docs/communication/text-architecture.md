@@ -22,7 +22,8 @@ private mobile messenger adapter feed the same channel-independent communication
 |------|--------------------------|
 | **Verified fact** | Exists in current repository code/tests/closeouts. |
 | **Target architecture** | Normative design for upcoming implementation Builds 3.7B–F. |
-| **Unresolved hypothesis** | Subscription OAuth headless feasibility — gated by **Build 3.7E0**. |
+| **Unresolved hypothesis** | Live operational approval for continuous owner-only subscription use remains
+  `UNRESOLVED` after Build 3.7E0; technical ChatGPT OAuth route is `PASS`. |
 
 ## 2. Telegram temporary / mobile final
 
@@ -241,11 +242,21 @@ must not disclose internal provider/security details.
   while `encryptionEnabled=false` (or until an approved alternative). Offline reference simulation
   may proceed. Encryption is not implemented in 3.7A.
 
-## 11. Subscription route hypothesis — 3.7E0
+## 11. Subscription route — Build 3.7E0 (closed research)
 
-Architectural goal remains subscription OAuth only with `apiFallbackEnabled=false` and
-`paidFallbackEnabled=false`. Feasibility is **unresolved** until Build **3.7E0**
-(`PASS` | `FAIL` | `UNRESOLVED`). Large B–D live-oriented spend waits for `PASS`.
+Build 3.7E0 closed the official-source feasibility research:
+
+- `TECHNICAL_SUBSCRIPTION_ROUTE: PASS` — ChatGPT OAuth route exists and remains Neo’s primary
+  candidate;
+- `LIVE_OPERATIONAL_APPROVAL: UNRESOLVED` — not production/live approved;
+- `RESEARCH_EXECUTIVE_VERDICT: FAIL_UNDER_ABSOLUTE_ZERO_PAID_FALLBACK_CRITERION` — absolute
+  zero-additional-spend (including already-held ChatGPT credits) was not met by the strict research
+  criterion;
+- API-key / token-billed Platform API / silent fallback remain forbidden;
+- Builds 3.7B–D allowed offline/reference only; 3.7E1 and 3.7F blocked;
+- next implementation stage: **3.7B**.
+
+See [3.7E0 closeout](../validation/build-3.7e0-subscription-route-feasibility.md).
 
 ## 12. Public / private API
 
@@ -258,13 +269,13 @@ root.
 
 ## 13. Implementation sequence
 
-1. **3.7A** — design documentation (this Build + corrective).
-2. **3.7E0** — subscription route feasibility.
-3. **3.7B** — package-private domain/ports/policies.
-4. **3.7C** — durable SQLite communication foundation.
-5. **3.7D** — orchestrator + offline reference slice.
-6. **3.7E1** — Codex/OpenClaw route only after E0 `PASS`.
-7. **3.7F** — temporary Telegram adapter after gates + encryption live requirement.
+1. **3.7A** — design documentation (closed; integrated).
+2. **3.7E0** — subscription route feasibility (closed research; this outcome).
+3. **3.7B** — package-private domain/ports/policies (**next**; offline only).
+4. **3.7C** — durable SQLite communication foundation (offline only).
+5. **3.7D** — orchestrator + offline reference / fake completion.
+6. **3.7E1** — Codex/OpenClaw route **blocked** pending capability probe and live gates.
+7. **3.7F** — temporary Telegram adapter **blocked** pending E1, encryption, operational approval.
 8. Later: files/images → voice → masculine TTS → plans/reminders → private mobile → Telegram
    removal → read-only eyes → safe hands.
 

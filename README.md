@@ -351,9 +351,19 @@ audit, tools-free LLM port, encryption live gate, and temporary Telegram vs fina
 adapter. Independent review REQUEST CHANGES closed by documentation corrective
 (`docs(communication): correct Build 3.7A review findings`). **No** communication runtime,
 Telegram/LLM adapters, SQLite communication stores, production composition, or new runtime
-diagnostics. Subscription route remains an unresolved hypothesis gated by future **Build 3.7E0**.
-See [text architecture](docs/communication/text-architecture.md) and
-[closeout record](docs/validation/build-3.7a-text-communication-design-closeout.md).
+diagnostics. Build 3.7A integrated into `main` and published. Subscription route research closed in
+**Build 3.7E0**: technical ChatGPT/Codex subscription route = PASS; live operational approval =
+UNRESOLVED; research executive verdict under absolute zero-paid-fallback criterion = FAIL; provider
+strategy retains ChatGPT/Codex as primary candidate. Builds 3.7B–D offline-only allowed; 3.7E1/3.7F
+blocked. See [text architecture](docs/communication/text-architecture.md),
+[3.7A closeout](docs/validation/build-3.7a-text-communication-design-closeout.md), and
+[3.7E0 closeout](docs/validation/build-3.7e0-subscription-route-feasibility.md).
+
+**Build 3.7E0 (Subscription Route Feasibility):** research/documentation only. Official Codex
+research recorded without new network investigation in-repo. Technical subscription route PASS;
+live operational approval UNRESOLVED; no production/live/security approval; capability probe not
+run; next stage Build 3.7B offline contracts. See
+[closeout record](docs/validation/build-3.7e0-subscription-route-feasibility.md).
 
 Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate
 (override запрещён). Review/tooling runner может использовать `OPENCLAW_REVIEW_NODE_OVERRIDE=1`
@@ -361,6 +371,7 @@ See [text architecture](docs/communication/text-architecture.md) and
 Публичные контракты экспортируются из `src/index.ts`.
 
 Навигация: [архитектура](docs/architecture.md), [text communication](docs/communication/text-architecture.md),
+[LLM provider](docs/llm-provider.md),
 [расширяемость](docs/extensibility.md),
 [интеграции](docs/integrations.md), [VoiceProfile](docs/voice-profile.md),
 [роли](docs/roles.md), [безопасность](docs/security-policy.md),

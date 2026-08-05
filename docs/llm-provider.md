@@ -3,10 +3,10 @@
 ## Политика доступа (target + verified config posture)
 
 Default — только subscription OAuth через ChatGPT Plus/Codex при подтверждённой
-runtime-совместимости. `OPENAI_API_KEY` запрещён. API billing не является fallback; автоматический
-API fallback и paid fallback выключены. При сбое OAuth, исчерпании subscription quota или
-отсутствии совместимого runtime результат — `provider unavailable`, а не скрытая платная
-маршрутизация.
+runtime-совместимости. `OPENAI_API_KEY` и `CODEX_API_KEY` запрещены. API billing не является
+fallback; автоматический API fallback и paid fallback выключены. При сбое OAuth, исчерпании
+subscription quota или отсутствии совместимого runtime результат — `provider unavailable`, а не
+скрытая платная маршрутизация.
 
 **Verified fact:** parsers конфигурации model-routing требуют
 `defaultProviderMode: subscription-oauth-only` и `apiFallbackEnabled` / `paidFallbackEnabled` =
@@ -27,17 +27,33 @@ Multimedia — отдельная capability и отдельный provider poli
 cancellation, explicit outcomes including `outcome-unknown`. Tools/functions/connector/infrastructure
 registries отсутствуют. См. [text architecture](communication/text-architecture.md).
 
-## Subscription route hypothesis — Build 3.7E0 gate
+## Build 3.7E0 — Subscription Route Feasibility (closed, research-only)
 
-Архитектурная цель subscription auth **не доказана** этим репозиторием как допустимый 24/7 headless
-backend, machine-usable completion interface, restart-safe authentication, отсутствие interactive
-session dependency, отсутствие скрытого API billing, provider-policy compatibility или VPS session
-security.
+Build 3.7E0 закрыт как research/documentation record. Официальное исследование Codex зафиксировано
+без нового network research в этом Build.
 
-Следующий обязательный технический gate: **Build 3.7E0 — Subscription Route Feasibility**
-(`PASS` | `FAIL` | `UNRESOLVED`) **до** значительной implementation-затраты Builds 3.7B–D.
-Пока verdict не `PASS`, live provider route implementation запрещена.
+Separated verdicts:
 
-См. [ADR OAuth](adr/0002-openai-subscription-auth.md), [ADR routing](adr/0009-risk-based-model-routing.md),
-[матрицу совместимости](openclaw-compatibility.md),
-[3.7A closeout](validation/build-3.7a-text-communication-design-closeout.md).
+| Layer | Verdict |
+|-------|---------|
+| Research executive (absolute zero-paid-fallback criterion) | `FAIL_UNDER_ABSOLUTE_ZERO_PAID_FALLBACK_CRITERION` |
+| `TECHNICAL_SUBSCRIPTION_ROUTE` | `PASS` |
+| `LIVE_OPERATIONAL_APPROVAL` | `UNRESOLVED` |
+| `PROVIDER_STRATEGY` | `RETAIN_CHATGPT_CODEX_AS_PRIMARY_CANDIDATE` |
+
+Ключевые факты:
+
+- ChatGPT auth mode (`auth_mode=chatgpt`) технически подтверждён и не требует manual API key;
+- OpenAI Platform API / API-key auth / token-billed API / silent API fallback запрещены;
+- already-purchased ChatGPT credits могут расходоваться после included Codex limit — это не Platform
+  API billing, но дополнительный платный расход;
+- абсолютная гарантия zero-additional-spend требует account-level prerequisites, не только
+  repository config;
+- capability probe = `NOT_RUN`;
+- Builds 3.7B–D разрешены только offline/reference/fake completion;
+- Build 3.7E1 и 3.7F заблокированы до capability probe и live gates;
+- следующий implementation stage = **3.7B**.
+
+См. [3.7E0 closeout](validation/build-3.7e0-subscription-route-feasibility.md),
+[ADR OAuth](adr/0002-openai-subscription-auth.md), [ADR routing](adr/0009-risk-based-model-routing.md),
+[матрицу совместимости](openclaw-compatibility.md).

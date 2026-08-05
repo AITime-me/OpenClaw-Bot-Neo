@@ -476,6 +476,10 @@ identities, must admit turns through a durable ledger before live LLM spend, mus
 audit, and must keep connector/infrastructure tools out of the text agent. Encryption at rest remains
 absent (`ENCRYPTION_ENABLED=false`); live Telegram/model routes that persist conversational content
 are blocked until encryption (or an approved alternative) exists — BLOCKER for live, not for offline
-reference simulation. Subscription OAuth as headless completion remains an unresolved hypothesis
-(Build 3.7E0). See [text trust model](communication/text-trust-and-threat-model.md) and
-[closeout](validation/build-3.7a-text-communication-design-closeout.md).
+reference simulation. Build 3.7E0 closed subscription research: technical ChatGPT OAuth route PASS;
+live operational approval UNRESOLVED; API-key/token-billed Platform API remain forbidden; existing
+ChatGPT credits can still be consumed (account prerequisites required for absolute zero-additional-
+spend). Builds 3.7E1/3.7F blocked; 3.7B–D offline-only allowed. See
+[text trust model](communication/text-trust-and-threat-model.md),
+[3.7A closeout](validation/build-3.7a-text-communication-design-closeout.md), and
+[3.7E0 closeout](validation/build-3.7e0-subscription-route-feasibility.md).

@@ -143,9 +143,11 @@
 - Durable turn ledger, FIFO, two-phase audit, tools-free LLM port, encryption live gate — designed,
   not implemented.
 - Temporary Telegram and future private mobile messenger are equal adapter slots on one core.
-- Subscription route is an unresolved hypothesis gated by Build 3.7E0.
-- Acceptance of live text chat requires later implementation Builds plus independent review;
-  3.7A alone does not satisfy channel/LLM runtime acceptance.
+- Build 3.7E0: technical subscription route PASS; live operational approval UNRESOLVED; research
+  executive FAIL under absolute zero-paid-fallback criterion; ChatGPT/Codex retained as primary
+  candidate; 3.7E1/3.7F blocked; next stage 3.7B offline.
+- Acceptance of live text chat requires later implementation Builds, capability probe, encryption
+  gate, and independent review; 3.7A/3.7E0 alone do not satisfy channel/LLM runtime acceptance.
 
 ## Deployment
 

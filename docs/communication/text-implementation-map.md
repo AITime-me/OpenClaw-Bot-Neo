@@ -5,15 +5,22 @@
 
 ## 1. Implementation sequence (normative)
 
-1. **3.7A** — design documentation only (this package + corrective).
-2. **3.7E0** — subscription route feasibility **before** large implementation spend.
-3. **3.7B** — package-private domain, ports, policies, boundary rules.
-4. **3.7C** — durable SQLite communication foundation.
-5. **3.7D** — application orchestrator and offline reference vertical slice.
-6. **3.7E1** — Codex/OpenClaw route only after E0 `PASS`.
-7. **3.7F** — temporary owner-only Telegram adapter after gates + encryption live requirement.
+1. **3.7A** — design documentation (closed; integrated).
+2. **3.7E0** — subscription route feasibility (**closed research**).
+3. **3.7B** — package-private domain, ports, policies, boundary rules (**next**; offline only).
+4. **3.7C** — durable SQLite communication foundation (offline only; no live auth).
+5. **3.7D** — application orchestrator and offline reference / fake completion only.
+6. **3.7E1** — Codex/OpenClaw route **BLOCKED** pending capability probe and live gates.
+7. **3.7F** — temporary owner-only Telegram adapter **BLOCKED** pending E1, encryption, operational
+   approval.
 8. Later: files/images → voice input → masculine voice output → plans/reminders → private mobile
    app → Telegram removal → read-only eyes → safe hands.
+
+Build 3.7E0 outcomes: technical subscription route PASS; live operational approval UNRESOLVED;
+research executive FAIL under absolute zero-paid-fallback criterion; provider strategy retains
+ChatGPT/Codex. See [3.7E0 closeout](../validation/build-3.7e0-subscription-route-feasibility.md).
+
+Offline B–D work may proceed; live-oriented E1/F remain blocked.
 
 ## 2. Public API / barrel rule (B37A-004)
 
@@ -109,9 +116,13 @@ src/communication/reference/create-reference-text-slice.ts
 
 ```text
 docs/validation/build-3.7e0-subscription-route-feasibility.md
+tests/build-3.7e0-subscription-route-feasibility-record.test.ts
 ```
 
-### 3.7E1 — only after E0 PASS
+Status: **closed** as research-only. Technical route PASS; live UNRESOLVED; E1/F blocked;
+next stage 3.7B.
+
+### 3.7E1 — blocked pending capability probe and live gates
 
 ```text
 src/communication/adapters/codex-openclaw/codex-openclaw-capability-probe.ts
@@ -119,7 +130,7 @@ src/communication/adapters/codex-openclaw/codex-openclaw-llm-completion.ts
 src/communication/adapters/codex-openclaw/create-codex-openclaw-route.ts
 ```
 
-### 3.7F
+### 3.7F — blocked pending E1, encryption, operational approval
 
 ```text
 src/communication/adapters/telegram/telegram-update-parser.ts
@@ -268,7 +279,7 @@ outcome unknown; FIFO ordering; encryption live gate; public API isolation; refe
 
 - Corrective commit subject: `docs(communication): correct Build 3.7A review findings`
 - Gate PASS under `OPENCLAW_PRODUCTION_NODE_GATE=1`
-- Next step: focused independent re-review of the corrective diff, then **3.7E0**
+- Next step after 3.7E0 independent review: **Build 3.7B** offline package-private contracts.
 
 ## 12. Full local gate
 

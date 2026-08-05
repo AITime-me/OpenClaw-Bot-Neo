@@ -38,9 +38,10 @@ deployment controls.
 
 Build 3.7A designs a future text communication vertical slice but adds **no** deployment capability.
 Live Telegram/model routes that would persist conversational content remain blocked while
-`encryptionEnabled=false` (encryption live gate). Subscription provider feasibility is gated by
-Build 3.7E0 before large live-oriented communication implementation. See
-[text architecture](communication/text-architecture.md).
+`encryptionEnabled=false` (encryption live gate). Build 3.7E0 closed subscription-route research:
+technical ChatGPT/Codex route PASS; live operational approval UNRESOLVED; 3.7E1/3.7F blocked;
+offline Builds 3.7B–D allowed. See [text architecture](communication/text-architecture.md) and
+[3.7E0 closeout](validation/build-3.7e0-subscription-route-feasibility.md).
 
 ## Минимальный профиль
 
