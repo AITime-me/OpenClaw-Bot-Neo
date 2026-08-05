@@ -214,7 +214,10 @@ Future package-private factory `createOfflineSqliteCommunicationPorts` (exact mo
 outbox/state only offline with fixed flags:
 `livePersistenceAllowed=false`, `encryptionEnabled=false`, `deliveryExecutionAvailable=false`,
 `automaticResendAvailable=false`, `productionWired=false`. Caller booleans are not encryption
-evidence. Live factory is not implemented in 3.7C0.
+evidence.
+
+Build 3.7C implements this offline factory against `neo-communication.sqlite`. Live factory,
+encryption, and delivery execution remain unimplemented.
 
 ### Meaning of terminal `completed`
 

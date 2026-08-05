@@ -45,11 +45,30 @@ if (!existsSync(communicationRoot)) {
     'src/communication',
     'src/core/communication/runtime',
     'src/core/communication/adapters',
-    'src/host/storage/sqlite/communication',
   ];
   for (const tree of forbiddenTrees) {
     if (existsSync(tree))
-      failures.push(`FORBIDDEN_TREE: ${tree} must not exist before Build 3.7C implementation.`);
+      failures.push(`FORBIDDEN_TREE: ${tree} must not exist before later communication Builds.`);
+  }
+
+  const offlineFactory =
+    'src/host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts';
+  if (!existsSync(offlineFactory))
+    failures.push(`MISSING_OFFLINE_FACTORY: ${offlineFactory} is required for Build 3.7C.`);
+
+  const hostBarrels = ['src/host/index.ts', 'src/host/storage/sqlite/index.ts'];
+  for (const barrel of hostBarrels) {
+    if (!existsSync(barrel)) continue;
+    const source = readFileSync(barrel, 'utf8');
+    if (
+      /sqlite\/communication|createOfflineSqliteCommunicationPorts|neo-communication\.sqlite/.test(
+        source,
+      )
+    ) {
+      failures.push(
+        `HOST_BARREL_LEAK: ${barrel} must not export offline communication persistence.`,
+      );
+    }
   }
 
   if (existsSync('src/core/communication/index.ts'))

@@ -515,7 +515,14 @@ outbox plaintext TTL ≤ 24h with logical scrub; immutable delivery-outcome-unkn
 production cleanup forbidden; `forensicEraseGuaranteed=false`. Recovery candidates and
 `reconcileCheckpoint` outcomes are expanded. Narrow `*.persistence.internal.ts` facades are
 allowlisted only for the future exact
-`createOfflineSqliteCommunicationPorts` factory. SQLite schema/runtime/adapters remain absent.
-Build 3.7C0 mode: OFFLINE_ONLY. LIVE_ENCRYPTION: NOT_IMPLEMENTED.
-Build 3.7E1 status: BLOCKED. Build 3.7F status: BLOCKED. Next stage: 3.7C_IMPLEMENTATION.
-See [3.7C0 decisions](validation/build-3.7c0-communication-persistence-decisions.md).
+`createOfflineSqliteCommunicationPorts` factory. See
+[3.7C0 decisions](validation/build-3.7c0-communication-persistence-decisions.md).
+
+## Text communication offline SQLite foundation (Build 3.7C)
+
+Build 3.7C implements package-private offline SQLite ports under
+`src/host/storage/sqlite/communication/**` against `neo-communication.sqlite` (schema v1).
+Encryption, live delivery, runtime, Telegram, provider integration, and production composition
+remain absent. Build 3.7C mode: OFFLINE_ONLY. LIVE_ENCRYPTION: NOT_IMPLEMENTED.
+Build 3.7E1 status: BLOCKED. Build 3.7F status: BLOCKED. Next stage: 3.7D.
+See [3.7C closeout](validation/build-3.7c-communication-persistence-closeout.md).

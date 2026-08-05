@@ -77,6 +77,21 @@ export const CORE_LAYER_RULES = {
    * May use public core surfaces only, including core/config parsers.
    * Must not import core internals, tests, scripts, or future channel/adapters trees.
    */
+  /**
+   * Offline SQLite communication persistence (Build 3.7C).
+   * May import communication domain/ports contracts and shared host/sqlite/runtime surfaces.
+   * Must not import communication policy, application, adapters, or connectors.
+   */
+  'host/storage/sqlite/communication': [
+    'core/domain',
+    'core/ports',
+    'core/communication/domain',
+    'core/communication/ports',
+    'host',
+    'host/storage/sqlite',
+    'host/storage/sqlite/communication',
+    'host/storage/runtime',
+  ],
   host: ['core/domain', 'core/ports', 'core/policy', 'core/application', 'core/config', 'host'],
   /**
    * App-private Neo runtime lifecycle (Build 3.4B+). Sub-layers are listed longest-path first.
@@ -332,6 +347,7 @@ export const INTERNAL_MODULE_ALLOWLIST = {
    */
   'host/storage/runtime/posix-storage-root-resolve.internal.ts': [
     'host/storage/sqlite/create-sqlite-memory-port.ts',
+    'host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts',
   ],
   /**
    * Lease-only facade (Build 3.3B3A / B3B3B3). Exact SQLite factory and exact process-lock factory
@@ -340,6 +356,7 @@ export const INTERNAL_MODULE_ALLOWLIST = {
    */
   'host/storage/runtime/posix-storage-root-lease.internal.ts': [
     'host/storage/sqlite/create-sqlite-memory-port.ts',
+    'host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts',
     'host/storage/runtime/acquire-posix-process-lock.ts',
   ],
   /**

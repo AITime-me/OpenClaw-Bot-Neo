@@ -80,7 +80,7 @@ describe('communication public API isolation', () => {
     expect(root.createOfflineSqliteCommunicationPorts).toBeUndefined();
   });
 
-  it('does not expose persistence facade modules as package-root reachable paths', () => {
+  it('keeps the offline SQLite factory package-private (present but not root-exported)', () => {
     expect(
       existsSync(
         join(
@@ -88,7 +88,13 @@ describe('communication public API isolation', () => {
           'src/host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts',
         ),
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(existsSync(join(process.cwd(), 'src/core/communication/index.ts'))).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/host/storage/sqlite/index.ts'))).toBe(true);
+    const hostSqliteBarrel = readFileSync(
+      join(process.cwd(), 'src/host/storage/sqlite/index.ts'),
+      'utf8',
+    );
+    expect(hostSqliteBarrel).not.toMatch(/createOfflineSqliteCommunicationPorts|communication\//);
   });
 });

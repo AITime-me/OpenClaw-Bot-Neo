@@ -4,70 +4,67 @@ import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const REPO_ROOT = process.cwd();
-const BUILD_BASE = '5c445ba2c5b936a0296f3b195a8ac80d7262c32e';
-const BUILD_SUBJECT = 'docs(communication): fix Build 3.7C persistence contracts';
+const BUILD_BASE = '35071107dcd00cff439413e3fb3a6f52e60eeaf3';
+const BUILD_SUBJECT = 'feat(communication): add offline SQLite persistence foundation';
 
-const CLOSEOUT_REL = 'docs/validation/build-3.7c0-communication-persistence-decisions.md';
+const CLOSEOUT_REL = 'docs/validation/build-3.7c-communication-persistence-closeout.md';
 const CLOSEOUT_PATH = join(REPO_ROOT, CLOSEOUT_REL);
-const TEST_REL = 'tests/build-3.7c0-communication-persistence-decisions-record.test.ts';
+const TEST_REL = 'tests/build-3.7c-communication-persistence-closeout-record.test.ts';
 
 const HISTORICAL_CLOSEOUTS = [
   'docs/validation/build-3.7a-text-communication-design-closeout.md',
   'docs/validation/build-3.7b-communication-contracts-closeout.md',
+  'docs/validation/build-3.7c0-communication-persistence-decisions.md',
   'docs/validation/build-3.7e0-subscription-route-feasibility.md',
 ] as const;
 
 const ALLOWED_PREFIXES = [
-  'src/core/communication/domain/',
-  'src/core/communication/ports/',
-  'scripts/',
+  'src/host/storage/sqlite/communication/',
   'tests/communication/',
-  'tests/fixtures/boundaries/forbidden-communication-persistence-',
-  'tests/fixtures/boundaries/forbidden-communication-original-internal-direct/',
-  'tests/fixtures/boundaries/forbidden-communication-text-delivery-internal/',
+  'tests/fixtures/boundaries/forbidden-communication-offline-factory-',
+  'scripts/',
+  'docs/communication/',
+  'docs/validation/',
 ] as const;
 
 const ALLOWED_EXACT = new Set([
   CLOSEOUT_REL,
   TEST_REL,
+  'tests/host-sqlite-communication-ports.test.ts',
   'tests/boundaries.test.ts',
+  'tests/build-3.7c0-communication-persistence-decisions-record.test.ts',
+  'tests/communication/communication-public-api-isolation.test.ts',
+  'tests/communication/communication-boundaries.test.ts',
   'package.json',
   '.dependency-cruiser.cjs',
   'docs/architecture.md',
   'docs/security-policy.md',
   'docs/acceptance-criteria.md',
-  'docs/communication/text-architecture.md',
-  'docs/communication/text-trust-and-threat-model.md',
-  'docs/communication/text-state-machines.md',
-  'docs/communication/text-implementation-map.md',
 ]);
 
-const FORBIDDEN_EXACT = ['package-lock.json', 'src/index.ts'] as const;
+const FORBIDDEN_EXACT = ['package-lock.json', 'src/index.ts', 'src/host/index.ts'] as const;
 
 const FORBIDDEN_PREFIXES = [
   'src/core/communication/application/',
-  'src/host/storage/sqlite/communication/',
-  'src/core/domain/memory-access',
-  'src/core/application/memory-',
+  'src/communication/',
+  'src/neo-runtime/production/',
 ] as const;
 
 const EXPECTED_MARKERS: ReadonlyArray<readonly [string, string]> = [
-  ['BUILD_ID', '3.7C0'],
-  ['BUILD_KIND', 'PERSISTENCE_DECISIONS_CONTRACT'],
-  ['IMPLEMENTATION_STATUS', 'CONTRACTS_ONLY'],
+  ['BUILD_ID', '3.7C'],
+  ['BUILD_KIND', 'OFFLINE_SQLITE_PERSISTENCE'],
+  ['IMPLEMENTATION_STATUS', 'IMPLEMENTED'],
   ['BUILD_3_7C_MODE', 'OFFLINE_ONLY'],
-  ['DURABLE_SQLITE_IMPLEMENTATION', 'ABSENT'],
   ['LIVE_ENCRYPTION', 'NOT_IMPLEMENTED'],
+  ['DURABLE_SQLITE_IMPLEMENTATION', 'PRESENT'],
   ['EXECUTABLE_COMMUNICATION_RUNTIME', 'ABSENT'],
   ['PRODUCTION_COMPOSITION', 'ABSENT'],
   ['PACKAGE_ROOT_EXPORTS', 'ABSENT'],
-  ['PROVIDER_ADAPTER', 'ABSENT'],
-  ['TELEGRAM_ADAPTER', 'ABSENT'],
   ['BUILD_3_7E1_STATUS', 'BLOCKED'],
   ['BUILD_3_7F_STATUS', 'BLOCKED'],
   ['PRODUCTION_READY', 'FALSE'],
   ['SECURITY_APPROVED', 'FALSE'],
-  ['NEXT_STAGE', '3.7C_IMPLEMENTATION'],
+  ['NEXT_STAGE', '3.7D'],
 ];
 
 const EXPECTED_MARKER_KEYS = new Set(EXPECTED_MARKERS.map(([key]) => key));
@@ -96,8 +93,8 @@ function countOccurrences(haystack: string, needle: string): number {
 }
 
 function parseCanonicalMarkers(record: string): Map<string, string> {
-  const begin = 'BEGIN_BUILD_3_7C0_MARKERS';
-  const end = 'END_BUILD_3_7C0_MARKERS';
+  const begin = 'BEGIN_BUILD_3_7C_MARKERS';
+  const end = 'END_BUILD_3_7C_MARKERS';
   expect(countOccurrences(record, begin)).toBe(1);
   expect(countOccurrences(record, end)).toBe(1);
   const beginIndex = record.indexOf(begin);
@@ -219,16 +216,15 @@ function isForbiddenPath(pathValue: string): boolean {
   return FORBIDDEN_PREFIXES.some((prefix) => posix.startsWith(prefix));
 }
 
-describe('Build 3.7C0 communication persistence decisions record', () => {
+describe('Build 3.7C communication persistence closeout record', () => {
   const record = readFileSync(CLOSEOUT_PATH, 'utf8');
   const tipInfo = resolveBuildTip();
 
   it('parses exactly one canonical marker block with exact keys and values', () => {
     const markers = parseCanonicalMarkers(record);
-    expect(markers.size).toBe(EXPECTED_MARKERS.length);
     expect(markers.get('BUILD_3_7C_MODE')).toBe('OFFLINE_ONLY');
-    expect(markers.get('LIVE_ENCRYPTION')).toBe('NOT_IMPLEMENTED');
-    expect(markers.get('NEXT_STAGE')).toBe('3.7C_IMPLEMENTATION');
+    expect(markers.get('DURABLE_SQLITE_IMPLEMENTATION')).toBe('PRESENT');
+    expect(markers.get('NEXT_STAGE')).toBe('3.7D');
   });
 
   it('keeps E1/F blocked and does not claim production readiness', () => {
@@ -237,10 +233,11 @@ describe('Build 3.7C0 communication persistence decisions record', () => {
     expect(markers.get('BUILD_3_7F_STATUS')).toBe('BLOCKED');
     expect(markers.get('PRODUCTION_READY')).toBe('FALSE');
     expect(markers.get('SECURITY_APPROVED')).toBe('FALSE');
-    expect(markers.get('DURABLE_SQLITE_IMPLEMENTATION')).toBe('ABSENT');
+    expect(markers.get('EXECUTABLE_COMMUNICATION_RUNTIME')).toBe('ABSENT');
+    expect(markers.get('LIVE_ENCRYPTION')).toBe('NOT_IMPLEMENTED');
   });
 
-  it('limits Build 3.7C0 changed paths to the allowlist and forbids SQLite communication tree', () => {
+  it('limits Build 3.7C changed paths and requires the offline SQLite package', () => {
     const committed = changedPathsBetween(BUILD_BASE, tipInfo.tip);
     const working = tipInfo.includeWorkingTree ? workingTreePaths() : [];
     const all = [...new Set([...committed, ...working])];
@@ -249,9 +246,14 @@ describe('Build 3.7C0 communication persistence decisions record', () => {
       expect(isAllowedPath(pathValue), `disallowed path: ${pathValue}`).toBe(true);
       expect(isForbiddenPath(pathValue), `forbidden path changed: ${pathValue}`).toBe(false);
     }
-    expect(all.some((path) => path.startsWith('src/host/storage/sqlite/communication/'))).toBe(
-      false,
-    );
+    expect(
+      existsSync(
+        join(
+          REPO_ROOT,
+          'src/host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts',
+        ),
+      ),
+    ).toBe(true);
   });
 
   it('keeps historical closeout content hashes equal to Build base', () => {

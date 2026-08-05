@@ -196,10 +196,25 @@ module.exports = {
       severity: 'error',
       comment:
         'Host may import only itself and public core domain/ports/policy/application/config surfaces.',
-      from: { path: '^src/host' },
+      from: {
+        path: '^src/host',
+        pathNot: '^src/host/storage/sqlite/communication/',
+      },
       to: {
         path: '^src/',
         pathNot: '^src/(host|core/(domain|ports|policy|application|config))',
+      },
+    },
+    {
+      name: 'host-sqlite-communication-depends-on-allowed-only',
+      severity: 'error',
+      comment:
+        'Offline SQLite communication package may import host and core domain/ports plus communication domain/ports only.',
+      from: { path: '^src/host/storage/sqlite/communication' },
+      to: {
+        path: '^src/',
+        pathNot:
+          '^src/(host|core/(domain|ports|policy|application|config|communication/(domain|ports)))',
       },
     },
     {
@@ -435,9 +450,11 @@ module.exports = {
     {
       name: 'resolver-facade-importers-only',
       severity: 'error',
-      comment: 'Only the exact SQLite MemoryPort factory may import the resolver-only facade.',
+      comment:
+        'Only the exact SQLite MemoryPort factory and offline communication factory may import the resolver-only facade.',
       from: {
-        pathNot: '^src/host/storage/sqlite/create-sqlite-memory-port\\.ts$',
+        pathNot:
+          '^src/host/storage/sqlite/(create-sqlite-memory-port|communication/create-offline-sqlite-communication-ports)\\.ts$',
       },
       to: {
         path: '^src/host/storage/runtime/posix-storage-root-resolve\\.internal\\.ts$',
@@ -447,13 +464,38 @@ module.exports = {
       name: 'lease-facade-importers-only',
       severity: 'error',
       comment:
-        'Only the exact SQLite MemoryPort factory and exact process-lock factory may import the lease-only facade.',
+        'Only the exact SQLite MemoryPort factory, offline communication factory, and process-lock factory may import the lease-only facade.',
       from: {
         pathNot:
-          '^src/host/storage/(sqlite/create-sqlite-memory-port|runtime/acquire-posix-process-lock)\\.ts$',
+          '^src/host/storage/(sqlite/create-sqlite-memory-port|sqlite/communication/create-offline-sqlite-communication-ports|runtime/acquire-posix-process-lock)\\.ts$',
       },
       to: {
         path: '^src/host/storage/runtime/posix-storage-root-lease\\.internal\\.ts$',
+      },
+    },
+    {
+      name: 'offline-communication-factory-not-imported-by-runtime-adapters',
+      severity: 'error',
+      comment:
+        'Runtime, adapters, and production composition must not import the offline SQLite communication factory.',
+      from: {
+        path: '^src/(neo-runtime|communication/adapters|connectors|infrastructure)/',
+      },
+      to: {
+        path: '^src/host/storage/sqlite/communication/',
+      },
+    },
+    {
+      name: 'offline-communication-package-private',
+      severity: 'error',
+      comment:
+        'Offline SQLite communication package remains package-private within its tree; sibling host modules must not import it.',
+      from: {
+        path: '^src/host/',
+        pathNot: '^src/host/storage/sqlite/communication/',
+      },
+      to: {
+        path: '^src/host/storage/sqlite/communication/',
       },
     },
     {

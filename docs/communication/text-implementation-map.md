@@ -108,18 +108,26 @@ Future exact offline factory (not implemented in 3.7C0):
 src/host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts
 ```
 
-### 3.7C — durable SQLite foundation
+### 3.7C — durable SQLite foundation (offline implemented)
 
 ```text
+src/host/storage/sqlite/communication/sqlite-communication-constants.ts
 src/host/storage/sqlite/communication/sqlite-communication-schema.ts
 src/host/storage/sqlite/communication/sqlite-communication-serialization.ts
-src/host/storage/sqlite/communication/sqlite-communication-binding-port.ts
+src/host/storage/sqlite/communication/sqlite-communication-errors.ts
 src/host/storage/sqlite/communication/sqlite-conversation-state-port.ts
 src/host/storage/sqlite/communication/sqlite-communication-turn-ledger-port.ts
 src/host/storage/sqlite/communication/sqlite-communication-audit-port.ts
 src/host/storage/sqlite/communication/sqlite-communication-delivery-outbox-port.ts
 src/host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts
 ```
+
+Database file: `neo-communication.sqlite` (not `neo-memory.sqlite`). Binding adapter remains
+deferred. Factory is package-private and not exported from host/root barrels.
+
+Build 3.7C status: offline SQLite persistence implemented; live runtime absent.
+
+Build 3.7C next stage: 3.7D
 
 ### 3.7D — application / orchestrator / reference
 

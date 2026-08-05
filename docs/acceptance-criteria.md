@@ -162,10 +162,12 @@
 - Principal, memory authorization boundary, ledger/audit/outbox port shapes, prompt/output policies.
 - No executable runtime, adapters, SQLite communication stores, or package-root exports.
 - Build 3.7B status: offline contracts implemented; live runtime absent.
+- Build 3.7C status: offline SQLite communication persistence implemented; live runtime absent.
 - Build 3.7E1 status: BLOCKED
 - Build 3.7F status: BLOCKED
-- Build 3.7B next stage: 3.7C
+- Build 3.7C next stage: 3.7D
 - See [3.7B closeout](validation/build-3.7b-communication-contracts-closeout.md).
+- See [3.7C closeout](validation/build-3.7c-communication-persistence-closeout.md).
 
 ## Deployment
 
