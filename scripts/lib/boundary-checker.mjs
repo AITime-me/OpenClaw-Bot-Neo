@@ -492,6 +492,8 @@ export function extractExportedNames(sourceText, fileName) {
   const hasDefaultModifier = (node) =>
     Boolean(node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword));
 
+  const kindName = (node) => String(ts.SyntaxKind[node.kind] ?? '');
+
   const collectBindingNames = (bindingName) => {
     if (ts.isIdentifier(bindingName)) {
       names.add(bindingName.text);
@@ -523,12 +525,23 @@ export function extractExportedNames(sourceText, fileName) {
   };
 
   for (const statement of source.statements) {
+    // `export as namespace Name;` — no ExportKeyword modifier; must not be skipped.
+    if (
+      typeof ts.isNamespaceExportDeclaration === 'function' &&
+      ts.isNamespaceExportDeclaration(statement)
+    ) {
+      names.add(statement.name.text);
+      continue;
+    }
+
     if (ts.isExportDeclaration(statement)) {
       if (statement.moduleSpecifier) {
         hasReexport = true;
         if (statement.exportClause === undefined) {
+          // `export * from` / `export type * from`
           hasExportStar = true;
         } else if (ts.isNamespaceExport(statement.exportClause)) {
+          // `export * as name from` / `export type * as name from`
           hasExportStar = true;
           names.add(statement.exportClause.name.text);
         } else if (ts.isNamedExports(statement.exportClause)) {
@@ -550,6 +563,7 @@ export function extractExportedNames(sourceText, fileName) {
         continue;
       }
       if (ts.isNamedExports(statement.exportClause)) {
+        // Includes type-only `export type { Foo }`.
         addNamedExportElements(statement.exportClause);
         continue;
       }
@@ -558,12 +572,16 @@ export function extractExportedNames(sourceText, fileName) {
     }
 
     if (ts.isExportAssignment(statement)) {
-      // `export default <expr>` or `export = <expr>`
-      names.add('default');
+      // `export default <expr>` vs `export = <expr>`
+      names.add(statement.isExportEquals ? 'exportEquals' : 'default');
       continue;
     }
 
-    if (!hasExportModifier(statement)) continue;
+    if (!hasExportModifier(statement)) {
+      // Fail-closed for any future/unknown Export* statement kind without ExportKeyword.
+      if (kindName(statement).includes('Export')) markUnclassified();
+      continue;
+    }
 
     if (hasDefaultModifier(statement)) {
       names.add('default');
@@ -605,12 +623,7 @@ export function extractExportedNames(sourceText, fileName) {
       continue;
     }
 
-    if (ts.isImportEqualsDeclaration(statement)) {
-      names.add(statement.name.text);
-      continue;
-    }
-
-    // Any other export-bearing top-level form is fail-closed.
+    // ExportKeyword present but declaration kind not recognized (e.g. `export import =`).
     markUnclassified();
   }
 
