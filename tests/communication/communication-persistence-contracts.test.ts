@@ -229,6 +229,7 @@ describe('Build 3.7C0 persistence facade export manifests', () => {
       const exported = extractExportedNames(readFileSync(absolute, 'utf8'), absolute);
       expect(exported.hasExportStar, relativePath).toBe(false);
       expect(exported.hasReexport, relativePath).toBe(false);
+      expect(exported.hasUnclassifiedExport, relativePath).toBe(false);
       expect(exported.names).toEqual([...manifest.allowedExports].sort());
       expect(manifest.allowedImporters).toEqual([
         'host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts',

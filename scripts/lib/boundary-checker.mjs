@@ -465,10 +465,14 @@ export function extractReferences(sourceText, fileName) {
 }
 
 /**
+ * Exhaustive top-level export inventory for persistence facade surfaces.
+ * Unknown or unclassifiable export-bearing forms set hasUnclassifiedExport (fail-closed).
+ *
  * @returns {{
  *   names: string[],
  *   hasExportStar: boolean,
  *   hasReexport: boolean,
+ *   hasUnclassifiedExport: boolean,
  * }}
  */
 export function extractExportedNames(sourceText, fileName) {
@@ -476,54 +480,145 @@ export function extractExportedNames(sourceText, fileName) {
   const names = new Set();
   let hasExportStar = false;
   let hasReexport = false;
+  let hasUnclassifiedExport = false;
 
-  const addNamedExports = (exportClause) => {
-    if (!exportClause || !ts.isNamedExports(exportClause)) return;
+  const markUnclassified = () => {
+    hasUnclassifiedExport = true;
+  };
+
+  const hasExportModifier = (node) =>
+    Boolean(node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword));
+
+  const hasDefaultModifier = (node) =>
+    Boolean(node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword));
+
+  const collectBindingNames = (bindingName) => {
+    if (ts.isIdentifier(bindingName)) {
+      names.add(bindingName.text);
+      return;
+    }
+    if (ts.isObjectBindingPattern(bindingName) || ts.isArrayBindingPattern(bindingName)) {
+      for (const element of bindingName.elements) {
+        if (ts.isOmittedExpression(element)) continue;
+        if (ts.isBindingElement(element)) {
+          collectBindingNames(element.name);
+          continue;
+        }
+        markUnclassified();
+      }
+      return;
+    }
+    markUnclassified();
+  };
+
+  const addNamedExportElements = (exportClause) => {
+    if (!ts.isNamedExports(exportClause)) {
+      markUnclassified();
+      return;
+    }
     for (const element of exportClause.elements) {
+      // Exported public name (supports `export { local as alias }` / type-only).
       names.add(element.name.text);
     }
   };
 
-  const visit = (node) => {
-    if (ts.isExportDeclaration(node)) {
-      if (node.moduleSpecifier) {
+  for (const statement of source.statements) {
+    if (ts.isExportDeclaration(statement)) {
+      if (statement.moduleSpecifier) {
         hasReexport = true;
-        if (node.exportClause === undefined || ts.isNamespaceExport(node.exportClause)) {
+        if (statement.exportClause === undefined) {
           hasExportStar = true;
+        } else if (ts.isNamespaceExport(statement.exportClause)) {
+          hasExportStar = true;
+          names.add(statement.exportClause.name.text);
+        } else if (ts.isNamedExports(statement.exportClause)) {
+          addNamedExportElements(statement.exportClause);
         } else {
-          addNamedExports(node.exportClause);
+          markUnclassified();
         }
-      } else {
-        addNamedExports(node.exportClause);
+        continue;
       }
-    } else if (ts.isExportAssignment(node)) {
+
+      if (statement.exportClause === undefined) {
+        markUnclassified();
+        continue;
+      }
+      if (ts.isNamespaceExport(statement.exportClause)) {
+        // `export * as ns` without module specifier is unexpected — fail closed.
+        hasExportStar = true;
+        markUnclassified();
+        continue;
+      }
+      if (ts.isNamedExports(statement.exportClause)) {
+        addNamedExportElements(statement.exportClause);
+        continue;
+      }
+      markUnclassified();
+      continue;
+    }
+
+    if (ts.isExportAssignment(statement)) {
+      // `export default <expr>` or `export = <expr>`
       names.add('default');
+      continue;
     }
 
-    const hasExportModifier = Boolean(
-      node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword),
-    );
-    if (hasExportModifier) {
-      if (ts.isFunctionDeclaration(node) && node.name) names.add(node.name.text);
-      if (ts.isClassDeclaration(node) && node.name) names.add(node.name.text);
-      if (ts.isInterfaceDeclaration(node)) names.add(node.name.text);
-      if (ts.isTypeAliasDeclaration(node)) names.add(node.name.text);
-      if (ts.isEnumDeclaration(node)) names.add(node.name.text);
-      if (ts.isVariableStatement(node)) {
-        for (const declaration of node.declarationList.declarations) {
-          if (ts.isIdentifier(declaration.name)) names.add(declaration.name.text);
-        }
+    if (!hasExportModifier(statement)) continue;
+
+    if (hasDefaultModifier(statement)) {
+      names.add('default');
+      const recognizedDefault =
+        ts.isFunctionDeclaration(statement) ||
+        ts.isClassDeclaration(statement) ||
+        ts.isInterfaceDeclaration(statement);
+      if (!recognizedDefault) markUnclassified();
+      continue;
+    }
+
+    if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) {
+      if (statement.name) names.add(statement.name.text);
+      else markUnclassified();
+      continue;
+    }
+
+    if (
+      ts.isInterfaceDeclaration(statement) ||
+      ts.isTypeAliasDeclaration(statement) ||
+      ts.isEnumDeclaration(statement)
+    ) {
+      names.add(statement.name.text);
+      continue;
+    }
+
+    if (ts.isModuleDeclaration(statement)) {
+      // `export namespace Name` / `export module Name` / `export module "ambient"`
+      if (ts.isIdentifier(statement.name)) names.add(statement.name.text);
+      else if (ts.isStringLiteral(statement.name)) names.add(statement.name.text);
+      else markUnclassified();
+      continue;
+    }
+
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        collectBindingNames(declaration.name);
       }
+      continue;
     }
 
-    ts.forEachChild(node, visit);
-  };
+    if (ts.isImportEqualsDeclaration(statement)) {
+      names.add(statement.name.text);
+      continue;
+    }
 
-  visit(source);
+    // Any other export-bearing top-level form is fail-closed.
+    markUnclassified();
+  }
+
   return {
     names: [...names].sort(),
     hasExportStar,
     hasReexport,
+    hasUnclassifiedExport,
   };
 }
 
@@ -746,6 +841,12 @@ export function analyzeBoundaries(options = {}) {
         violations.push({
           code: 'PERSISTENCE_FACADE_REEXPORT',
           message: `${fileRelative} must not re-export from other modules.`,
+        });
+      }
+      if (exported.hasUnclassifiedExport) {
+        violations.push({
+          code: 'PERSISTENCE_FACADE_EXTRA_EXPORT',
+          message: `${fileRelative} contains an unclassified export-bearing form (fail-closed).`,
         });
       }
       const allowed = new Set(ownFacadeManifest.allowedExports);

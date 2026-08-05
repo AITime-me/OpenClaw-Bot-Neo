@@ -290,6 +290,15 @@ describe('allowlist-based layer rules', () => {
     ['forbidden-communication-persistence-extra-export', 'PERSISTENCE_FACADE_EXTRA_EXPORT'],
     ['forbidden-communication-persistence-export-star', 'PERSISTENCE_FACADE_EXPORT_STAR'],
     ['forbidden-communication-persistence-reexport', 'PERSISTENCE_FACADE_REEXPORT'],
+    ['forbidden-communication-persistence-anonymous-default', 'PERSISTENCE_FACADE_EXTRA_EXPORT'],
+    [
+      'forbidden-communication-persistence-anonymous-default-class',
+      'PERSISTENCE_FACADE_EXTRA_EXPORT',
+    ],
+    ['forbidden-communication-persistence-namespace-export', 'PERSISTENCE_FACADE_EXTRA_EXPORT'],
+    ['forbidden-communication-persistence-object-destructure', 'PERSISTENCE_FACADE_EXTRA_EXPORT'],
+    ['forbidden-communication-persistence-array-destructure', 'PERSISTENCE_FACADE_EXTRA_EXPORT'],
+    ['forbidden-communication-persistence-aliased-export', 'PERSISTENCE_FACADE_EXTRA_EXPORT'],
   ])('rejects the %s fixture with %s', (name, code) => {
     const report = analyzeBoundaries({ rootDir: fixture(name), requiredLayers: [] });
     expect(codes(report)).toContain(code);

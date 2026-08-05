@@ -20,6 +20,7 @@ export interface ExportedNamesReport {
   readonly names: readonly string[];
   readonly hasExportStar: boolean;
   readonly hasReexport: boolean;
+  readonly hasUnclassifiedExport: boolean;
 }
 export interface AnalyzeBoundariesOptions {
   readonly rootDir?: string;
