@@ -28,15 +28,22 @@ TransportTextObservation {
 
 Raw SDK DTO (Telegram update и т.п.) не покидает adapter.
 
-Trusted local boundary (не adapter) назначает:
+Trusted local boundary (не adapter) выполняет нормативный admission order:
 
-- owner / canonical `ConversationId` binding;
-- `TurnId`, `CorrelationId`, derived idempotency key;
-- trusted `observedAt`;
-- monotonic `conversationSequence`.
+```text
+NORMATIVE_ADMISSION_ORDER:
+sealed transport validation
+→ atomic observed admission
+→ duplicate stop
+→ owner binding
+→ authenticated
+→ accepted + conversationSequence
+```
 
-Transport **не** задаёт trusted `OwnerId`, `ActorId`, authority, canonical conversation/session/turn
-ids, correlation/idempotency keys или `observedAt`.
+Trusted boundary назначает `TurnId`, `CommunicationIdempotencyKey`, `observedAt`, canonical
+`ConversationId`, `CorrelationId` и `conversationSequence`. Transport **не** задаёт trusted
+`OwnerId`, `ActorId`, authority, canonical conversation/session/turn ids, correlation/idempotency
+keys или `observedAt`. Source timestamp не определяет порядок.
 
 Opaque capabilities после binding:
 

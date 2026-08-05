@@ -396,13 +396,13 @@ remains at `16bf1f4` pending owner-directed synchronization. No push performed. 
 [connector platform](connector-platform.md) and
 [closeout record](validation/build-3.5b-connector-platform-core-closeout.md).
 
-**Build 3.6B — Infrastructure Fleet Foundation (local feature branch, closed):**
+**Build 3.6B — Infrastructure Fleet Foundation (integrated; design baseline for 3.7A):**
 Adds infrastructure domain contracts, in-memory environment/server/service inventories, provider-neutral
 and restricted host operation contracts, Timeweb contract only, infrastructure tool manifests routed
 through Build 3.5B `ToolInvocationOrchestrator`, offline reference provider/host adapters, and
 behavioural tests. Initial independent source review **BLOCKED**; first security corrective re-review
-**BLOCKED**; final corrective-2 re-review **approved with INFO notes**; documentation closeout
-committed locally. Dispositions:
+**BLOCKED**; final corrective-2 re-review **approved with INFO notes**; documentation closeout is
+`b662376`. **Current status:** integrated; Build 3.7A design base `b662376`. Dispositions:
 `BUILD_3_6B_INFRASTRUCTURE_SECURITY_CORRECTIVES_CLOSED_WITH_STATELESS_SECRET_DETECTION_AND_TYPED_OUTCOME_UNKNOWN`;
 `BUILD_3_6B_INFRASTRUCTURE_FLEET_FOUNDATION_CLOSED_WITH_BOUNDED_INVENTORIES_RESTRICTED_OPERATIONS_AND_UNTRUSTED_OBSERVATIONS`.
 No Timeweb API client, SSH implementation, VPS, production inventory wiring, deployment, or broad

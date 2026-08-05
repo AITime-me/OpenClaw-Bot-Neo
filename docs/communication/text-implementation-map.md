@@ -1,166 +1,276 @@
 # Neo Text Communication — Implementation Map
 
-> **Build 3.7A — design only.** File paths below are the planned map for future Builds. They must
-> not be read as existing production modules unless marked **exists today**.
+> **Build 3.7A — design only (corrective).** Paths below are normative for future Builds.
+> Communication runtime modules do not exist today.
 
 ## 1. Implementation sequence (normative)
 
-1. **3.7A** — design documentation only (this package).
+1. **3.7A** — design documentation only (this package + corrective).
 2. **3.7E0** — subscription route feasibility **before** large implementation spend.
-3. **3.7B** — domain contracts, opaque capabilities, ports, pure policies, boundary rules.
-4. **3.7C** — durable binding, ledger, conversation state, two-phase audit, encrypted-before-live outbox.
-5. **3.7D** — executable orchestrator and offline reference vertical slice.
-6. **3.7E1** — real subscription adapter / local dry-run only after E0 `PASS`.
-7. **3.7F** — temporary owner-only Telegram adapter only after gates + encryption live requirement.
-8. Later verticals: files/images → voice input → masculine voice output → plans/reminders →
-   private mobile app → Telegram removal → read-only eyes → safe hands.
+3. **3.7B** — package-private domain, ports, policies, boundary rules.
+4. **3.7C** — durable SQLite communication foundation.
+5. **3.7D** — application orchestrator and offline reference vertical slice.
+6. **3.7E1** — Codex/OpenClaw route only after E0 `PASS`.
+7. **3.7F** — temporary owner-only Telegram adapter after gates + encryption live requirement.
+8. Later: files/images → voice input → masculine voice output → plans/reminders → private mobile
+   app → Telegram removal → read-only eyes → safe hands.
 
-Significant B–D implementation must not start before E0 verdict. Offline contract design may be
-prepared, but live-oriented spend waits for `PASS`.
+## 2. Public API / barrel rule (B37A-004)
 
-## 2. Future new-file map by stage
+`src/index.ts` wildcard-exports `./core/domain/index.js` and `./core/ports/index.js`. Therefore:
 
-### 3.7B — contracts / policies / ports
+- communication contracts are **package-private by default**;
+- new communication modules are **not** added to root-reachable barrels
+  (`src/core/domain/index.ts`, `src/core/ports/index.ts`, or other barrels already exported by
+  package root);
+- internal consumers import via package-private `src/core/communication/**` barrels that are
+  **not** reachable from `src/index.ts`;
+- root export of any communication symbol requires a separate public API review, proven external
+  consumer, and explicit allowlist decision;
+- replacing root wildcards with an explicit allowlist is a separate future Build/API review.
 
-- `src/core/domain/communication/inbound-observation.ts`
-- `src/core/domain/communication/authenticated-communication-principal.internal.ts`
-- `src/core/domain/communication/conversation-id.ts` (or identity extensions)
-- `src/core/domain/communication/text-turn.ts`
-- `src/core/domain/communication/turn-ledger-state.ts`
-- `src/core/domain/communication/prompt-section.ts`
-- `src/core/domain/communication/communication-audit-event.ts`
-- `src/core/domain/communication/kill-switch-snapshot.ts`
-- `src/core/domain/communication/index.ts`
-- `src/core/ports/llm-completion.port.ts`
-- `src/core/ports/communication-turn-ledger.port.ts`
-- `src/core/ports/conversation-state.port.ts`
-- `src/core/ports/text-delivery.port.ts`
-- `src/core/ports/communication-audit.port.ts`
-- `src/core/ports/delivery-outbox.port.ts`
-- `src/core/policy/communication-owner-binding.ts`
-- `src/core/policy/inbound-text-normalize.ts`
-- `src/core/policy/prompt-assembly.ts`
-- `src/core/policy/outbound-text-safety.ts`
-- `src/core/policy/communication-kill-switch.ts`
-- `src/core/policy/communication-memory-authorization.ts`
-- `src/core/config/communication-config.ts`
-- `config/communication/text-slice.example.json`
-- `src/core/pipelines/text-turn.pipeline.md`
+**3.7B must not** modify `src/index.ts` or root-reachable barrels for communication exports.
+`tests/communication/communication-public-api-isolation.test.ts` must prove communication internals
+are unavailable from the package root.
 
-### 3.7C — durable stores (app-private implementations later under host/communication storage)
+## 3. Exact new-file map by stage
 
-- SQLite (or approved) adapters for ledger, conversation state, audit, outbox — **app-private**
-- Encryption-at-rest integration for outbox/checkpoints before live — separate security design
+### 3.7B — package-private domain / ports / policy
 
-### 3.7D — orchestrator + offline reference
+```text
+src/core/communication/domain/communication-identity.ts
+src/core/communication/domain/transport-text-observation.ts
+src/core/communication/domain/authenticated-communication-principal.ts
+src/core/communication/domain/authenticated-communication-principal.internal.ts
+src/core/communication/domain/conversation-state.ts
+src/core/communication/domain/communication-turn.ts
+src/core/communication/domain/text-prompt.ts
+src/core/communication/domain/llm-completion.ts
+src/core/communication/domain/text-delivery.ts
+src/core/communication/domain/communication-errors.ts
+src/core/communication/domain/index.ts
 
-- `src/core/application/communication/text-turn.service.ts`
-- `src/core/application/communication/text-communication.gateway.ts` (export decision explicit later)
-- `src/communication/create-reference-text-communication.ts`
-- `src/channels/reference/*` (simulated ingress/egress; no network)
+src/core/communication/ports/communication-identity-binding.port.ts
+src/core/communication/ports/conversation-state.port.ts
+src/core/communication/ports/communication-turn-ledger.port.ts
+src/core/communication/ports/communication-audit.port.ts
+src/core/communication/ports/communication-delivery-outbox.port.ts
+src/core/communication/ports/llm-completion.port.ts
+src/core/communication/ports/text-delivery.port.ts
+src/core/communication/ports/communication-kill-switch.port.ts
+src/core/communication/ports/communication-id-generator.port.ts
+src/core/communication/ports/communication-memory-authorization.port.ts
+src/core/communication/ports/index.ts
 
-### 3.7E1 / 3.7F — real adapters (app-private)
+src/core/communication/policy/communication-memory-authorization.ts
+src/core/communication/policy/text-prompt-policy.ts
+src/core/communication/policy/text-output-policy.ts
+src/core/communication/policy/communication-kill-switch-policy.ts
+src/core/communication/policy/index.ts
+```
 
-- `src/channels/telegram/*` — temporary transport only
-- `src/channels/mobile/*` — future equal peer adapter
-- LLM subscription adapter under app-private runtime path — only after E0 `PASS`
+This tree is package-private and is not exported through root-reachable barrels.
 
-## 3. Existing files expected to change in later Builds
+### 3.7C — durable SQLite foundation
 
-| File | Likely change |
-|------|---------------|
-| `src/core/domain/index.ts` | Export communication domain barrel (public types only). |
-| `src/core/ports/index.ts` | Export new ports. |
-| `src/core/policy/index.ts` | Export pure policies. |
-| `src/core/application/index.ts` | Optional orchestrator exports — **not** automatic. |
-| `src/index.ts` | Only explicit allowlisted public additions; **no** adapter/sealer/composition leaks. |
-| `scripts/lib/boundary-checker.mjs` | Allowlists for `channels` / `communication` layers. |
-| `.dependency-cruiser.cjs` | Matching dependency rules. |
-| `scripts/verify-boundaries.mjs` | Keep transport terms banned in core/skills. |
-| `tests/public-api.test.ts` | Deny adapters, sealers, SQLite comms, composition roots. |
-| `docs/channels.md` / architecture status notes | Keep aligned (started in 3.7A). |
+```text
+src/host/storage/sqlite/communication/sqlite-communication-schema.ts
+src/host/storage/sqlite/communication/sqlite-communication-serialization.ts
+src/host/storage/sqlite/communication/sqlite-communication-binding-port.ts
+src/host/storage/sqlite/communication/sqlite-conversation-state-port.ts
+src/host/storage/sqlite/communication/sqlite-communication-turn-ledger-port.ts
+src/host/storage/sqlite/communication/sqlite-communication-audit-port.ts
+src/host/storage/sqlite/communication/sqlite-communication-delivery-outbox-port.ts
+src/host/storage/sqlite/communication/create-sqlite-communication-ports.ts
+```
 
-**Do not weaken:** memory-write AST isolation, connector/infrastructure boundary verifiers, package
-`exports: "."` only, existing Neo/host diagnostics false flags.
+### 3.7D — application / orchestrator / reference
 
-**Exists today (reuse, do not redefine as communication authority):**
+```text
+src/core/communication/application/normalize-transport-observation.service.ts
+src/core/communication/application/authenticate-communication-principal.service.ts
+src/core/communication/application/derive-communication-memory-access.service.ts
+src/core/communication/application/admit-communication-turn.service.ts
+src/core/communication/application/per-conversation-turn-dispatcher.ts
+src/core/communication/application/assemble-text-prompt.service.ts
+src/core/communication/application/validate-model-output.service.ts
+src/core/communication/application/process-text-turn.service.ts
+src/core/communication/application/recover-communication-turns.service.ts
+src/core/communication/application/index.ts
 
-- `src/core/application/memory-access.gateway.ts` (`ChannelAuthenticationPort`, memory gateway)
-- `src/core/domain/memory-access.internal.ts` (memory capability sealing)
-- `src/core/routing/model-routing-policy.ts` / `route-resolver.port.ts`
-- `src/core/ports/channel.port.ts`, `src/core/domain/message.ts` (thin legacy; not final envelopes)
-- `src/core/policy/sensitive-data-scanner.ts`, `recipient-whitelist.ts`
+src/communication/reference/reference-text-ingress.ts
+src/communication/reference/reference-identity-binding.ts
+src/communication/reference/reference-llm-completion.ts
+src/communication/reference/reference-text-delivery.ts
+src/communication/reference/create-reference-text-slice.ts
+```
 
-## 4. Boundary rules and negative fixtures (planned)
+### 3.7E0
+
+```text
+docs/validation/build-3.7e0-subscription-route-feasibility.md
+```
+
+### 3.7E1 — only after E0 PASS
+
+```text
+src/communication/adapters/codex-openclaw/codex-openclaw-capability-probe.ts
+src/communication/adapters/codex-openclaw/codex-openclaw-llm-completion.ts
+src/communication/adapters/codex-openclaw/create-codex-openclaw-route.ts
+```
+
+### 3.7F
+
+```text
+src/communication/adapters/telegram/telegram-update-parser.ts
+src/communication/adapters/telegram/telegram-text-ingress.ts
+src/communication/adapters/telegram/telegram-text-delivery.ts
+src/communication/adapters/telegram/create-telegram-owner-channel.ts
+src/neo-runtime/production/create-production-text-communication.ts
+```
+
+### Future private mobile adapter
+
+```text
+src/communication/adapters/private-mobile/private-mobile-text-ingress.ts
+src/communication/adapters/private-mobile/private-mobile-text-delivery.ts
+src/communication/adapters/private-mobile/create-private-mobile-owner-channel.ts
+```
+
+### Exact verification files (implementation Builds)
+
+```text
+scripts/verify-communication-boundaries.mjs
+scripts/verify-communication-flow.mjs
+tests/communication/communication-domain.test.ts
+tests/communication/communication-capability-security.test.ts
+tests/communication/communication-ledger-state-machine.test.ts
+tests/communication/communication-ledger-concurrency.test.ts
+tests/communication/communication-restart-recovery.test.ts
+tests/communication/communication-checkpoint-partial-failure.test.ts
+tests/communication/communication-audit-partial-failure.test.ts
+tests/communication/communication-deterministic-notice.test.ts
+tests/communication/communication-kill-switches.test.ts
+tests/communication/communication-prompt-injection.test.ts
+tests/communication/communication-secret-leakage.test.ts
+tests/communication/communication-memory-isolation.test.ts
+tests/communication/communication-llm-outcome-unknown.test.ts
+tests/communication/communication-delivery-outcome-unknown.test.ts
+tests/communication/communication-fifo-ordering.test.ts
+tests/communication/communication-encryption-live-gate.test.ts
+tests/communication/communication-public-api-isolation.test.ts
+tests/communication/communication-reference-integration.test.ts
+```
+
+## 4. Exact existing-file modification map (later Builds)
+
+| File | Exact modification |
+|------|--------------------|
+| `scripts/lib/boundary-checker.mjs` | Add allowlists for `core/communication`, `communication`, host sqlite communication paths; forbid root barrel leakage. |
+| `.dependency-cruiser.cjs` | Add matching layer rules for `src/core/communication/**` and `src/communication/**`. |
+| `scripts/verify-boundaries.mjs` | Keep transport-term bans in non-adapter trees; invoke or complement communication verifiers. |
+| `scripts/run-check.mjs` | Wire `verify-communication-boundaries.mjs` and `verify-communication-flow.mjs` into check composition when those scripts exist. |
+| `package.json` | Add npm script entries for communication verifiers only when scripts exist (separate implementation Build). |
+| `tests/public-api.test.ts` | Extend deny coverage so package root cannot observe communication internals (alongside dedicated communication public-api test). |
+| `docs/channels.md` | Remain aligned with normative admission order and peer-adapter model. |
+| `docs/architecture.md` | Remain aligned with design status notes. |
+
+**Must not change for communication exports in 3.7B:**
+
+- `src/index.ts`
+- `src/core/domain/index.ts`
+- `src/core/ports/index.ts`
+- `src/core/policy/index.ts`
+- `src/core/application/index.ts`
+
+**Must not weaken:** memory-write AST isolation; connector/infrastructure boundary verifiers;
+package `exports: "."` only; existing Neo/host diagnostics false flags.
+
+**Exists today (reuse; not communication authority):**
+
+- `src/core/application/memory-access.gateway.ts`
+- `src/core/domain/memory-access.internal.ts`
+- `src/core/routing/model-routing-policy.ts`
+- `src/core/routing/route-resolver.port.ts`
+- `src/core/ports/channel.port.ts`
+- `src/core/domain/message.ts`
+- `src/core/policy/sensitive-data-scanner.ts`
+- `src/core/policy/recipient-whitelist.ts`
+
+## 5. Boundary rules and negative fixtures
 
 Rules:
 
-- `core/**` forbids Telegram/OpenAI/OpenClaw SDK and transport-specific identifiers.
-- `channels/**` app-private; must not be imported by `host/**` composition that would leak into
-  unintended surfaces; must not be package-exported.
-- `communication/**` composition app-private; must not wire connector/infrastructure registries
-  into text turn.
-- Sealers remain `.internal.ts` and non-exported.
-- Transport terms continue to fail `verify-boundaries` in core/skills.
+- `src/core/communication/**` is package-private; not imported into root-reachable barrels.
+- `src/communication/adapters/**` and `src/communication/reference/**` are app-private.
+- Core communication forbids Telegram/OpenAI/OpenClaw SDK types.
+- Text turn must not import connector/infrastructure registries.
+- Sealers remain `.internal.ts` and non-exported from package root.
 
-Negative fixtures (examples):
+Negative fixtures:
 
-- `tests/fixtures/boundaries/forbidden-core-telegram-sdk/`
-- `tests/fixtures/boundaries/forbidden-communication-imports-connector/`
-- `tests/fixtures/boundaries/forbidden-communication-imports-infrastructure/`
-- `tests/fixtures/boundaries/forbidden-channels-export-via-index/`
-- `tests/fixtures/boundaries/forbidden-host-imports-telegram-adapter/`
+```text
+tests/fixtures/boundaries/forbidden-core-telegram-sdk/
+tests/fixtures/boundaries/forbidden-communication-imports-connector/
+tests/fixtures/boundaries/forbidden-communication-imports-infrastructure/
+tests/fixtures/boundaries/forbidden-communication-barrel-via-domain-index/
+tests/fixtures/boundaries/forbidden-communication-barrel-via-ports-index/
+tests/fixtures/boundaries/forbidden-host-imports-telegram-adapter/
+```
 
-## 5. Full test matrix (future implementation Builds)
+## 6. FIFO norms
 
-| Suite | Coverage |
-|-------|----------|
-| Unit | Binding, normalize, prompt order, kill-switch snapshot, outbound safety, ledger transition helpers |
-| Integration | Offline reference ingress→turn→egress; memory read via separate capability; LLM stub outcomes |
-| Boundary | Fixtures above; public API deny-list |
-| Security | Object literal ≠ principal; scanner on sinks; no connector attach |
-| Replay/duplicate | Atomic admission; no second LLM |
-| Prompt injection | Tools/recipient/fallback/audit unchanged |
-| Secret leakage | Token-like input denied/redacted; absent from audit/ledger |
-| Context isolation | Transcript ≠ semantic memory; summary untrusted |
-| Owner impersonation | Wrong external sender rejected |
-| Timeout/cancellation | Distinct codes; no success |
-| Delivery retry | No auto resend on outcome-unknown; known failure policy explicit |
-| Crash/restart | llm_started / delivery_started recovery rules |
-| Public API isolation | No adapters/sealers/composition in package root |
+- one active turn per canonical conversation;
+- `maxDepthPerConversation` default = **8**;
+- schema range = **2..64**;
+- `maxGlobalPending` required and bounded;
+- unlimited queue forbidden;
+- order by trusted `conversationSequence` only.
 
-## 6. Acceptance criteria (3.7A design Build)
+## 7. Normative admission order (must match architecture)
 
-- Design package present under `docs/communication/`.
-- Closeout record present and honest (design-only; implementation absent).
-- Closeout validation test passes.
-- No production communication runtime, Telegram/LLM adapters, SQLite communication stores,
-  composition roots, or new runtime diagnostic fields added.
-- No package dependency adds; no `src/index.ts` communication factory exports.
-- Existing 3.5B/3.6B/R6 historical closeouts untouched.
-- Local quality gate green on documentation+test commit.
+```text
+NORMATIVE_ADMISSION_ORDER:
+sealed transport validation
+→ atomic observed admission
+→ duplicate stop
+→ owner binding
+→ authenticated
+→ accepted + conversationSequence
+```
 
-## 7. Non-goals (3.7A and deferred)
+## 8. Test matrix (exact files above)
 
-- Real Telegram bot / webhook / polling
-- Real subscription OAuth session / OpenClaw integration
-- Encryption implementation
-- Durable ledger/outbox implementation
-- FIFO queue implementation
-- Voice, media, connectors-as-tools, payments, autonomy, VPS deployment
-- Claims of production readiness or security approval
+Coverage includes: domain contracts; capability security; ledger state machine; ledger concurrency;
+restart recovery; checkpoint partial failure; audit partial failure; deterministic notice;
+kill switches; prompt injection; secret leakage; memory isolation; LLM outcome unknown; delivery
+outcome unknown; FIFO ordering; encryption live gate; public API isolation; reference integration.
+
+## 9. Acceptance criteria (3.7A design + corrective)
+
+- Design package under `docs/communication/` with consistent admission order and notice path.
+- Closeout markers + strengthened validation test PASS.
+- No production communication runtime, adapters, SQLite communication stores, composition roots, or
+  new runtime diagnostics.
+- No package dependency adds; no communication exports via root-reachable barrels.
+- Historical 3.5B/3.6B/R6 closeouts unchanged (content hash equal to base).
+- Local quality gate green.
+
+## 10. Non-goals
+
+- Real Telegram / OAuth / OpenClaw live integration in 3.7A
+- Encryption implementation in 3.7A
+- Durable ledger/outbox/FIFO implementation in 3.7A
 - Exactly-once delivery guarantee
+- Production readiness / security approval claims
 
-## 8. Definition of Done (3.7A)
+## 11. Definition of Done (corrective)
 
-- Design docs + closeout + validation test committed on
-  `build-3-7a-text-communication-design`.
-- Gate: `OPENCLAW_PRODUCTION_NODE_GATE=1` → `npm run check`, `npm run build`,
-  `npm run check:systemd-template`, `git diff --check` PASS.
-- Next step is **independent review of Build 3.7A**, then **3.7E0** feasibility — not silent start
-  of large B–D implementation.
+- Corrective commit subject: `docs(communication): correct Build 3.7A review findings`
+- Gate PASS under `OPENCLAW_PRODUCTION_NODE_GATE=1`
+- Next step: focused independent re-review of the corrective diff, then **3.7E0**
 
-## 9. Full local gate
+## 12. Full local gate
 
 ```text
 $env:OPENCLAW_PRODUCTION_NODE_GATE = '1'
@@ -169,5 +279,3 @@ npm run build
 npm run check:systemd-template
 git diff --check
 ```
-
-`npm run check` includes node gate, typecheck, lint, format, tests, boundaries, secrets, hygiene.

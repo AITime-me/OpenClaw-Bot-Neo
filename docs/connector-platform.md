@@ -138,8 +138,9 @@ Expired approval cannot resolve secrets or execute a connector.
 - See
   [closeout record](validation/build-3.5b-connector-platform-core-closeout.md).
 - `SECRET_PROVIDER_CONFIGURED=false`.
-- Build 3.6B infrastructure fleet foundation closed on feature branch with final corrective-2
-  approval; see [infrastructure closeout](validation/build-3.6b-infrastructure-fleet-foundation-closeout.md).
-  `main` integration and push pending.
+- Build 3.6B infrastructure fleet foundation closed with final corrective-2 approval; documentation
+  closeout is `b662376`. **Current status:** Build 3.6B is integrated (Build 3.7A design base
+  `b662376`). See [infrastructure closeout](validation/build-3.6b-infrastructure-fleet-foundation-closeout.md).
+  Historical closeout may still say “integration pending” as a past-Build snapshot.
 - No production Secret Provider, OAuth, network, real connectors, or production composition wiring.
 - Durable approval/audit persistence absent. Diagnostics remain false. No push performed.

@@ -457,8 +457,10 @@ policy. Reference infrastructure adapters are test-only. No Timeweb network clie
 implementation. `SECRET_PROVIDER_CONFIGURED=false`. `deploymentReady` remains false. Initial
 independent source review **BLOCKED**; first security corrective re-review **BLOCKED**; final
 corrective-2 re-review **approved with INFO notes** on feature branch
-`build-3-6b-infrastructure-fleet-foundation`. Build 3.6B documentation closeout committed locally;
-`main` integration and push pending. Uncertain write-like outcomes use a generic typed connector-local
+`build-3-6b-infrastructure-fleet-foundation`. Build 3.6B documentation closeout is `b662376`.
+**Current status:** Build 3.6B is integrated (Build 3.7A design base `b662376`). Historical closeout
+wording that still says “integration pending” is a past-Build snapshot and is not rewritten.
+Uncertain write-like outcomes use a generic typed connector-local
 `executionOutcome`; free-form reason text has no authority. Dispositions:
 `BUILD_3_6B_INFRASTRUCTURE_SECURITY_CORRECTIVES_CLOSED_WITH_STATELESS_SECRET_DETECTION_AND_TYPED_OUTCOME_UNKNOWN`;
 `BUILD_3_6B_INFRASTRUCTURE_FLEET_FOUNDATION_CLOSED_WITH_BOUNDED_INVENTORIES_RESTRICTED_OPERATIONS_AND_UNTRUSTED_OBSERVATIONS`.

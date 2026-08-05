@@ -1,138 +1,185 @@
 # Neo Text Communication — State Machines
 
-> **Build 3.7A — design only.** Machines below are normative for future implementation. No durable
-> communication ledger, outbox, or FIFO queue exists in the repository today.
+> **Build 3.7A — design only (corrective).** Machines below are normative for future
+> implementation. No durable communication ledger, outbox, or FIFO queue exists today.
 
 ## 1. Durable turn ledger states
 
 Minimum states:
 
 `observed` · `authentication_rejected` · `authenticated` · `accepted` · `queued` ·
-`llm_started` · `llm_completed` · `output_validated` · `delivery_started` · `delivered` ·
-`delivery_failed` · `delivery_outcome_unknown` · `cancelled` · `completed`
+`llm_started` · `llm_completed` · `llm_known_failed` · `deterministic_notice_prepared` ·
+`output_validated` · `delivery_started` · `delivered` · `delivery_failed` ·
+`delivery_outcome_unknown` · `cancelled` · `completed`
 
-### Intended happy path
+### Normative admission order (pre-queue)
 
 ```text
-observed
-  → authenticated
-  → accepted
-  → queued
+NORMATIVE_ADMISSION_ORDER:
+sealed transport validation
+→ atomic observed admission
+→ duplicate stop
+→ owner binding
+→ authenticated
+→ accepted + conversationSequence
+```
+
+Then: `accepted → queued`.
+
+### Model-response happy path
+
+```text
+queued
   → llm_started
   → llm_completed
   → output_validated
   → delivery_started
-  → delivered
+  → delivered | delivery_failed | delivery_outcome_unknown
   → completed
 ```
 
-Authentication failure path: `observed → authentication_rejected` (terminal for that event;
-safe audit as applicable).
+### Deterministic system notice legal path
 
-Cancellation may enter `cancelled` from pre-LLM states when kill switches or operator cancel apply
-before external spend; after `llm_started`, prefer outcome-unknown / completion recording over
-silent cancel-as-success.
+```text
+llm_started
+→ llm_known_failed
+→ deterministic_notice_prepared
+→ output_validated
+→ delivery_started
+→ delivered | delivery_failed | delivery_outcome_unknown
+→ completed
+```
 
-## 2. Legal vs illegal transitions (normative summary)
+Authentication failure: `observed → authentication_rejected`.
+
+## 2. Ledger responsibility split
+
+| Phase | Ledger duty |
+|-------|-------------|
+| Observation / dedup | Atomic unique insert at `observed` keyed by `CommunicationIdempotencyKey` |
+| Authentication | `observed → authenticated` or `observed → authentication_rejected` |
+| Conversation admission | `authenticated → accepted` + assign monotonic `conversationSequence` |
+
+Principal creation is allowed only on the authentication success transition after fresh `observed`
+admission — never before atomic observed admission.
+
+## 3. Legal vs illegal transitions
 
 **Legal (representative):**
 
 | From | To | Condition |
 |------|----|-----------|
-| observed | authenticated | binding success |
+| (ingress) | observed | atomic unique insert success |
+| observed | authenticated | owner/conversation binding success; principal sealed |
 | observed | authentication_rejected | binding failure / uncertain deny |
-| authenticated | accepted | atomic unique admission success |
-| accepted | queued | enqueued under FIFO limits |
+| authenticated | accepted | atomic conversation admission + `conversationSequence` |
+| accepted | queued | FIFO accept under depth/global limits |
 | queued | llm_started | snapshot allows LLM; audit start recorded |
 | llm_started | llm_completed | provider returned bounded completion |
-| llm_started | delivery path via degraded notice | only for **known** unavailable/timeout with notice rules; still records LLM outcome distinctly |
+| llm_started | llm_known_failed | known unavailable / known timeout / known cancel-before-result |
+| llm_known_failed | deterministic_notice_prepared | notice policy + audit/delivery/scanner/ledger OK |
 | llm_completed | output_validated | outbound checks pass |
+| deterministic_notice_prepared | output_validated | same outbound checks + scans |
 | output_validated | delivery_started | delivery enabled; outbox accepted |
 | delivery_started | delivered | provider ack success |
 | delivery_started | delivery_failed | known failure |
 | delivery_started | delivery_outcome_unknown | uncertainty |
-| delivered / delivery_failed / delivery_outcome_unknown / cancelled | completed | completion audit attempted |
+| delivered / delivery_failed / delivery_outcome_unknown / cancelled / authentication_rejected | completed | primary processing terminated; factual statuses recorded |
 
 **Illegal (representative):**
 
+- principal / binding before atomic `observed` admission
 - `observed → llm_started` (skips auth/admission/audit-start)
-- second `accepted` for the same transport-event admission key
+- second fresh turn for duplicate `CommunicationIdempotencyKey`
 - `llm_completed → llm_started` automatic retry after `LLM_OUTCOME_UNKNOWN`
+- `llm_started → deterministic_notice_prepared` when outcome is unknown
 - `delivery_outcome_unknown → delivery_started` automatic resend
 - `delivered → delivery_failed` rewrite after success
 - any transition that enables tools/connectors from model output
 
-## 3. Restart recovery
+## 4. Restart recovery
 
 | Prior durable state | After restart |
 |---------------------|---------------|
-| `accepted` / `queued` | May be restored and continued under current kill-switch snapshot. |
-| `llm_started` without completion | Become / record `LLM_OUTCOME_UNKNOWN`; **no automatic** model re-invoke. |
-| `delivery_started` without outcome | Become / record `DELIVERY_OUTCOME_UNKNOWN`; **no automatic** resend. |
-| `delivered` | Remains delivered; completion audit may idempotently retry if needed. |
-| Ephemeral-only simulation store | Lost; allowed only for offline reference simulation, not live. |
+| `accepted` / `queued` | May restore and continue under current kill-switch snapshot. |
+| `llm_started` without completion | Record `LLM_OUTCOME_UNKNOWN`; **no automatic** model re-invoke; deterministic notice **forbidden**. |
+| `llm_known_failed` / `deterministic_notice_prepared` | May continue notice/delivery path if statuses allow; no LLM re-invoke. |
+| `delivery_started` without outcome | Record `DELIVERY_OUTCOME_UNKNOWN`; **no automatic** resend. |
+| `delivered` + `checkpointStatus=failed` | Keep delivered; reconcile checkpoint only; no LLM/delivery replay. |
+| `delivered` | Remains delivered; idempotent completion-audit retry allowed. |
+| Ephemeral-only simulation store | Lost; offline reference simulation only. |
 
-## 4. Duplicate / replay
+## 5. Duplicate / replay
 
-- Idempotency key derived at trusted boundary from transport instance + external message reference
-  (exact derivation fixed in 3.7B contracts).
-- Atomic unique admission: first accept wins; duplicates map to prior factual outcome without a
-  second LLM invocation.
+- `CommunicationIdempotencyKey` derived locally after sealed transport validation (never by transport).
+- Atomic unique `observed` insert: conflict → duplicate stop (return existing TurnId/outcome).
 - Ephemeral replay maps are **not** sufficient for live.
 
-## 5. FIFO and ordering
+## 6. FIFO and ordering
 
-- Configurable bounded per-conversation FIFO.
-- One active turn per conversation.
-- Order by trusted monotonic `conversationSequence` (not source timestamp).
-- Default depth suggestion: **8**; schema range **2..64**; unlimited queue forbidden.
-- Global bounded pending limit across conversations.
-- Overflow → `QUEUE_FULL` (no silent drop that looks like success).
+- One active turn per canonical conversation.
+- Order by trusted monotonic `conversationSequence` only (source timestamp never orders).
+- `maxDepthPerConversation` **default = 8**; schema range **2..64**; unlimited forbidden.
+- `maxGlobalPending` required and bounded.
+- Overflow → `QUEUE_FULL`.
 
-## 6. LLM outcome unknown
+## 7. LLM outcome unknown
 
-- Not success.
-- Durable.
-- Forbids automatic model replay.
-- May leave conversation degraded until operator/owner policy resolves.
-- Distinct from known `PROVIDER_UNAVAILABLE` / `LLM_TIMEOUT` (those may use deterministic system
-  notices under strict notice rules).
+- Not success; durable; forbids automatic model replay.
+- Deterministic notice **forbidden**.
+- May leave conversation degraded until policy resolves.
 
-## 7. Delivery outcome unknown
+## 8. Delivery outcome unknown
 
-- Not success; not known failure.
-- Forbids automatic resend.
-- Durable.
-- Moves conversation to **paused/degraded**.
-- Requires future reconciliation or explicit owner/operator resolution.
-- Duplicate delivery absence is **not** promised without provider reconciliation.
+- Not success; not known failure; forbids automatic resend; durable; pauses/degrades conversation.
+- Requires reconciliation or explicit owner/operator resolution.
+- Exactly-once delivery is not promised without provider reconciliation.
 
-## 8. Two-phase audit state model
+## 9. Orthogonal statuses and `completed`
 
-**Phase A — before expensive/external work:**
+```text
+deliveryStatus | checkpointStatus | auditStatus
+```
 
-1. Audit capability available.
-2. Durable turn-start event written.
-3. Only then LLM and/or delivery may proceed.
+Terminal `completed` means primary turn processing terminated and factual outcomes were recorded.
+It does **not** require successful delivery, checkpoint, or completion audit.
 
-**Phase B — after factual outcomes:**
+### Checkpoint partial failure after delivery
 
-1. Durable completion event with LLM and delivery outcomes.
-2. If delivered but completion audit fails: `delivered=true`, `auditStatus=failed`.
-3. Idempotent completion-audit retry allowed; delivery not automatically retried.
+- `deliveryStatus=delivered` retained forever;
+- `checkpointStatus=failed`;
+- conversation paused/degraded;
+- no ordinary next turn on stale context;
+- idempotent checkpoint reconciliation only;
+- then idempotent completion-audit retry;
+- no LLM re-call; no delivery resend;
+- delivered fact never rewritten to not-delivered;
+- error category `CONVERSATION_CHECKPOINT_FAILED`.
 
-Audit events carry identifiers, digests, statuses, timings, safe error categories — not raw bodies,
-prompts, model output, or memory contents.
+### Audit partial failure after delivery
 
-## 9. Conversation pause / reconciliation
+- `deliveryStatus=delivered` retained;
+- `auditStatus=failed`;
+- idempotent completion-audit retry allowed;
+- delivery not automatically retried.
 
-Triggers for pause/degraded include: `DELIVERY_OUTCOME_UNKNOWN`, unresolved
-`LLM_OUTCOME_UNKNOWN` per policy, encryption live gate blocking outbox flush to live adapters,
-malformed config, audit/ledger unavailability.
+## 10. Two-phase audit
 
-Resume requires explicit future reconciliation design (out of 3.7A implementation scope): compare
-provider receipts, owner confirmation, or operator tooling — never silent automatic resend of
-uncertain deliveries.
+**Phase A:** audit available + durable turn-start written **before** LLM/delivery.
+**Phase B:** completion event records factual LLM/delivery/checkpoint/audit statuses.
+
+## 11. Deterministic notice constraints
+
+Allowed only for known LLM failures with audit, delivery, scanner, and ledger available and config
+valid. Must traverse `output_validated` → `delivery_started` → delivery taxonomy → `completed`.
+Not a model response; not API/provider fallback.
+
+## 12. Conversation pause / reconciliation
+
+Triggers: `DELIVERY_OUTCOME_UNKNOWN`, unresolved `LLM_OUTCOME_UNKNOWN`,
+`checkpointStatus=failed`, encryption live gate, malformed config, audit/ledger unavailability.
+
+Resume: explicit future reconciliation — never silent automatic resend of uncertain deliveries.
 
 ## Related documents
 

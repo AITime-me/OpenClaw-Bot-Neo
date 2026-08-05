@@ -11,9 +11,14 @@ Build 3.6B adds infrastructure fleet inventory contracts, restricted host/provid
 contracts, Timeweb contract only, and offline reference adapters on feature branch
 `build-3-6b-infrastructure-fleet-foundation`. Initial independent source review **BLOCKED**; first
 security corrective re-review **BLOCKED**; final corrective-2 re-review **approved with INFO notes**;
-documentation closeout committed locally; `main` integration and push pending; no real Timeweb/SSH/VPS;
-no production connector wiring. See [infrastructure platform](infrastructure-platform.md) and
+documentation closeout is `b662376`. **Current status:** Build 3.6B is integrated; Build 3.7A design
+base is `b662376`. Historical closeout text may still say “integration pending” as a past-Build
+snapshot. No real Timeweb/SSH/VPS; no production connector wiring. See
+[infrastructure platform](infrastructure-platform.md) and
 [closeout record](validation/build-3.6b-infrastructure-fleet-foundation-closeout.md).
+
+Build 3.7A designs the owner-only text communication vertical slice (documentation only). See
+[text architecture](communication/text-architecture.md).
 
 Build 2.1B/2.1D/2.1E/2.1H содержат только provider-independent contracts и отключённые example
 manifests. Реальных adapter, integration, webhook endpoint, cryptographic verifier и сетевого

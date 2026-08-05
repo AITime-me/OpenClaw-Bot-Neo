@@ -167,7 +167,7 @@ Deployment prohibited.
 | Codex Review №6 R6-L01—L04 LOW hardening (closeout) | closed for descriptor-safe config, exclusive readiness, correlated evidence, owner-only state (see `docs/validation/codex-review-6-r6-low-hardening-package-closeout.md`) |
 | Build 3.5B connector platform core (closeout) | closed on local `main` for trusted approval, private execution, bounded data, safe invocation pipeline, and approval clock corrective (see `docs/validation/build-3.5b-connector-platform-core-closeout.md`) |
 | Build 3.6A infrastructure/Timeweb design | design approved (offline contracts; no implementation in 3.6A) |
-| Build 3.6B infrastructure fleet foundation (closeout) | closed on feature branch after corrective packages and final re-review with INFO notes; `main` integration pending (see `docs/validation/build-3.6b-infrastructure-fleet-foundation-closeout.md`) |
+| Build 3.6B infrastructure fleet foundation (closeout) | closed and integrated; Build 3.7A design baseline `b662376` (`docs(infrastructure): close Build 3.6B fleet foundation`). Historical closeout may still say “integration pending” as a past-Build snapshot. See `docs/validation/build-3.6b-infrastructure-fleet-foundation-closeout.md` |
 | Telegram / OpenClaw adapters | not implemented |
 | OpenClaw runtime | not implemented |
 | VPS / deployment | not purchased / not deployed |
@@ -332,8 +332,8 @@ packages completed on feature branch `build-3-6b-infrastructure-fleet-foundation
 independent source review **BLOCKED**; first security corrective re-review **BLOCKED**; final
 corrective-2 re-review **approved with INFO notes**
 (`BUILD_3_6B_INFRASTRUCTURE_CORRECTIVE_2_REREVIEW_APPROVED_WITH_NOTES_FOR_CLOSEOUT`). Documentation
-closeout committed locally (integrated baseline includes closeout commit `b662376` on current
-design branch parent). Dispositions:
+closeout committed as `b662376`. **Current status:** Build 3.6B is integrated; Build 3.7A design
+base is `b662376`. Dispositions:
 `BUILD_3_6B_INFRASTRUCTURE_SECURITY_CORRECTIVES_CLOSED_WITH_STATELESS_SECRET_DETECTION_AND_TYPED_OUTCOME_UNKNOWN`;
 `BUILD_3_6B_INFRASTRUCTURE_FLEET_FOUNDATION_CLOSED_WITH_BOUNDED_INVENTORIES_RESTRICTED_OPERATIONS_AND_UNTRUSTED_OBSERVATIONS`.
 Fleet inventory contracts, restricted operations, infrastructure tool manifests via Build 3.5B
@@ -348,10 +348,11 @@ implementation remains a later build. See
 only on `build-3-7a-text-communication-design`. Designs owner-only text contour, separate
 `AuthenticatedCommunicationPrincipal` vs memory capability, durable turn ledger, FIFO, two-phase
 audit, tools-free LLM port, encryption live gate, and temporary Telegram vs final private mobile
-adapter. **No** communication runtime, Telegram/LLM adapters, SQLite communication stores,
-production composition, or new runtime diagnostics. Subscription route remains an unresolved
-hypothesis gated by future **Build 3.7E0**. See
-[text architecture](docs/communication/text-architecture.md) and
+adapter. Independent review REQUEST CHANGES closed by documentation corrective
+(`docs(communication): correct Build 3.7A review findings`). **No** communication runtime,
+Telegram/LLM adapters, SQLite communication stores, production composition, or new runtime
+diagnostics. Subscription route remains an unresolved hypothesis gated by future **Build 3.7E0**.
+See [text architecture](docs/communication/text-architecture.md) and
 [closeout record](docs/validation/build-3.7a-text-communication-design-closeout.md).
 
 Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate

@@ -87,8 +87,9 @@ sealing immutable copies. Production tool schemas do not accept reference `scena
 
 Build 3.6B **closed** on feature branch `build-3-6b-infrastructure-fleet-foundation` after
 independent source review, two security corrective packages, and final corrective-2 approval with
-INFO notes. Documentation closeout committed locally; integration into local `main` and remote push
-remain pending owner-directed.
+INFO notes. Documentation closeout is `b662376`. **Current status:** Build 3.6B is integrated;
+Build 3.7A design base is `b662376`. Historical closeout wording that still says “integration
+pending” is a past-Build snapshot and is not rewritten.
 
 Review history:
 

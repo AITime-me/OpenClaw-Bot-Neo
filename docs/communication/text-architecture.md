@@ -1,10 +1,10 @@
 # Neo Text Communication Vertical Slice — Architecture Design
 
-> **Build 3.7A — design only.** This document fixes target architecture for the first owner-only
-> text communication contour. It does **not** claim implementation, live Telegram, live LLM route,
-> production readiness, or security approval.
+> **Build 3.7A — design only (corrective).** This document fixes target architecture for the first
+> owner-only text communication contour. It does **not** claim implementation, live Telegram, live
+> LLM route, production readiness, or security approval.
 >
-> Verified foundation baseline: Build 3.6B closed on `b662376` (infrastructure fleet foundation).
+> Verified foundation baseline: Build 3.6B integrated; Build 3.7A design base `b662376`.
 > Text communication runtime code is **absent**.
 
 ## 1. Executive design
@@ -13,292 +13,268 @@ Neo is an owner-only personal assistant with a masculine persona (calm, intellig
 restrained, slightly futuristic; not call-center cheerful). Persona is presentation only and is
 **not** a security authority.
 
-The first communication vertical slice is text-only:
-
-owner → temporary Telegram adapter **or** future private mobile messenger adapter →
-channel-independent communication ingress → trusted identity binding →
-`AuthenticatedCommunicationPrincipal` → durable atomic turn admission →
-bounded per-conversation FIFO → immutable policy/kill-switch snapshot → two-phase audit →
-bounded conversation context → separately authorized read-only memory access →
-provider-independent tools-free LLM port → untrusted output validation →
-encrypted-before-live short-lived delivery outbox → sealed same-binding delivery →
-durable factual outcome → conversation checkpoint → completion audit.
+The first communication vertical slice is text-only. Temporary Telegram adapter **or** future
+private mobile messenger adapter feed the same channel-independent communication core.
 
 ### Status separation (mandatory)
 
 | Kind | Meaning in this document |
 |------|--------------------------|
-| **Verified fact** | Exists in current repository code/tests/closeouts (e.g. memory gateway, routing policy parsers, Neo lifecycle, connector/infra offline platforms unwired to text agent). |
+| **Verified fact** | Exists in current repository code/tests/closeouts. |
 | **Target architecture** | Normative design for upcoming implementation Builds 3.7B–F. |
-| **Unresolved hypothesis** | Subscription OAuth headless feasibility and provider-policy compatibility — gated by **Build 3.7E0** before large live-oriented spend. |
+| **Unresolved hypothesis** | Subscription OAuth headless feasibility — gated by **Build 3.7E0**. |
 
 ## 2. Telegram temporary / mobile final
 
 | Role | Design |
 |------|--------|
 | Telegram | **Temporary** app-private transport adapter only. |
-| Final UI | Owner-only private mobile app / closed messenger talking to the same communication core. |
-| Core independence | Communication core must not import Telegram SDK types, update/chat/message identifiers, or transport markup. |
+| Final UI | Owner-only private mobile app / closed messenger. |
+| Core independence | Communication core must not import Telegram SDK types. |
 
-Telegram must be removable and replaceable by a mobile adapter **without rewriting**:
+Telegram must be removable and replaceable by a mobile adapter **without rewriting** canonical
+conversation, conversation state, semantic memory, LLM routing, communication orchestration, or
+security policy. Both adapters are **peer adapters** on the same core.
 
-- canonical conversation identity and state;
-- semantic memory access path;
-- LLM routing contracts;
-- communication orchestration;
-- security policy.
-
-Both adapters emit the same channel-independent untrusted observation shape into core.
-
-## 3. Target architecture
+## 3. Target architecture overview
 
 ```text
-Transport adapter (Telegram | future mobile)     [app-private]
+Transport adapter (Telegram | private mobile)     [app-private]
         │ untrusted bounded observation only
         ▼
-Communication ingress / normalize                [core policy]
+Trusted ingress + sealed transport-instance check
         ▼
-Trusted owner/conversation binding               [trusted local boundary]
+CommunicationTurnLedgerPort: atomic observed admission
         ▼
-AuthenticatedCommunicationPrincipal             [opaque capability]
+Owner/conversation binding → AuthenticatedCommunicationPrincipal
         ▼
-Durable CommunicationTurnLedgerPort              [atomic admission]
+authenticated → accepted (+ conversationSequence) → queued
         ▼
-Bounded per-conversation FIFO (depth 2..64)      [one active turn]
+Immutable kill-switch snapshot + two-phase audit start
         ▼
-Immutable kill-switch + limits snapshot
+Context + separately authorized read-only memory
         ▼
-Two-phase audit start                            [before LLM/delivery]
+LlmCompletionPort (tools-free) OR deterministic notice path
         ▼
-Ephemeral context window + ConversationStatePort
+Output validation → encrypted-before-live outbox → sealed delivery
         ▼
-Separate memory authorization → AuthenticatedMemoryAccess (read-only)
-        ▼
-Prompt assembly (fixed section order)
-        ▼
-LlmCompletionPort (tools-free)
-        ▼
-Outbound validation (untrusted model output)
-        ▼
-Short-lived delivery outbox (encrypted-before-live gate)
-        ▼
-Sealed same-binding TextDeliveryPort
-        ▼
-Durable factual outcome + conversation checkpoint + completion audit
+Orthogonal deliveryStatus / checkpointStatus / auditStatus → completed
 ```
 
-### Verified reusable foundation (not the slice itself)
-
-- Opaque memory auth: `AuthenticationObservation` → `sealAuthenticatedMemoryAccess` /
-  `AuthenticatedMemoryAccessContext` via `MemoryAccessGateway`.
-- Fail-closed memory-write pipeline and scanner.
-- Pure model routing (`subscription-oauth` tiers; `apiFallbackEnabled` /
-  `paidFallbackEnabled` must be false in config parsers).
-- Thin `ChannelPort` / `IncomingMessage` / `OutgoingMessage` exist but are **not** the target
-  communication envelope or authority model.
-- Neo process lifecycle / durable LocalHost memory host exist; they do **not** run a text turn loop.
-- Connector platform (3.5B) and infrastructure fleet (3.6B) exist offline and must **not** auto-wire
-  into the text agent.
-
-### Absent today (target only)
-
-Communication principal sealers, turn ledger, conversation state port, FIFO queue, text-turn
-orchestrator, LLM completion port/adapters, delivery outbox, Telegram/mobile adapters, two-phase
-communication audit, and communication composition roots.
-
-## 4. Identities and capability derivation
+## 4. Identities and capabilities
 
 ### Transport may provide only untrusted observations
 
-Bounded fields after structural parse (raw SDK DTO stays inside the adapter):
+After structural parse (raw SDK DTO stays inside the adapter):
 
 - transport instance reference;
 - external message reference;
 - external conversation reference;
 - external sender reference;
-- optional source timestamp (metadata only; **not** ordering authority);
+- optional source timestamp (metadata only; **not** ordering; does **not** replace `observedAt`);
 - raw text.
 
-Transport **must not** assign trusted: `OwnerId`, `ActorId`, authority, canonical `ConversationId`,
-`SessionId`, `TurnId`, `CorrelationId`, `IdempotencyKey`, or `observedAt`.
-
-### Trusted local boundary assigns
-
-- exact owner/conversation binding from allowlist + transport instance validation;
-- canonical `ConversationId`;
-- `TurnId`, `CorrelationId`;
-- derived idempotency key for the transport event;
-- trusted `observedAt` from `ClockPort`;
-- monotonic `conversationSequence` for FIFO ordering.
+Transport **must not** create: `TurnId`, `CorrelationId`, canonical `ConversationId`,
+`CommunicationIdempotencyKey`, `observedAt`, `OwnerId`, `ActorId`, or authority.
 
 ### Two opaque capability families (non-interchangeable)
 
 | Capability | Purpose |
 |------------|---------|
-| `AuthenticatedCommunicationPrincipal` | Proves trusted communication binding for the turn. |
-| `AuthenticatedMemoryAccess` | Separately authorized, typically bounded **read-only** memory access for the turn. |
+| `AuthenticatedCommunicationPrincipal` | Communication binding for the turn. |
+| `AuthenticatedMemoryAccess` | Separately authorized bounded **read-only** memory access. |
 
-Derivation path:
+Ordinary object literal / spread / JSON / prototype clone cannot forge either capability. Channel
+adapters do **not** receive sealers.
+
+**Normative rule:** principal is created **only after** atomic `observed` ledger admission and only
+for a fresh observed turn. Principal is never created before atomic observed admission.
+
+## 5. Normative admission order (final)
+
+Stable marker block — identical across architecture, state machines, trust model, implementation
+map, and closeout:
 
 ```text
-untrusted transport observation
-  → trusted transport-instance validation
-  → exact owner/conversation binding
-  → AuthenticatedCommunicationPrincipal
-  → communication→memory authorization policy
-  → bounded read-only AuthenticatedMemoryAccess
+NORMATIVE_ADMISSION_ORDER:
+sealed transport validation
+→ atomic observed admission
+→ duplicate stop
+→ owner binding
+→ authenticated
+→ accepted + conversationSequence
 ```
 
-Ordinary object literal, spread, JSON clone, or prototype clone **cannot** forge either capability.
-Channel adapters do **not** receive communication or memory sealers.
+Expanded steps:
 
-Existing memory sealing remains the memory capability family. Communication principal is a
-**new** family to be introduced in implementation Builds; it must not be collapsed into memory
-auth or into message text fields.
+1. Transport adapter structurally parses raw SDK DTO → channel-independent untrusted observation.
+2. Trusted ingress verifies sealed transport-instance capability.
+3. Bounds and canonical form of external transport references are checked.
+4. Trusted clock creates local `observedAt`.
+5. Locally derive transport-scoped `CommunicationIdempotencyKey` from:
+   - trusted transport instance identity;
+   - canonical external conversation reference;
+   - canonical external message reference;
+   - binding/schema version.
+6. Locally create `TurnId` for the observed record.
+7. `CommunicationTurnLedgerPort` performs **atomic unique insert** with `state = observed`.
+8. On unique conflict: return existing `TurnId`/outcome; do **not** re-bind owner into a new turn;
+   forbid new LLM invocation; forbid new delivery (**duplicate stop**).
+9. Only for a **fresh** observed turn: perform exact owner/conversation binding.
+10. Binding failure: `observed → authentication_rejected`.
+11. Binding success: create opaque `AuthenticatedCommunicationPrincipal`; resolve canonical
+    `ConversationId`; create `CorrelationId`; transition `observed → authenticated`.
+12. Atomic conversation admission: `authenticated → accepted` with trusted monotonic
+    `conversationSequence`.
+13. Then: `accepted → queued`.
 
-## 5. End-to-end pipeline
+### Ledger responsibility split
 
-1. Adapter accepts transport update → emits channel-independent validated-but-untrusted value object.
-2. Ingress structural/size/UTF-8 validation; non-text media rejected in this slice.
-3. Kill-switch precheck may drop/ignore safely when ingress disabled.
-4. Trusted binding → `AuthenticatedCommunicationPrincipal` or reject unknown sender.
-5. Durable ledger **atomic unique admission** of the transport event (no second LLM for duplicates).
-6. Enqueue on bounded per-conversation FIFO; one active turn; overflow → `QUEUE_FULL`.
-7. At head-of-queue: freeze immutable policy/kill-switch/limits snapshot.
-8. Two-phase audit: durable turn-start **before** any LLM or delivery.
-9. Load ephemeral context window + durable conversation checkpoint metadata as needed.
-10. Optionally obtain separately authorized read-only memory access; inject excerpts with provenance.
-11. Assemble prompt in fixed order (§7).
-12. Invoke tools-free `LlmCompletionPort` with budgets, timeout, cancellation.
-13. Validate model output as untrusted; normalize to plain text for first Telegram adapter.
-14. Place delivery payload in short-lived outbox (live content persistence requires encryption gate).
-15. Deliver only to sealed same-binding recipient.
-16. Record durable factual LLM/delivery outcomes; update conversation checkpoint; completion audit.
-17. Never treat `DELIVERY_OUTCOME_UNKNOWN` or `LLM_OUTCOME_UNKNOWN` as success; no automatic
-    model replay or automatic resend.
+`CommunicationTurnLedgerPort` design **must** separate:
 
-## 6. State separation
+1. atomic transport-event observation / deduplication (`observed` insert);
+2. authentication transition (`authenticated` / `authentication_rejected`);
+3. atomic conversation admission / sequence assignment (`accepted` + `conversationSequence`).
 
-Independent stores — **not** interchangeable:
+## 6. Post-queue pipeline
 
-| Store | Role |
-|-------|------|
-| Ephemeral active context window | Short-lived turns for prompting; process-local. |
-| Durable `ConversationStatePort` | Checkpoint, pause/degraded flags, sequence cursor. |
-| Durable semantic `MemoryPort` | Existing namespaced memory; not automatic chat log. |
-| Durable `CommunicationTurnLedgerPort` | Turn lifecycle metadata/digests/outcomes only. |
-| Short-lived delivery outbox | Pending delivery payloads; encrypted-before-live. |
+After `queued` and head-of-queue selection:
 
-Rules:
+1. Freeze immutable kill-switch / limits / route-digest snapshot.
+2. Two-phase audit: durable turn-start **before** any LLM or delivery (`audit start before LLM`).
+3. Load ephemeral context + durable conversation checkpoint metadata.
+4. Optionally derive separately authorized read-only `AuthenticatedMemoryAccess`.
+5. Assemble prompt (fixed section order §8).
+6. Invoke tools-free `LlmCompletionPort` **or** follow deterministic notice path (§9) for known LLM
+   failures only.
+7. Validate outbound text; place payload in short-lived outbox (encryption live gate for live).
+8. Deliver only to sealed same-binding recipient.
+9. Persist orthogonal factual statuses; attempt conversation checkpoint; completion audit.
+10. Never automatic model replay after `LLM_OUTCOME_UNKNOWN`; never automatic resend after
+    `DELIVERY_OUTCOME_UNKNOWN`.
 
-- Ordinary messages do **not** automatically become semantic memory.
-- Raw transcript persistence is **off by default**.
-- Model-generated summaries are `model-derived`, untrusted, not confirmed facts, not security
-  authority, and must not be written as trusted semantic facts without a separate explicit process.
-- Ledger stores identifiers, digests, timestamps, states, attempt counters, outcomes, safe error
-  categories — **never** raw user text, raw model output, full prompts, memory contents, or credentials.
+## 7. Orthogonal factual statuses
 
-## 7. Prompt model
+Turn completion uses orthogonal fields — not a single boolean success:
+
+| Field | Meaning |
+|-------|---------|
+| `deliveryStatus` | `delivered` \| `delivery_failed` \| `delivery_outcome_unknown` \| unset/pre-delivery |
+| `checkpointStatus` | `succeeded` \| `failed` \| `pending` |
+| `auditStatus` | `succeeded` \| `failed` \| `pending` |
+
+### Checkpoint partial failure after delivery
+
+When delivery is confirmed but conversation checkpoint write fails:
+
+- `deliveryStatus=delivered` is retained forever as the factual outcome;
+- `checkpointStatus=failed`;
+- conversation enters **paused/degraded**;
+- next ordinary turn must **not** execute on stale context;
+- only idempotent checkpoint reconciliation is allowed;
+- after checkpoint reconciliation, idempotent completion-audit retry is allowed;
+- LLM is **not** re-invoked;
+- delivery is **not** re-executed;
+- delivered reply is **never** rewritten to failure/not-delivered;
+- completion audit, when available, must honestly record checkpoint failure;
+- error category: `CONVERSATION_CHECKPOINT_FAILED`.
+
+### Meaning of terminal `completed`
+
+`completed` means primary turn processing has terminated and factual outcomes have been recorded.
+It does **not** mean delivery succeeded, checkpoint succeeded, or completion audit succeeded.
+Final facts are the orthogonal status fields.
+
+If delivered but completion audit fails: `deliveryStatus=delivered`, `auditStatus=failed`.
+
+## 8. Prompt model
 
 Fixed section order:
 
 1. Immutable system security policy.
-2. Neo persona (masculine calm/intelligent/confident/restrained/slightly-futuristic; not authority).
+2. Neo persona (not authority).
 3. Memory excerpts with provenance/trust labels.
 4. Conversation context as untrusted contextual material.
 5. Current owner text as untrusted input.
 
-Prompt injection must not: change policy; enable tools/functions; change recipient; forge
-capabilities; expand memory scope; activate API/paid fallback; attach connector/infrastructure
-tools; mutate kill switches; disable audit/scanner. Credentials, raw audit, internal prompts, and
-secret memory fields are excluded from prompts.
+## 9. LLM and deterministic system notices
 
-## 8. LLM contract
+Provider-independent tools-free `LlmCompletionPort`: bounded I/O, timeout, cancellation; outcomes
+include provider unavailable, known timeout, cancelled, invalid response, outcome unknown. No tools,
+functions, connector/infrastructure registries, shell, or arbitrary recipient.
 
-Provider-independent tools-free `LlmCompletionPort`:
+### Deterministic notice (not a model response)
 
-- bounded input/output;
-- timeout;
-- `AbortSignal` / cancellation;
-- outcomes: completed, provider unavailable, known timeout, cancelled, invalid response,
-  outcome unknown.
+Legal path:
 
-Absent from the port and from text-turn composition: tools, functions, tool executor, connector
-registry, infrastructure registry, shell, arbitrary recipient.
+```text
+llm_started
+→ llm_known_failed
+→ deterministic_notice_prepared
+→ output_validated
+→ delivery_started
+→ delivered | delivery_failed | delivery_outcome_unknown
+→ completed
+```
 
-JSON-like or tool-call-looking text remains ordinary untrusted text and is **not** executed.
+Allowed only for **known** outcomes (e.g. provider unavailable, known timeout, known cancellation
+before result when policy permits).
 
-### Subscription route (architectural goal vs hypothesis)
+**Forbidden** when: `LLM_OUTCOME_UNKNOWN` (deterministic notice is **forbidden** on
+`LLM_OUTCOME_UNKNOWN`); uncertain timeout/cancellation outcome; audit failure;
+delivery disabled; scanner unavailable; ledger unavailable; malformed config.
 
-**Goal:** ChatGPT Plus / Codex subscription authentication; not OpenAI API key; not token-billed
-API; `apiFallbackEnabled=false`; `paidFallbackEnabled=false`; no silent fallback.
+Notice must pass the same output validation, secret/sensitive scan, short-lived outbox, sealed
+same-binding recipient, `delivery_started`, delivery uncertainty taxonomy, and completion audit.
+Notice is not a model response, not API/provider fallback, not dynamically model-generated, and
+must not disclose internal provider/security details.
 
-**Unresolved hypothesis (Build 3.7E0 gate):** this repository design does **not** prove 24/7
-headless backend acceptability, machine-usable completion interface, restart-safe authentication,
-absence of interactive session dependency, absence of hidden API billing, provider-policy
-compatibility, or VPS session security.
+## 10. Delivery, FIFO, encryption
 
-E0 verdicts: `PASS` | `FAIL` | `UNRESOLVED`. Live-oriented implementation spend on B–D must not
-proceed before E0; offline provider-independent core design may continue, but significant
-implementation of B–D waits for E0.
-
-## 9. Delivery
-
-- Model output is always untrusted until outbound validation.
-- Checks: UTF-8, bounded bytes/code points, control-character policy, secret/sensitive scan,
-  plain-text normalization, no arbitrary recipient, no transport formatting in core.
-- First Telegram adapter: **plain text only** (no Markdown/HTML parse mode).
+- First Telegram adapter: plain text only (no Markdown/HTML parse mode).
 - Recipient only from sealed canonical conversation binding.
-- Outbox may hold conversational content → **encryption live gate** applies before live routes.
-- Exactly-once delivery is **not** claimed. `DELIVERY_OUTCOME_UNKNOWN` is not success, not known
-  failure, forbids automatic resend, is durable, pauses/degrades conversation, needs reconciliation
-  or explicit owner/operator resolution.
+- Exactly-once delivery is **not** claimed.
+- FIFO: one active turn per canonical conversation; `maxDepthPerConversation` **default = 8**;
+  schema range **2..64**; `maxGlobalPending` required and bounded; unlimited queue forbidden;
+  order by `conversationSequence` only.
+- Encryption live gate: live Telegram/model routes that persist conversational content are blocked
+  while `encryptionEnabled=false` (or until an approved alternative). Offline reference simulation
+  may proceed. Encryption is not implemented in 3.7A.
 
-### Deterministic system notices vs model responses
+## 11. Subscription route hypothesis — 3.7E0
 
-When the model is unavailable or a **known** timeout occurs, a pre-approved deterministic system
-notice may be delivered only if audit and delivery work, recipient comes from sealed binding, text
-is not model-generated, internals are not disclosed, and this is not an API/paid fallback.
-`LLM_OUTCOME_UNKNOWN` forbids automatic model retry.
+Architectural goal remains subscription OAuth only with `apiFallbackEnabled=false` and
+`paidFallbackEnabled=false`. Feasibility is **unresolved** until Build **3.7E0**
+(`PASS` | `FAIL` | `UNRESOLVED`). Large B–D live-oriented spend waits for `PASS`.
 
-## 10. Adapters and public/private boundaries
+## 12. Public / private API
 
-**App-private (never package-root exports):** Telegram adapter, mobile adapter, Codex/OpenClaw
-adapter, SQLite communication implementations, composition roots, sealers, transport bindings,
-credential/session readers, delivery target implementations.
+Communication contracts live under package-private `src/core/communication/**` and are **not**
+added to root-reachable wildcard barrels (`src/core/domain/index.ts`, `src/core/ports/index.ts`,
+etc.). `src/index.ts` currently wildcard-exports those barrels; therefore communication modules
+must not be re-exported through them without a separate public API review and proven external
+consumer. App-private adapters, sealers, SQLite ports, and composition roots stay out of package
+root.
 
-**Public API:** do not automatically add communication gateway/composition factories to
-`src/index.ts`. Future public surface, if any, is an explicit allowlisted decision.
+## 13. Implementation sequence
 
-**Must not weaken:** Build 3.5B connector and Build 3.6B infrastructure isolation; memory WeakMap
-sealing; root-only package exports; existing false readiness diagnostics.
+1. **3.7A** — design documentation (this Build + corrective).
+2. **3.7E0** — subscription route feasibility.
+3. **3.7B** — package-private domain/ports/policies.
+4. **3.7C** — durable SQLite communication foundation.
+5. **3.7D** — orchestrator + offline reference slice.
+6. **3.7E1** — Codex/OpenClaw route only after E0 `PASS`.
+7. **3.7F** — temporary Telegram adapter after gates + encryption live requirement.
+8. Later: files/images → voice → masculine TTS → plans/reminders → private mobile → Telegram
+   removal → read-only eyes → safe hands.
 
-## 11. Implementation sequence
+## 14. Future diagnostics (absent in 3.7A)
 
-1. **3.7A** — this design documentation only (current Build).
-2. **3.7E0** — early subscription route feasibility **before** large implementation spend.
-3. **3.7B** — domain contracts, opaque capabilities, ports, pure policies, boundary rules.
-4. **3.7C** — durable binding, ledger, conversation state, two-phase audit, encrypted-before-live outbox.
-5. **3.7D** — executable orchestrator and offline reference vertical slice.
-6. **3.7E1** — real subscription adapter / local dry-run only after E0 `PASS`.
-7. **3.7F** — temporary owner-only Telegram adapter only after gates and encryption live requirement.
-8. Later: files/images → voice input → masculine voice output → plans/reminders → private mobile app
-   → Telegram removal → read-only eyes → safe hands.
+Not created in this Build: `textCommunicationProductionReady`, `telegramAdapterActivated`,
+`llmProviderActivated`, `oauthSessionConfigured`, `durableReplayStore`,
+`durableCommunicationAudit`, `connectorToolsAttachedToTextAgent`, `openClawRuntimeIntegrated`.
 
-## 12. Future diagnostics (not created in 3.7A)
-
-Design lists future honest flags; **Build 3.7A does not add runtime diagnostic fields**:
-
-- `textCommunicationProductionReady`
-- `telegramAdapterActivated`
-- `llmProviderActivated`
-- `oauthSessionConfigured`
-- `durableReplayStore`
-- `durableCommunicationAudit`
-- `connectorToolsAttachedToTextAgent`
-- `openClawRuntimeIntegrated`
-
-Existing invariants remain false / disabled: `deploymentReady`, `securityApprovalComplete`,
+Existing invariants remain false/disabled: `deploymentReady`, `securityApprovalComplete`,
 `secretProviderConfigured`, `encryptionEnabled`, `durableApprovalPort`, `durableAuditPort`,
 `networkIsolationEnforced`, `apiFallbackEnabled`, `paidFallbackEnabled`.
 
@@ -308,4 +284,3 @@ Existing invariants remain false / disabled: `deploymentReady`, `securityApprova
 - [State machines](text-state-machines.md)
 - [Implementation map](text-implementation-map.md)
 - [Build 3.7A closeout](../validation/build-3.7a-text-communication-design-closeout.md)
-- [Channels](../channels.md), [LLM provider](../llm-provider.md), [Security policy](../security-policy.md)
