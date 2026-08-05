@@ -56,7 +56,16 @@ describe('reference extraction', () => {
 
 describe('allowlist-based layer rules', () => {
   it('accepts a compliant layered fixture', () => {
-    const report = analyzeBoundaries({ rootDir: fixture('allowed') });
+    const report = analyzeBoundaries({ rootDir: fixture('allowed'), requiredLayers: [] });
+    expect(report.violations).toEqual([]);
+    expect(report.filesAnalyzed).toBeGreaterThan(0);
+  });
+
+  it('accepts a compliant communication layered fixture', () => {
+    const report = analyzeBoundaries({
+      rootDir: fixture('communication-allowed'),
+      requiredLayers: [],
+    });
     expect(report.violations).toEqual([]);
     expect(report.filesAnalyzed).toBeGreaterThan(0);
   });
@@ -265,6 +274,13 @@ describe('allowlist-based layer rules', () => {
     ['forbidden-channel-durable-process-lock', 'INTERNAL_MODULE_LEAK'],
     ['forbidden-infra-domain-imports-connector', 'FORBIDDEN_DEPENDENCY'],
     ['forbidden-orchestrator-imports-infrastructure', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-core-telegram-sdk', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-communication-imports-connector', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-communication-imports-infrastructure', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-communication-barrel-via-domain-index', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-communication-barrel-via-ports-index', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-host-imports-telegram-adapter', 'FORBIDDEN_DEPENDENCY'],
+    ['forbidden-communication-principal-internal', 'INTERNAL_MODULE_LEAK'],
   ])('rejects the %s fixture with %s', (name, code) => {
     const report = analyzeBoundaries({ rootDir: fixture(name), requiredLayers: [] });
     expect(codes(report)).toContain(code);

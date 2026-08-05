@@ -101,6 +101,21 @@ describe('public API surface', () => {
       'exactCommandDescriptors',
       'copyStringRecord',
       'validateNpmCliPath',
+      'parseTransportTextObservation',
+      'assembleTextPrompt',
+      'authorizeCommunicationMemoryRead',
+      'evaluateCommunicationKillSwitchSnapshot',
+      'issueAuthenticatedCommunicationPrincipal',
+      'sealFreshObservedAdmissionEvidence',
+      'sealValidatedTextOutput',
+      'isAuthenticatedCommunicationPrincipal',
+      'isValidatedTextOutput',
+      'deriveCommunicationIdempotencyKey',
+      'LEGAL_TRANSITIONS',
+      'COMMUNICATION_TURN_STATES',
+      'createDeterministicNotice',
+      'validateTextOutput',
+      'applyCommunicationKillSwitchPolicy',
     ])
       expect(exportedNames).not.toContain(forbidden);
   });

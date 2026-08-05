@@ -420,6 +420,15 @@ Telegram/LLM, new diagnostics, or production claims. Subscription route feasibil
 future Build **3.7E0**. See
 [closeout record](validation/build-3.7a-text-communication-design-closeout.md).
 
+**Build 3.7B — Communication Offline Contracts (contracts only):**
+Adds package-private `src/core/communication/domain`, `ports`, and `policy` with
+`AuthenticatedCommunicationPrincipal`, memory read authorization boundary, turn ledger/audit/outbox
+port contracts, text prompt/output policies, and boundary validation. **Offline only** — no
+executable runtime, Telegram/LLM adapters, SQLite communication stores, production composition, or
+package-root exports. Build 3.7B status: offline contracts implemented; live runtime absent.
+Build 3.7E1 status: BLOCKED. Build 3.7F status: BLOCKED. Build 3.7B next stage: 3.7C.
+See [3.7B closeout](validation/build-3.7b-communication-contracts-closeout.md).
+
 Связанные документы: [text communication](communication/text-architecture.md),
 [расширяемость](extensibility.md), [интеграции](integrations.md),
 [VoiceProfile](voice-profile.md), [каналы](channels.md), [безопасность](security-policy.md),

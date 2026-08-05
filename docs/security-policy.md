@@ -496,3 +496,13 @@ spend requires account-level prerequisites. Builds 3.7B–D remain offline-only 
 [text trust model](communication/text-trust-and-threat-model.md),
 [3.7A closeout](validation/build-3.7a-text-communication-design-closeout.md), and
 [3.7E0 closeout](validation/build-3.7e0-subscription-route-feasibility.md).
+
+## Text communication contracts (Build 3.7B)
+
+Build 3.7B implements **offline-only** package-private contracts under `src/core/communication/`.
+`AuthenticatedCommunicationPrincipal` uses WeakMap-only trust; issuer/sealer modules stay in
+`.internal.ts` with explicit allowlists. Communication memory reads are brokered read-only (personal
+namespace, no write/delete). Live Telegram/provider routes, durable stores, and executable runtime
+remain absent. Build 3.7B status: offline contracts implemented; live runtime absent.
+Build 3.7E1 status: BLOCKED. Build 3.7F status: BLOCKED. Build 3.7B next stage: 3.7C.
+See [3.7B closeout](validation/build-3.7b-communication-contracts-closeout.md).

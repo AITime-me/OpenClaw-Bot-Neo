@@ -1,7 +1,16 @@
 # Neo Text Communication — State Machines
 
 > **Build 3.7A — design only (corrective).** Machines below are normative for future
-> implementation. No durable communication ledger, outbox, or FIFO queue exists today.
+> implementation. **Build 3.7B** implements `LEGAL_TRANSITIONS` and related domain contracts offline;
+> durable ledger storage remains absent.
+
+Build 3.7B status: offline contracts implemented; live runtime absent.
+
+Build 3.7E1 status: BLOCKED
+
+Build 3.7F status: BLOCKED
+
+Build 3.7B next stage: 3.7C
 
 ## 1. Durable turn ledger states
 

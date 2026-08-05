@@ -15,6 +15,21 @@ import ts from 'typescript';
 export const CORE_LAYER_RULES = {
   'core/domain/infrastructure': ['core/domain', 'core/domain/infrastructure'],
   'core/domain': ['core/domain'],
+  'core/communication/domain': ['core/domain', 'core/communication/domain'],
+  'core/communication/ports': [
+    'core/domain',
+    'core/ports',
+    'core/communication/domain',
+    'core/communication/ports',
+  ],
+  'core/communication/policy': [
+    'core/domain',
+    'core/ports',
+    'core/policy',
+    'core/communication/domain',
+    'core/communication/ports',
+    'core/communication/policy',
+  ],
   'core/ports': ['core/domain', 'core/domain/infrastructure', 'core/ports'],
   'core/policy': ['core/domain', 'core/ports', 'core/policy'],
   'core/routing': ['core/domain', 'core/ports', 'core/routing'],
@@ -121,6 +136,9 @@ export const REQUIRED_CORE_LAYERS = [
   'core/policy',
   'core/routing',
   'core/application',
+  'core/communication/domain',
+  'core/communication/ports',
+  'core/communication/policy',
 ];
 
 /**
@@ -263,6 +281,21 @@ export const INTERNAL_MODULE_ALLOWLIST = {
     'core/policy/namespace-isolation.ts',
     'core/application/memory-write.service.ts',
     'core/application/memory-access.gateway.ts',
+  ],
+  /**
+   * Communication principal seal (Build 3.7B). Public verify/redacted helpers re-export from the
+   * public principal module; memory policy and security tests may import the issuer.
+   */
+  'core/communication/domain/authenticated-communication-principal.internal.ts': [
+    'core/communication/domain/index.ts',
+    'core/communication/policy/communication-memory-authorization.ts',
+  ],
+  /**
+   * Validated text-output seal (Build 3.7B). Public view helpers re-export; output policy seals.
+   */
+  'core/communication/domain/text-delivery.internal.ts': [
+    'core/communication/domain/index.ts',
+    'core/communication/policy/text-output-policy.ts',
   ],
   /**
    * POSIX storage-root capability seal (Build 3.3B2B / B3A).

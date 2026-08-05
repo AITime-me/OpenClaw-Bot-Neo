@@ -1,13 +1,13 @@
 # Neo Text Communication — Implementation Map
 
 > **Build 3.7A — design only (corrective).** Paths below are normative for future Builds.
-> Communication runtime modules do not exist today.
+> **Build 3.7B** implements package-private `src/core/communication/{domain,ports,policy}` offline.
 
 ## 1. Implementation sequence (normative)
 
 1. **3.7A** — design documentation (closed; integrated).
 2. **3.7E0** — subscription route feasibility (**closed research**).
-3. **3.7B** — package-private domain, ports, policies, boundary rules (**next**; offline only).
+3. **3.7B** — package-private domain, ports, policies, boundary rules (**closed contracts**; offline only).
 4. **3.7C** — durable SQLite communication foundation (offline only; no live auth).
 5. **3.7D** — application orchestrator and offline reference / fake completion only.
 6. **3.7E1** — Codex/OpenClaw route **BLOCKED** pending capability probe and live gates.
@@ -25,6 +25,10 @@ Build 3.7F status: BLOCKED
 Build 3.7E0 next stage: 3.7B
 
 Build 3.7E0 capability probe: NOT_RUN
+
+Build 3.7B status: offline contracts implemented; live runtime absent.
+
+Build 3.7B next stage: 3.7C
 
 Research executive verdict remains FAIL under the absolute zero-paid-fallback criterion; technical
 subscription route remains PASS; live operational approval remains UNRESOLVED. See

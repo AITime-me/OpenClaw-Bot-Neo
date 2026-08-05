@@ -9,6 +9,11 @@ ingress loop и trusted channel envelope **нет**.
 **Build 3.7A (design-only):** целевая модель текстового vertical slice зафиксирована в
 [docs/communication/](communication/text-architecture.md). Реализация отсутствует.
 
+**Build 3.7B (contracts only):** package-private offline contracts в `src/core/communication/`.
+Исполняемый runtime, Telegram-адаптер и durable stores отсутствуют. Build 3.7B next stage: 3.7C.
+Build 3.7E1 status: BLOCKED. Build 3.7F status: BLOCKED.
+См. [3.7B closeout](validation/build-3.7b-communication-contracts-closeout.md).
+
 ## Целевой контракт (Build 3.7A)
 
 Transport adapter (временный Telegram **или** будущий private mobile messenger) остаётся

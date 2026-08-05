@@ -39,7 +39,10 @@ if (failures.length > 0) {
 }
 
 /** Detect transferable Symbol-brand trust markers in security evidence modules. */
-const evidenceFiles = listFiles('src/core/domain').filter((path) => path.endsWith('.internal.ts'));
+const evidenceFiles = [
+  ...listFiles('src/core/domain'),
+  ...listFiles('src/core/communication'),
+].filter((path) => path.endsWith('.internal.ts'));
 const symbolBrand =
   /(?:Brand\s*=\s*Symbol\b|Symbol\s*\(\s*['"`][^'"`]*[Bb]rand|\[\s*[A-Za-z0-9_]*[Bb]rand\s*\]\s*:)/;
 for (const file of evidenceFiles) {

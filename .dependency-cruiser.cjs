@@ -20,6 +20,48 @@ module.exports = {
     layer('config-depends-on-domain-and-routing', 'config', ['domain', 'routing', 'config']),
     layer('runtime-is-isolated', 'runtime', ['runtime']),
     {
+      name: 'communication-domain-pure',
+      severity: 'error',
+      comment: 'Communication domain may depend only on core domain and itself.',
+      from: { path: '^src/core/communication/domain' },
+      to: {
+        path: '^src/',
+        pathNot: '^src/core/(domain|communication/domain)',
+      },
+    },
+    {
+      name: 'communication-ports-depend-on-allowed-only',
+      severity: 'error',
+      comment:
+        'Communication ports may depend on core domain/ports and communication domain/ports.',
+      from: { path: '^src/core/communication/ports' },
+      to: {
+        path: '^src/',
+        pathNot: '^src/core/(domain|ports|communication/(domain|ports))',
+      },
+    },
+    {
+      name: 'communication-policy-depend-on-allowed-only',
+      severity: 'error',
+      comment:
+        'Communication policy may depend on core domain/ports/policy and communication domain/ports/policy.',
+      from: { path: '^src/core/communication/policy' },
+      to: {
+        path: '^src/',
+        pathNot: '^src/core/(domain|ports|policy|communication/(domain|ports|policy))',
+      },
+    },
+    {
+      name: 'communication-no-connectors-infrastructure-host',
+      severity: 'error',
+      comment:
+        'Communication contracts must not import connectors, infrastructure, host, or adapters.',
+      from: { path: '^src/core/communication' },
+      to: {
+        path: '^src/(connectors|infrastructure|host|communication/adapters|neo-runtime)',
+      },
+    },
+    {
       name: 'application-depends-on-core-only',
       severity: 'error',
       comment:
@@ -139,7 +181,7 @@ module.exports = {
       },
       to: {
         path: '^src/',
-        pathNot: '^src/core/(domain|ports|policy|routing|config|runtime|application)',
+        pathNot: '^src/core/(domain|ports|policy|routing|config|runtime|application|communication)',
       },
     },
     {
@@ -368,7 +410,7 @@ module.exports = {
       comment: 'Only the sealing owners may import a *.internal module.',
       from: {
         pathNot:
-          '^src/(core/(domain/(index|extension-permission|extension-registry-entry|extension-registry-entry\\.internal|sanitized\\.internal|verified-memory-write-guard)\\.ts|policy/(confirmation-gate|extension-manifest|extension-permissions|namespace-isolation|voice-profile|webhook-ingress|memory-secret-boundary)\\.ts|application/(memory-write\\.service|memory-access\\.gateway|extension-registration\\.service|extension-activation\\.service|extension-activation\\.gateway|runtime-risk-classification\\.service|extension-permission\\.gateway|voice-resolution\\.gateway|webhook-ingress\\.service)\\.ts)|host/storage/runtime/(open-posix-storage-root|posix-storage-root-resolve\\.internal|posix-storage-root-lease\\.internal)\\.ts)$',
+          '^src/(core/(domain/(index|extension-permission|extension-registry-entry|extension-registry-entry\\.internal|sanitized\\.internal|verified-memory-write-guard)\\.ts|policy/(confirmation-gate|extension-manifest|extension-permissions|namespace-isolation|voice-profile|webhook-ingress|memory-secret-boundary)\\.ts|application/(memory-write\\.service|memory-access\\.gateway|extension-registration\\.service|extension-activation\\.service|extension-activation\\.gateway|runtime-risk-classification\\.service|extension-permission\\.gateway|voice-resolution\\.gateway|webhook-ingress\\.service)\\.ts|communication/(domain/index\\.ts|policy/(communication-memory-authorization|text-output-policy)\\.ts))|host/storage/runtime/(open-posix-storage-root|posix-storage-root-resolve\\.internal|posix-storage-root-lease\\.internal)\\.ts)$',
       },
       to: {
         path: '\\.internal\\.ts$',

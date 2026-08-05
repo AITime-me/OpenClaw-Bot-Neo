@@ -372,6 +372,12 @@ Build 3.7E0 next stage: 3.7B
 
 See [3.7E0 closeout](docs/validation/build-3.7e0-subscription-route-feasibility.md).
 
+**Build 3.7B (Communication Offline Contracts):** package-private contracts under
+`src/core/communication/` (domain, ports, policy). Offline only — no executable runtime, adapters,
+SQLite stores, or root exports. Build 3.7B status: offline contracts implemented; live runtime absent.
+Build 3.7E1 status: BLOCKED. Build 3.7F status: BLOCKED. Build 3.7B next stage: 3.7C.
+See [3.7B closeout](docs/validation/build-3.7b-communication-contracts-closeout.md).
+
 Проверка ядра: `npm run check` с `OPENCLAW_PRODUCTION_NODE_GATE=1` — strict production Node gate
 (override запрещён). Review/tooling runner может использовать `OPENCLAW_REVIEW_NODE_OVERRIDE=1`
 только для локального tooling вне production gate; это не замена verified Node 22.13.0 PASS.

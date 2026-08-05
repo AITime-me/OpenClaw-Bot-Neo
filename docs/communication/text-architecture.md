@@ -5,7 +5,18 @@
 > LLM route, production readiness, or security approval.
 >
 > Verified foundation baseline: Build 3.6B integrated; Build 3.7A design base `b662376`.
-> Text communication runtime code is **absent**.
+> Text communication runtime code is **absent** for live adapters; **Build 3.7B** adds offline-only
+> package-private contracts under `src/core/communication/` (no executable runtime).
+
+**Build 3.7B status:** offline contracts implemented; live runtime absent.
+
+Build 3.7E1 status: BLOCKED
+
+Build 3.7F status: BLOCKED
+
+Build 3.7B next stage: 3.7C
+
+See [3.7B closeout](../validation/build-3.7b-communication-contracts-closeout.md).
 
 ## 1. Executive design
 

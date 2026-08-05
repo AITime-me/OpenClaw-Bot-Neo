@@ -156,6 +156,17 @@
 - Acceptance of live text chat requires later implementation Builds, capability probe, encryption
   gate, and independent review; 3.7A/3.7E0 alone do not satisfy channel/LLM runtime acceptance.
 
+## Text communication (Build 3.7B contracts)
+
+- Package-private `src/core/communication/` domain/ports/policy contracts implemented offline only.
+- Principal, memory authorization boundary, ledger/audit/outbox port shapes, prompt/output policies.
+- No executable runtime, adapters, SQLite communication stores, or package-root exports.
+- Build 3.7B status: offline contracts implemented; live runtime absent.
+- Build 3.7E1 status: BLOCKED
+- Build 3.7F status: BLOCKED
+- Build 3.7B next stage: 3.7C
+- See [3.7B closeout](validation/build-3.7b-communication-contracts-closeout.md).
+
 ## Deployment
 
 - Bot VPS TimeWeb Cloud — **planned** (не куплен, not deployed); целевая модель: отделение от российского production; только outbound read-only к allowlisted systems, reverse trust отсутствует.

@@ -78,6 +78,12 @@ Build 3.7F status: BLOCKED
 
 Build 3.7E0 next stage: 3.7B
 
+**Build 3.7B (offline contracts):** `LlmCompletionPort` contract and related communication policies
+are implemented package-private under `src/core/communication/`. No live model calls, provider adapter,
+or root exports. Build 3.7B status: offline contracts implemented; live runtime absent.
+Build 3.7E1 status: BLOCKED. Build 3.7F status: BLOCKED. Build 3.7B next stage: 3.7C.
+See [3.7B closeout](validation/build-3.7b-communication-contracts-closeout.md).
+
 Additional norms:
 
 - existing ChatGPT/Codex credits may be consumed;
