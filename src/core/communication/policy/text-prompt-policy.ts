@@ -194,7 +194,7 @@ const scanSection = async (
       code: 'SECRET_SCAN_UNAVAILABLE',
       reason: 'Sensitive data scanner is unavailable.',
     });
-  if (scanned.value.decision === 'deny')
+  if (scanned.value.decision !== 'allow' || scanned.value.findings.length > 0)
     return err({
       code: 'REJECTED',
       reason: 'Sensitive data scan rejected prompt section content.',

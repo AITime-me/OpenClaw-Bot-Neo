@@ -143,12 +143,22 @@ export type {
   LlmCompletionRequest,
   LlmCompletionResult,
   LlmCompletionSuccess,
+  LlmFailureDisposition,
+  LlmKnownFailureOutcome,
+  LlmNoticeEligibleFailureOutcome,
+  LlmNoticeIneligibleFailureOutcome,
 } from './llm-completion.js';
 export {
   LLM_COMPLETION_OUTCOMES,
+  LLM_NOTICE_ELIGIBLE_FAILURE_OUTCOMES,
+  LLM_NOTICE_INELIGIBLE_FAILURE_OUTCOMES,
+  classifyLlmFailureDisposition,
   isLlmCompletionOutcome,
+  isLlmNoticeEligibleFailureOutcome,
+  isLlmNoticeIneligibleFailureOutcome,
   llmOutcomeAllowsDeterministicNotice,
   llmOutcomeForbidsAutomaticRetry,
+  llmOutcomeForbidsDelivery,
   llmOutcomeForbidsDeterministicNotice,
 } from './llm-completion.js';
 

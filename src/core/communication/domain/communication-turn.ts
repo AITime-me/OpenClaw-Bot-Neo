@@ -94,7 +94,7 @@ const legalTransitions = {
   accepted: ['queued'],
   queued: ['llm_started', 'cancelled'],
   llm_started: ['llm_completed', 'llm_known_failed', 'cancelled'],
-  llm_known_failed: ['deterministic_notice_prepared'],
+  llm_known_failed: ['deterministic_notice_prepared', 'completed'],
   deterministic_notice_prepared: ['output_validated'],
   llm_completed: ['output_validated'],
   output_validated: ['delivery_started'],

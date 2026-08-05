@@ -7,7 +7,11 @@ import {
 import { TEXT_PROMPT_SECTION_KINDS } from '../../src/core/communication/domain/index.js';
 import { parseConversationId } from '../../src/core/communication/domain/index.js';
 import { parseOwnerId, parsePolicyVersion } from '../../src/core/domain/index.js';
-import { fakeSensitiveDataScanner } from './support/fake-scanner.js';
+import {
+  fakeSensitiveDataScanner,
+  sampleSensitiveFinding,
+  unavailableSensitiveDataScanner,
+} from './support/fake-scanner.js';
 import { asOwner, operationContext } from '../support/fixtures.js';
 
 describe('text prompt policy', () => {
@@ -31,7 +35,7 @@ describe('text prompt policy', () => {
     };
   };
 
-  it('assembles exactly five sections in normative order', async () => {
+  it('assembles exactly five sections when scanner allows with empty findings', async () => {
     const result = await assembleTextPrompt(
       baseInput(),
       fakeSensitiveDataScanner('allow'),
@@ -60,5 +64,32 @@ describe('text prompt policy', () => {
       operationContext(),
     );
     expect(result.kind).toBe('rejected');
+  });
+
+  it('rejects prompt assembly when scanner returns redact', async () => {
+    const result = await assembleTextPrompt(
+      baseInput(),
+      fakeSensitiveDataScanner('redact', 'redacted-text', [sampleSensitiveFinding()]),
+      operationContext(),
+    );
+    expect(result.kind).toBe('rejected');
+  });
+
+  it('rejects prompt assembly when scanner allows but findings are present', async () => {
+    const result = await assembleTextPrompt(
+      baseInput(),
+      fakeSensitiveDataScanner('allow', 'unused', [sampleSensitiveFinding()]),
+      operationContext(),
+    );
+    expect(result.kind).toBe('rejected');
+  });
+
+  it('fails closed when the scanner is unavailable', async () => {
+    const result = await assembleTextPrompt(
+      baseInput(),
+      unavailableSensitiveDataScanner(),
+      operationContext(),
+    );
+    expect(result.kind).toBe('scanner-unavailable');
   });
 });

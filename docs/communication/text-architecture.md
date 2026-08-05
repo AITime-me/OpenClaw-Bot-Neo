@@ -217,7 +217,7 @@ functions, connector/infrastructure registries, shell, or arbitrary recipient.
 
 ### Deterministic notice (not a model response)
 
-Legal path:
+Notice-eligible legal path:
 
 ```text
 llm_started
@@ -229,8 +229,15 @@ llm_started
 → completed
 ```
 
-Allowed only for **known** outcomes (e.g. provider unavailable, known timeout, known cancellation
-before result when policy permits).
+Notice-ineligible known failures complete without notice or delivery:
+
+```text
+llm_started → llm_known_failed → completed
+```
+
+Allowed notice only for **notice-eligible** known outcomes (provider / quota unavailable, known
+timeout, cancelled-before-invocation when policy permits). Policy-rejected and invalid-response
+must not prepare a notice; outcome-unknown must not either.
 
 **Forbidden** when: `LLM_OUTCOME_UNKNOWN` (deterministic notice is **forbidden** on
 `LLM_OUTCOME_UNKNOWN`); uncertain timeout/cancellation outcome; audit failure;

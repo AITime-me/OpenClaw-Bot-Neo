@@ -85,8 +85,9 @@ admission — never before atomic observed admission.
 | accepted | queued | FIFO accept under depth/global limits |
 | queued | llm_started | snapshot allows LLM; audit start recorded |
 | llm_started | llm_completed | provider returned bounded completion |
-| llm_started | llm_known_failed | known unavailable / known timeout / known cancel-before-result |
-| llm_known_failed | deterministic_notice_prepared | notice policy + audit/delivery/scanner/ledger OK |
+| llm_started | llm_known_failed | known failure (notice-eligible or notice-ineligible) |
+| llm_known_failed | deterministic_notice_prepared | notice-eligible only: unavailable / timeout / cancel-before-result |
+| llm_known_failed | completed | notice-ineligible known failures: policy-rejected / invalid-response (no delivery) |
 | llm_completed | output_validated | outbound checks pass |
 | deterministic_notice_prepared | output_validated | same outbound checks + scans |
 | output_validated | delivery_started | delivery enabled; outbox accepted |
@@ -102,6 +103,8 @@ admission — never before atomic observed admission.
 - second fresh turn for duplicate `CommunicationIdempotencyKey`
 - `llm_completed → llm_started` automatic retry after `LLM_OUTCOME_UNKNOWN`
 - `llm_started → deterministic_notice_prepared` when outcome is unknown
+- `llm_known_failed → delivery_started` (notice-ineligible failures must not deliver)
+- notice preparation for `policy-rejected` / `invalid-response` / `outcome-unknown`
 - `delivery_outcome_unknown → delivery_started` automatic resend
 - `delivered → delivery_failed` rewrite after success
 - any transition that enables tools/connectors from model output
@@ -112,7 +115,8 @@ admission — never before atomic observed admission.
 |---------------------|---------------|
 | `accepted` / `queued` | May restore and continue under current kill-switch snapshot. |
 | `llm_started` without completion | Record `LLM_OUTCOME_UNKNOWN`; **no automatic** model re-invoke; deterministic notice **forbidden**. |
-| `llm_known_failed` / `deterministic_notice_prepared` | May continue notice/delivery path if statuses allow; no LLM re-invoke. |
+| `llm_known_failed` | Notice-eligible → may continue notice/delivery; notice-ineligible → complete without delivery; no LLM re-invoke. |
+| `deterministic_notice_prepared` | May continue notice/delivery path if statuses allow; no LLM re-invoke. |
 | `delivery_started` without outcome | Record `DELIVERY_OUTCOME_UNKNOWN`; **no automatic** resend. |
 | `delivered` + `checkpointStatus=failed` | Keep delivered; reconcile checkpoint only; no LLM/delivery replay. |
 | `delivered` | Remains delivered; idempotent completion-audit retry allowed. |
@@ -179,9 +183,11 @@ It does **not** require successful delivery, checkpoint, or completion audit.
 
 ## 11. Deterministic notice constraints
 
-Allowed only for known LLM failures with audit, delivery, scanner, and ledger available and config
+Allowed only for **notice-eligible** known LLM failures (provider / quota unavailable, known timeout,
+cancelled-before-invocation) when audit, delivery, scanner, and ledger are available and config is
 valid. Must traverse `output_validated` → `delivery_started` → delivery taxonomy → `completed`.
-Not a model response; not API/provider fallback.
+Notice-ineligible known failures (`policy-rejected`, `invalid-response`) complete without notice or
+delivery. Outcome-unknown must not receive a notice. Not a model response; not API/provider fallback.
 
 ## 12. Conversation pause / reconciliation
 
