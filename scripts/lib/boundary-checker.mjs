@@ -285,17 +285,36 @@ export const INTERNAL_MODULE_ALLOWLIST = {
   /**
    * Communication principal seal (Build 3.7B). Public verify/redacted helpers re-export from the
    * public principal module; memory policy and security tests may import the issuer.
+   * Persistence facades may seal admission evidence / read claims (Build 3.7C0).
    */
   'core/communication/domain/authenticated-communication-principal.internal.ts': [
     'core/communication/domain/index.ts',
     'core/communication/policy/communication-memory-authorization.ts',
+    'core/communication/domain/authenticated-communication-principal.persistence.internal.ts',
+    'core/communication/domain/fresh-observed-admission-evidence.persistence.internal.ts',
   ],
   /**
    * Validated text-output seal (Build 3.7B). Public view helpers re-export; output policy seals.
+   * Persistence facade may verify and read offline-outbox plaintext (Build 3.7C0).
    */
   'core/communication/domain/text-delivery.internal.ts': [
     'core/communication/domain/index.ts',
     'core/communication/policy/text-output-policy.ts',
+    'core/communication/domain/validated-text-output.persistence.internal.ts',
+  ],
+  /**
+   * Narrow persistence facades (Build 3.7C0). Exact offline SQLite communication factory only.
+   * No wildcards; sibling host/runtime/adapter/barrel importers remain forbidden.
+   * Factory module is deferred to Build 3.7C implementation.
+   */
+  'core/communication/domain/fresh-observed-admission-evidence.persistence.internal.ts': [
+    'host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts',
+  ],
+  'core/communication/domain/authenticated-communication-principal.persistence.internal.ts': [
+    'host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts',
+  ],
+  'core/communication/domain/validated-text-output.persistence.internal.ts': [
+    'host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts',
   ],
   /**
    * POSIX storage-root capability seal (Build 3.3B2B / B3A).

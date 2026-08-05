@@ -410,13 +410,26 @@ module.exports = {
       comment: 'Only the sealing owners may import a *.internal module.',
       from: {
         pathNot:
-          '^src/(core/(domain/(index|extension-permission|extension-registry-entry|extension-registry-entry\\.internal|sanitized\\.internal|verified-memory-write-guard)\\.ts|policy/(confirmation-gate|extension-manifest|extension-permissions|namespace-isolation|voice-profile|webhook-ingress|memory-secret-boundary)\\.ts|application/(memory-write\\.service|memory-access\\.gateway|extension-registration\\.service|extension-activation\\.service|extension-activation\\.gateway|runtime-risk-classification\\.service|extension-permission\\.gateway|voice-resolution\\.gateway|webhook-ingress\\.service)\\.ts|communication/(domain/index\\.ts|policy/(communication-memory-authorization|text-output-policy)\\.ts))|host/storage/runtime/(open-posix-storage-root|posix-storage-root-resolve\\.internal|posix-storage-root-lease\\.internal)\\.ts)$',
+          '^src/(core/(domain/(index|extension-permission|extension-registry-entry|extension-registry-entry\\.internal|sanitized\\.internal|verified-memory-write-guard)\\.ts|policy/(confirmation-gate|extension-manifest|extension-permissions|namespace-isolation|voice-profile|webhook-ingress|memory-secret-boundary)\\.ts|application/(memory-write\\.service|memory-access\\.gateway|extension-registration\\.service|extension-activation\\.service|extension-activation\\.gateway|runtime-risk-classification\\.service|extension-permission\\.gateway|voice-resolution\\.gateway|webhook-ingress\\.service)\\.ts|communication/(domain/(index|fresh-observed-admission-evidence\\.persistence\\.internal|authenticated-communication-principal\\.persistence\\.internal|validated-text-output\\.persistence\\.internal)\\.ts|policy/(communication-memory-authorization|text-output-policy)\\.ts))|host/storage/runtime/(open-posix-storage-root|posix-storage-root-resolve\\.internal|posix-storage-root-lease\\.internal)\\.ts)$',
       },
       to: {
         path: '\\.internal\\.ts$',
-        // Resolve facade: exact SQLite factory. Lease facade: exact SQLite factory and
-        // exact process-lock factory (see lease-facade-importers-only).
-        pathNot: '^src/host/storage/runtime/posix-storage-root-(resolve|lease)\\.internal\\.ts$',
+        // Resolve/lease facades and communication persistence facades have dedicated importer rules.
+        pathNot:
+          '^src/(host/storage/runtime/posix-storage-root-(resolve|lease)\\.internal\\.ts|core/communication/domain/(fresh-observed-admission-evidence|authenticated-communication-principal|validated-text-output)\\.persistence\\.internal\\.ts)$',
+      },
+    },
+    {
+      name: 'communication-persistence-facade-importers-only',
+      severity: 'error',
+      comment:
+        'Only the exact offline SQLite communication factory may import communication persistence facades.',
+      from: {
+        pathNot:
+          '^src/host/storage/sqlite/communication/create-offline-sqlite-communication-ports\\.ts$',
+      },
+      to: {
+        path: '^src/core/communication/domain/(fresh-observed-admission-evidence|authenticated-communication-principal|validated-text-output)\\.persistence\\.internal\\.ts$',
       },
     },
     {

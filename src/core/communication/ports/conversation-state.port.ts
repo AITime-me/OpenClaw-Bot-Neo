@@ -4,6 +4,7 @@ import type { Result } from '../../domain/result.js';
 import type { ConversationRevision } from '../domain/communication-identity.js';
 import type {
   CommunicationError,
+  ConversationCheckpointMetadataStatus,
   ConversationId,
   ConversationStateSnapshot,
 } from '../domain/index.js';
@@ -32,6 +33,13 @@ export type ConversationStateCheckpointOutcome =
   | { readonly kind: 'stale-revision' }
   | { readonly kind: 'unavailable'; readonly reason: string };
 
+/**
+ * Checkpoint reconciliation command.
+ * Fingerprint is computed inside the port implementation — callers do not supply it.
+ * Eligible only for pending → succeeded and failed → succeeded.
+ * Must not create a snapshot, mutate context/summary/pause state, invoke LLM/delivery/memory/audit.
+ * Successful reconcile increments revision by 1.
+ */
 export interface ConversationStateReconcileCheckpointCommand {
   readonly key: ConversationStateKey;
   readonly expectedRevision: ConversationRevision;
@@ -42,8 +50,25 @@ export interface ConversationStateReconcileCheckpointCommand {
 export type ConversationStateReconcileCheckpointOutcome =
   | { readonly kind: 'reconciled' }
   | { readonly kind: 'already-reconciled' }
+  | { readonly kind: 'not-found' }
+  | { readonly kind: 'not-eligible' }
   | { readonly kind: 'stale-revision' }
+  | { readonly kind: 'idempotency-conflict' }
   | { readonly kind: 'unavailable'; readonly reason: string };
+
+/** Statuses eligible for reconcileCheckpoint (target is always succeeded). */
+export const CONVERSATION_CHECKPOINT_RECONCILE_ELIGIBLE_FROM = Object.freeze([
+  'pending',
+  'failed',
+] as const);
+
+export type ConversationCheckpointReconcileEligibleFrom =
+  (typeof CONVERSATION_CHECKPOINT_RECONCILE_ELIGIBLE_FROM)[number];
+
+export const isConversationCheckpointReconcileEligible = (
+  status: ConversationCheckpointMetadataStatus,
+): status is ConversationCheckpointReconcileEligibleFrom =>
+  status === 'pending' || status === 'failed';
 
 /** Durable conversation checkpoint boundary — separate from memory, ledger, audit, outbox, delivery. */
 export interface ConversationStatePort {

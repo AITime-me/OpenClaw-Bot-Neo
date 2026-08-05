@@ -111,6 +111,19 @@ admission — never before atomic observed admission.
 
 ## 4. Restart recovery
 
+Recovery candidates are listed via `listRecoveryCandidates` with:
+
+- `states` length **1..16**;
+- `limit` **1..100**;
+- invalid bounds → `CONFIG_INVALID`;
+- ordering: `updatedAt`, `observedAt`, `turnId`.
+
+Each `CommunicationRecoveryCandidate` includes `turnId`, nullable
+`correlationId`/`ownerId`/`conversationId`, `observedAt`/`updatedAt`, nullable
+`llmOutcome`/`errorCode`, `CommunicationTurnRecord`, and a non-empty `recoveryReasons` list.
+Candidates do **not** contain authority, principal, admission evidence, output capability, payload,
+or recipient, and do **not** authorize LLM, delivery, or resend.
+
 | Prior durable state | After restart |
 |---------------------|---------------|
 | `accepted` / `queued` | May restore and continue under current kill-switch snapshot. |
@@ -163,7 +176,9 @@ It does **not** require successful delivery, checkpoint, or completion audit.
 - `checkpointStatus=failed`;
 - conversation paused/degraded;
 - no ordinary next turn on stale context;
-- idempotent checkpoint reconciliation only;
+- idempotent checkpoint reconciliation only (`pending|failed → succeeded`);
+- reconcile does not create snapshots or mutate context/summary/pause; revision +1; fingerprint
+  inside port; no LLM/delivery/memory/audit side effects;
 - then idempotent completion-audit retry;
 - no LLM re-call; no delivery resend;
 - delivered fact never rewritten to not-delivered;

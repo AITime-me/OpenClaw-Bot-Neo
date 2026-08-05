@@ -122,6 +122,23 @@ export {
 } from './communication-turn.js';
 
 export type {
+  CommunicationRecoveryCandidate,
+  CommunicationRecoveryCandidateListOutcome,
+  CommunicationRecoveryCandidateQuery,
+  CommunicationRecoveryReason,
+} from './communication-recovery.js';
+export {
+  COMMUNICATION_RECOVERY_CANDIDATE_ORDER,
+  COMMUNICATION_RECOVERY_REASONS,
+  MAX_COMMUNICATION_RECOVERY_LIMIT,
+  MAX_COMMUNICATION_RECOVERY_STATE_COUNT,
+  MIN_COMMUNICATION_RECOVERY_LIMIT,
+  MIN_COMMUNICATION_RECOVERY_STATE_COUNT,
+  isCommunicationRecoveryReason,
+  validateCommunicationRecoveryCandidateQuery,
+} from './communication-recovery.js';
+
+export type {
   TextPrompt,
   TextPromptAssemblyInput,
   TextPromptMemoryExcerpt,

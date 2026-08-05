@@ -506,3 +506,16 @@ namespace, no write/delete). Live Telegram/provider routes, durable stores, and 
 remain absent. Build 3.7B status: offline contracts implemented; live runtime absent.
 Build 3.7E1 status: BLOCKED. Build 3.7F status: BLOCKED. Build 3.7B next stage: 3.7C.
 See [3.7B closeout](validation/build-3.7b-communication-contracts-closeout.md).
+
+## Text communication persistence decisions (Build 3.7C0)
+
+Build 3.7C0 records offline persistence contracts before SQLite implementation: indefinite retention
+for turn/dedup/sequence/factual/audit/checkpoint/outbox-tombstone rows; conversation snapshot-only;
+outbox plaintext TTL ≤ 24h with logical scrub; immutable delivery-outcome-unknown; VACUUM/compaction/
+production cleanup forbidden; `forensicEraseGuaranteed=false`. Recovery candidates and
+`reconcileCheckpoint` outcomes are expanded. Narrow `*.persistence.internal.ts` facades are
+allowlisted only for the future exact
+`createOfflineSqliteCommunicationPorts` factory. SQLite schema/runtime/adapters remain absent.
+Build 3.7C0 mode: OFFLINE_ONLY. LIVE_ENCRYPTION: NOT_IMPLEMENTED.
+Build 3.7E1 status: BLOCKED. Build 3.7F status: BLOCKED. Next stage: 3.7C_IMPLEMENTATION.
+See [3.7C0 decisions](validation/build-3.7c0-communication-persistence-decisions.md).

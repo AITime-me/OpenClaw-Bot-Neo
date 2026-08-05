@@ -23,6 +23,9 @@ const forbiddenCommunicationExports = [
   'getAuthenticatedCommunicationPrincipalCanonical',
   'principalRegistry',
   'validatedTextOutputRegistry',
+  'readCommunicationPrincipalPersistenceClaims',
+  'readValidatedTextOutputPlaintextForOfflineOutbox',
+  'createOfflineSqliteCommunicationPorts',
 ] as const;
 
 const assertNoCommunicationLeak = (exported: readonly string[], label: string): void => {
@@ -62,7 +65,7 @@ describe('communication public API isolation', () => {
     assertNoCommunicationLeak(Object.keys(applicationBarrel), 'core/application barrel');
   });
 
-  it('keeps issuer, sealer, and internal registries unavailable on the package root', () => {
+  it('keeps issuer, sealer, persistence facades, and internal registries unavailable on the package root', () => {
     const root = publicApi as Record<string, unknown>;
     expect(root.issueAuthenticatedCommunicationPrincipal).toBeUndefined();
     expect(root.sealFreshObservedAdmissionEvidence).toBeUndefined();
@@ -70,5 +73,20 @@ describe('communication public API isolation', () => {
     expect(root.getAuthenticatedCommunicationPrincipalCanonical).toBeUndefined();
     expect(root.principalRegistry).toBeUndefined();
     expect(root.validatedTextOutputRegistry).toBeUndefined();
+    expect(root.readCommunicationPrincipalPersistenceClaims).toBeUndefined();
+    expect(root.readValidatedTextOutputPlaintextForOfflineOutbox).toBeUndefined();
+    expect(root.createOfflineSqliteCommunicationPorts).toBeUndefined();
+  });
+
+  it('does not expose persistence facade modules as package-root reachable paths', () => {
+    expect(
+      existsSync(
+        join(
+          process.cwd(),
+          'src/host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts',
+        ),
+      ),
+    ).toBe(false);
+    expect(existsSync(join(process.cwd(), 'src/core/communication/index.ts'))).toBe(false);
   });
 });

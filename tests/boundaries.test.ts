@@ -281,6 +281,12 @@ describe('allowlist-based layer rules', () => {
     ['forbidden-communication-barrel-via-ports-index', 'FORBIDDEN_DEPENDENCY'],
     ['forbidden-host-imports-telegram-adapter', 'FORBIDDEN_DEPENDENCY'],
     ['forbidden-communication-principal-internal', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-communication-persistence-sibling-host', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-communication-persistence-runtime', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-communication-persistence-adapter', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-communication-persistence-barrel', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-communication-original-internal-direct', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-communication-text-delivery-internal', 'INTERNAL_MODULE_LEAK'],
   ])('rejects the %s fixture with %s', (name, code) => {
     const report = analyzeBoundaries({ rootDir: fixture(name), requiredLayers: [] });
     expect(codes(report)).toContain(code);

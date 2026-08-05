@@ -184,12 +184,35 @@ When delivery is confirmed but conversation checkpoint write fails:
 - conversation enters **paused/degraded**;
 - next ordinary turn must **not** execute on stale context;
 - only idempotent checkpoint reconciliation is allowed;
+- `reconcileCheckpoint` may transition only `pending → succeeded` or `failed → succeeded`;
+- reconciliation does not create a snapshot, mutate context/summary/pause state, or call
+  LLM/delivery/memory/audit; fingerprint is computed inside the port; revision increments by 1;
 - after checkpoint reconciliation, idempotent completion-audit retry is allowed;
 - LLM is **not** re-invoked;
 - delivery is **not** re-executed;
 - delivered reply is **never** rewritten to failure/not-delivered;
 - completion audit, when available, must honestly record checkpoint failure;
 - error category: `CONVERSATION_CHECKPOINT_FAILED`.
+
+## 7A. Persistence retention (Build 3.7C0)
+
+- Turn rows, dedup tombstones, sequence counters, factual history, audit, checkpoint operations, and
+  outbox tombstones are retained indefinitely.
+- Conversation state keeps only the current snapshot.
+- Offline outbox plaintext TTL is at most 24 hours (`maxOutboxTtlMs=86400000`) and is logically
+  scrubbed after expiry (on open and before every outbox method).
+- `delivery_outcome_unknown` remains immutable; automatic resend is forbidden.
+- Automatic VACUUM, compaction, and production cleanup are forbidden.
+- Diagnostics fix `forensicEraseGuaranteed=false`.
+
+## 7B. Offline plaintext boundary (Build 3.7C0)
+
+Future package-private factory `createOfflineSqliteCommunicationPorts` (exact module
+`host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts`) may use plaintext
+outbox/state only offline with fixed flags:
+`livePersistenceAllowed=false`, `encryptionEnabled=false`, `deliveryExecutionAvailable=false`,
+`automaticResendAvailable=false`, `productionWired=false`. Caller booleans are not encryption
+evidence. Live factory is not implemented in 3.7C0.
 
 ### Meaning of terminal `completed`
 

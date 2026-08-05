@@ -30,14 +30,26 @@ if (!existsSync(communicationRoot)) {
       failures.push(`MISSING_TREE: ${tree} is required and must contain TypeScript files.`);
   }
 
+  const requiredPersistenceFacades = [
+    'src/core/communication/domain/fresh-observed-admission-evidence.persistence.internal.ts',
+    'src/core/communication/domain/authenticated-communication-principal.persistence.internal.ts',
+    'src/core/communication/domain/validated-text-output.persistence.internal.ts',
+  ];
+  for (const facade of requiredPersistenceFacades) {
+    if (!existsSync(facade))
+      failures.push(`MISSING_PERSISTENCE_FACADE: ${facade} is required for Build 3.7C0.`);
+  }
+
   const forbiddenTrees = [
     'src/core/communication/application',
     'src/communication',
     'src/core/communication/runtime',
     'src/core/communication/adapters',
+    'src/host/storage/sqlite/communication',
   ];
   for (const tree of forbiddenTrees) {
-    if (existsSync(tree)) failures.push(`FORBIDDEN_TREE: ${tree} must not exist in Build 3.7B.`);
+    if (existsSync(tree))
+      failures.push(`FORBIDDEN_TREE: ${tree} must not exist before Build 3.7C implementation.`);
   }
 
   if (existsSync('src/core/communication/index.ts'))
@@ -66,16 +78,13 @@ if (!existsSync(communicationRoot)) {
   const domainBarrel = 'src/core/communication/domain/index.ts';
   if (existsSync(domainBarrel)) {
     const barrel = readFileSync(domainBarrel, 'utf8');
-    if (/from\s+['"].*\.internal/.test(barrel) === false) {
-      /* domain barrel may import verify helpers from .internal; issuer/sealer names remain forbidden */
-    }
     if (
-      /issueAuthenticatedCommunicationPrincipal|sealFreshObservedAdmissionEvidence|principalRegistry|sealValidatedTextOutput|validatedOutputRegistry|getAuthenticatedCommunicationPrincipalCanonical|validatedTextOutputRegistry/.test(
+      /issueAuthenticatedCommunicationPrincipal|sealFreshObservedAdmissionEvidence|principalRegistry|sealValidatedTextOutput|validatedOutputRegistry|getAuthenticatedCommunicationPrincipalCanonical|validatedTextOutputRegistry|persistence\.internal|readValidatedTextOutputPlaintextForOfflineOutbox|readCommunicationPrincipalPersistenceClaims/.test(
         barrel,
       )
     ) {
       failures.push(
-        'BARREL_LEAK: communication domain/index.ts must not export principal issuer, output sealer, or internal registries.',
+        'BARREL_LEAK: communication domain/index.ts must not export principal issuer, output sealer, persistence facades, or internal registries.',
       );
     }
   }

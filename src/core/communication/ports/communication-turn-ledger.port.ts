@@ -10,7 +10,9 @@ import type {
   CommunicationDuplicateTransportFlags,
   CommunicationError,
   CommunicationIdempotencyKey,
-  CommunicationTurnRecord,
+  CommunicationRecoveryCandidate,
+  CommunicationRecoveryCandidateListOutcome,
+  CommunicationRecoveryCandidateQuery,
   CommunicationTurnState,
   ConversationSequence,
   DeliveryStatus,
@@ -130,23 +132,17 @@ export type RecordFactualOutcomeResult =
   | { readonly kind: 'unavailable'; readonly reason: string }
   | { readonly kind: 'concurrency-conflict'; readonly reason: string };
 
-export interface CommunicationRecoveryCandidateQuery {
-  readonly states: readonly CommunicationTurnState[];
-  readonly limit: number;
-}
-
-export interface CommunicationRecoveryCandidate {
-  readonly turnId: TurnId;
-  readonly record: CommunicationTurnRecord;
-}
-
-export type CommunicationRecoveryCandidateListOutcome =
-  | { readonly kind: 'found'; readonly candidates: readonly CommunicationRecoveryCandidate[] }
-  | { readonly kind: 'unavailable'; readonly reason: string };
+export type {
+  CommunicationRecoveryCandidate,
+  CommunicationRecoveryCandidateListOutcome,
+  CommunicationRecoveryCandidateQuery,
+};
 
 /**
  * Durable turn ledger contract for atomic observed admission, authentication, and sequencing.
- * Storage implementation is out of scope for Build 3.7B.
+ * Recovery listing orders by updatedAt, observedAt, turnId.
+ * Invalid recovery bounds return CONFIG_INVALID (not a soft outcome).
+ * Storage implementation is deferred to Build 3.7C.
  */
 export interface CommunicationTurnLedgerPort {
   observeTransportEvent(

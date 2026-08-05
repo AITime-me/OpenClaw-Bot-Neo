@@ -89,7 +89,10 @@ Text composition must not import connector/infrastructure registries or tool exe
 
 **Encryption live gate (BLOCKER for live):** no live Telegram/model route that persists
 conversational content while `encryptionEnabled=false` (or until approved alternative). Offline
-reference simulation may proceed. Encryption not implemented in 3.7A.
+reference simulation may proceed. Build 3.7C0 documents an offline-only future factory
+(`createOfflineSqliteCommunicationPorts`) with fixed `encryptionEnabled=false`, scrubbed plaintext
+TTL ≤ 24h, and `forensicEraseGuaranteed=false`; caller booleans are not encryption evidence. Live
+factory and encryption implementation remain absent.
 
 ### Kill-switch bypass
 

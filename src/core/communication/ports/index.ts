@@ -70,6 +70,7 @@ export type {
 } from './communication-turn-ledger.port.js';
 
 export type {
+  ConversationCheckpointReconcileEligibleFrom,
   ConversationStateCheckpointCommand,
   ConversationStateCheckpointOutcome,
   ConversationStateKey,
@@ -78,6 +79,25 @@ export type {
   ConversationStateReconcileCheckpointCommand,
   ConversationStateReconcileCheckpointOutcome,
 } from './conversation-state.port.js';
+export {
+  CONVERSATION_CHECKPOINT_RECONCILE_ELIGIBLE_FROM,
+  isConversationCheckpointReconcileEligible,
+} from './conversation-state.port.js';
+
+export type {
+  CommunicationPersistenceRetentionPolicy,
+  OfflineCommunicationPersistenceDiagnostics,
+  OfflineSqliteCommunicationPortsFactoryFlags,
+  OfflineSqliteCommunicationPortsFactoryObligations,
+} from './offline-communication-persistence.contract.js';
+export {
+  COMMUNICATION_PERSISTENCE_RETENTION_POLICY,
+  OFFLINE_COMMUNICATION_PERSISTENCE_DIAGNOSTICS,
+  OFFLINE_OUTBOX_MAX_TTL_MS,
+  OFFLINE_SQLITE_COMMUNICATION_PORTS_FACTORY_FLAGS,
+  OFFLINE_SQLITE_COMMUNICATION_PORTS_FACTORY_MODULE,
+  OFFLINE_SQLITE_COMMUNICATION_PORTS_FACTORY_NAME,
+} from './offline-communication-persistence.contract.js';
 
 export type { LlmCompletionPort } from './llm-completion.port.js';
 

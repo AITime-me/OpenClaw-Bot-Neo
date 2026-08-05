@@ -92,6 +92,22 @@ src/core/communication/policy/index.ts
 
 This tree is package-private and is not exported through root-reachable barrels.
 
+### 3.7C0 — persistence decisions (contracts only; no SQLite)
+
+```text
+src/core/communication/ports/offline-communication-persistence.contract.ts
+src/core/communication/domain/communication-recovery.ts
+src/core/communication/domain/fresh-observed-admission-evidence.persistence.internal.ts
+src/core/communication/domain/authenticated-communication-principal.persistence.internal.ts
+src/core/communication/domain/validated-text-output.persistence.internal.ts
+```
+
+Future exact offline factory (not implemented in 3.7C0):
+
+```text
+src/host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts
+```
+
 ### 3.7C — durable SQLite foundation
 
 ```text
@@ -102,7 +118,7 @@ src/host/storage/sqlite/communication/sqlite-conversation-state-port.ts
 src/host/storage/sqlite/communication/sqlite-communication-turn-ledger-port.ts
 src/host/storage/sqlite/communication/sqlite-communication-audit-port.ts
 src/host/storage/sqlite/communication/sqlite-communication-delivery-outbox-port.ts
-src/host/storage/sqlite/communication/create-sqlite-communication-ports.ts
+src/host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts
 ```
 
 ### 3.7D — application / orchestrator / reference
