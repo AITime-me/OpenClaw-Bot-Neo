@@ -367,6 +367,41 @@ export const INTERNAL_MODULE_ALLOWLIST = {
   ],
 };
 
+/**
+ * Exact export surfaces for communication persistence facades (Build 3.7C0 corrective).
+ * No export *, no re-export from original internals, no extra names.
+ */
+export const COMMUNICATION_PERSISTENCE_FACADE_EXPORT_MANIFESTS = Object.freeze({
+  'core/communication/domain/fresh-observed-admission-evidence.persistence.internal.ts':
+    Object.freeze({
+      allowedExports: Object.freeze(['sealFreshObservedAdmissionEvidenceForPersistence']),
+      allowedImporters: Object.freeze([
+        'host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts',
+      ]),
+    }),
+  'core/communication/domain/authenticated-communication-principal.persistence.internal.ts':
+    Object.freeze({
+      allowedExports: Object.freeze([
+        'AuthenticatedCommunicationPrincipalPersistenceClaims',
+        'readAuthenticatedCommunicationPrincipalPersistenceClaims',
+      ]),
+      allowedImporters: Object.freeze([
+        'host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts',
+      ]),
+    }),
+  'core/communication/domain/validated-text-output.persistence.internal.ts': Object.freeze({
+    allowedExports: Object.freeze([
+      'ValidatedTextOutputPersistenceMetadata',
+      'isGenuineValidatedTextOutputForPersistence',
+      'readValidatedTextOutputMetadataForPersistence',
+      'readValidatedTextOutputPlaintextForOfflineOutbox',
+    ]),
+    allowedImporters: Object.freeze([
+      'host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts',
+    ]),
+  }),
+});
+
 const toPosix = (value) => value.split('\\').join('/');
 
 export { toPosix };
@@ -429,6 +464,69 @@ export function extractReferences(sourceText, fileName) {
   return references;
 }
 
+/**
+ * @returns {{
+ *   names: string[],
+ *   hasExportStar: boolean,
+ *   hasReexport: boolean,
+ * }}
+ */
+export function extractExportedNames(sourceText, fileName) {
+  const source = ts.createSourceFile(fileName, sourceText, ts.ScriptTarget.ES2022, true);
+  const names = new Set();
+  let hasExportStar = false;
+  let hasReexport = false;
+
+  const addNamedExports = (exportClause) => {
+    if (!exportClause || !ts.isNamedExports(exportClause)) return;
+    for (const element of exportClause.elements) {
+      names.add(element.name.text);
+    }
+  };
+
+  const visit = (node) => {
+    if (ts.isExportDeclaration(node)) {
+      if (node.moduleSpecifier) {
+        hasReexport = true;
+        if (node.exportClause === undefined || ts.isNamespaceExport(node.exportClause)) {
+          hasExportStar = true;
+        } else {
+          addNamedExports(node.exportClause);
+        }
+      } else {
+        addNamedExports(node.exportClause);
+      }
+    } else if (ts.isExportAssignment(node)) {
+      names.add('default');
+    }
+
+    const hasExportModifier = Boolean(
+      node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword),
+    );
+    if (hasExportModifier) {
+      if (ts.isFunctionDeclaration(node) && node.name) names.add(node.name.text);
+      if (ts.isClassDeclaration(node) && node.name) names.add(node.name.text);
+      if (ts.isInterfaceDeclaration(node)) names.add(node.name.text);
+      if (ts.isTypeAliasDeclaration(node)) names.add(node.name.text);
+      if (ts.isEnumDeclaration(node)) names.add(node.name.text);
+      if (ts.isVariableStatement(node)) {
+        for (const declaration of node.declarationList.declarations) {
+          if (ts.isIdentifier(declaration.name)) names.add(declaration.name.text);
+        }
+      }
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(source);
+  return {
+    names: [...names].sort(),
+    hasExportStar,
+    hasReexport,
+  };
+}
+
 const layerOf = (relativePath) => {
   const path = toPosix(relativePath);
   const known = Object.keys(CORE_LAYER_RULES).filter((layer) => layer !== 'root');
@@ -485,13 +583,16 @@ const detectCycle = (graph) => {
 
 /**
  * @param {{ rootDir?: string, layerRules?: Record<string, string[]>, requiredLayers?: string[],
- *   internalAllowlist?: Record<string, string[]> }} [options]
+ *   internalAllowlist?: Record<string, string[]>,
+ *   facadeExportManifests?: Record<string, { allowedExports: readonly string[], allowedImporters: readonly string[] }> }} [options]
  */
 export function analyzeBoundaries(options = {}) {
   const rootDir = resolve(options.rootDir ?? 'src');
   const layerRules = options.layerRules ?? CORE_LAYER_RULES;
   const requiredLayers = options.requiredLayers ?? REQUIRED_CORE_LAYERS;
   const internalAllowlist = options.internalAllowlist ?? INTERNAL_MODULE_ALLOWLIST;
+  const facadeExportManifests =
+    options.facadeExportManifests ?? COMMUNICATION_PERSISTENCE_FACADE_EXPORT_MANIFESTS;
   const violations = [];
   const files = listFiles(rootDir).filter((path) => path.endsWith('.ts'));
   const graph = new Map();
@@ -606,7 +707,64 @@ export function analyzeBoundaries(options = {}) {
           code: 'UNLISTED_INTERNAL_MODULE',
           message: `${where} imports ${target.relative}, which has no allowlist entry.`,
         });
+
+      const facadeManifest = facadeExportManifests[target.relative];
+      if (facadeManifest !== undefined) {
+        if (!facadeManifest.allowedImporters.includes(fileRelative)) {
+          violations.push({
+            code: 'PERSISTENCE_FACADE_WRONG_IMPORTER',
+            message: `${where} is not the exact allowlisted importer for ${target.relative}.`,
+          });
+        }
+        if (reference.kind === 'export-from') {
+          violations.push({
+            code: 'PERSISTENCE_FACADE_BARREL_REEXPORT',
+            message: `${where} must not re-export persistence facade ${target.relative}.`,
+          });
+        }
+        if (reference.kind === 'dynamic-import' || reference.kind === 'computed-import') {
+          violations.push({
+            code: 'PERSISTENCE_FACADE_DYNAMIC_IMPORT',
+            message: `${where} must not dynamically import persistence facade ${target.relative}.`,
+          });
+        }
+      }
+
       graph.get(fileRelative)?.push(target.relative);
+    }
+
+    const ownFacadeManifest = facadeExportManifests[fileRelative];
+    if (ownFacadeManifest !== undefined) {
+      const exported = extractExportedNames(readFileSync(file, 'utf8'), file);
+      if (exported.hasExportStar) {
+        violations.push({
+          code: 'PERSISTENCE_FACADE_EXPORT_STAR',
+          message: `${fileRelative} must not use export *.`,
+        });
+      }
+      if (exported.hasReexport) {
+        violations.push({
+          code: 'PERSISTENCE_FACADE_REEXPORT',
+          message: `${fileRelative} must not re-export from other modules.`,
+        });
+      }
+      const allowed = new Set(ownFacadeManifest.allowedExports);
+      for (const name of exported.names) {
+        if (!allowed.has(name)) {
+          violations.push({
+            code: 'PERSISTENCE_FACADE_EXTRA_EXPORT',
+            message: `${fileRelative} exports unexpected symbol ${name}.`,
+          });
+        }
+      }
+      for (const name of ownFacadeManifest.allowedExports) {
+        if (!exported.names.includes(name)) {
+          violations.push({
+            code: 'PERSISTENCE_FACADE_MISSING_EXPORT',
+            message: `${fileRelative} is missing required export ${name}.`,
+          });
+        }
+      }
     }
   }
 

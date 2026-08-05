@@ -185,6 +185,8 @@ When delivery is confirmed but conversation checkpoint write fails:
 - next ordinary turn must **not** execute on stale context;
 - only idempotent checkpoint reconciliation is allowed;
 - `reconcileCheckpoint` may transition only `pending → succeeded` or `failed → succeeded`;
+- reconciliation outcomes carry typed fields (`revision` / `currentRevision` / ineligible `status` /
+  `reason` as applicable);
 - reconciliation does not create a snapshot, mutate context/summary/pause state, or call
   LLM/delivery/memory/audit; fingerprint is computed inside the port; revision increments by 1;
 - after checkpoint reconciliation, idempotent completion-audit retry is allowed;

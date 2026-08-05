@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseConversationRevision } from '../../src/core/communication/domain/index.js';
 import {
   COMMUNICATION_RECOVERY_CANDIDATE_ORDER,
   COMMUNICATION_TURN_STATES,
@@ -19,8 +20,20 @@ import {
   OFFLINE_SQLITE_COMMUNICATION_PORTS_FACTORY_NAME,
 } from '../../src/core/communication/ports/index.js';
 import type { ConversationStateReconcileCheckpointOutcome } from '../../src/core/communication/ports/conversation-state.port.js';
+import {
+  COMMUNICATION_PERSISTENCE_FACADE_EXPORT_MANIFESTS,
+  extractExportedNames,
+} from '../../scripts/lib/boundary-checker.mjs';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 type OutcomeKind<T> = T extends { readonly kind: infer K } ? K : never;
+
+const asRevision = (value: number) => {
+  const parsed = parseConversationRevision(value);
+  if (!parsed.ok) throw new Error('revision fixture must parse');
+  return parsed.value;
+};
 
 describe('Build 3.7C0 recovery query contract', () => {
   it('keeps turn state count aligned with recovery state bounds', () => {
@@ -39,7 +52,7 @@ describe('Build 3.7C0 recovery query contract', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('rejects empty or oversized state lists with CONFIG_INVALID', () => {
+  it('rejects empty, oversized, non-array, illegal, and duplicate states with CONFIG_INVALID', () => {
     const empty = validateCommunicationRecoveryCandidateQuery({ states: [], limit: 1 });
     expect(empty.ok).toBe(false);
     if (empty.ok) return;
@@ -52,24 +65,22 @@ describe('Build 3.7C0 recovery query contract', () => {
     expect(oversized.ok).toBe(false);
     if (oversized.ok) return;
     expect(oversized.error.code).toBe('CONFIG_INVALID');
-  });
 
-  it('rejects invalid limits and duplicate states with CONFIG_INVALID', () => {
-    const low = validateCommunicationRecoveryCandidateQuery({
-      states: ['completed'],
-      limit: 0,
+    const notArray = validateCommunicationRecoveryCandidateQuery({
+      states: 'queued',
+      limit: 1,
     });
-    expect(low.ok).toBe(false);
-    if (low.ok) return;
-    expect(low.error.code).toBe('CONFIG_INVALID');
+    expect(notArray.ok).toBe(false);
+    if (notArray.ok) return;
+    expect(notArray.error.code).toBe('CONFIG_INVALID');
 
-    const high = validateCommunicationRecoveryCandidateQuery({
-      states: ['completed'],
-      limit: 101,
+    const illegal = validateCommunicationRecoveryCandidateQuery({
+      states: ['not-a-real-state'],
+      limit: 1,
     });
-    expect(high.ok).toBe(false);
-    if (high.ok) return;
-    expect(high.error.code).toBe('CONFIG_INVALID');
+    expect(illegal.ok).toBe(false);
+    if (illegal.ok) return;
+    expect(illegal.error.code).toBe('CONFIG_INVALID');
 
     const duplicates = validateCommunicationRecoveryCandidateQuery({
       states: ['queued', 'queued'],
@@ -78,6 +89,40 @@ describe('Build 3.7C0 recovery query contract', () => {
     expect(duplicates.ok).toBe(false);
     if (duplicates.ok) return;
     expect(duplicates.error.code).toBe('CONFIG_INVALID');
+  });
+
+  it('rejects non-safe-integer limits with CONFIG_INVALID', () => {
+    const cases: unknown[] = [
+      0,
+      101,
+      -1,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      Number.MAX_SAFE_INTEGER + 1,
+      '10',
+      null,
+      undefined,
+    ];
+    for (const limit of cases) {
+      const result = validateCommunicationRecoveryCandidateQuery({
+        states: ['completed'],
+        limit,
+      });
+      expect(result.ok, `limit=${String(limit)}`).toBe(false);
+      if (result.ok) return;
+      expect(result.error.code).toBe('CONFIG_INVALID');
+    }
+  });
+
+  it('accepts safe integer limits at the inclusive bounds', () => {
+    expect(
+      validateCommunicationRecoveryCandidateQuery({ states: ['completed'], limit: 1 }).ok,
+    ).toBe(true);
+    expect(
+      validateCommunicationRecoveryCandidateQuery({ states: ['completed'], limit: 100 }).ok,
+    ).toBe(true);
   });
 });
 
@@ -90,7 +135,7 @@ describe('Build 3.7C0 reconcileCheckpoint contract', () => {
     expect(isConversationCheckpointReconcileEligible('not_required')).toBe(false);
   });
 
-  it('enumerates the expanded reconcile outcomes', () => {
+  it('enumerates the typed reconcile outcome union with required fields', () => {
     const kinds: readonly OutcomeKind<ConversationStateReconcileCheckpointOutcome>[] = [
       'reconciled',
       'already-reconciled',
@@ -101,6 +146,47 @@ describe('Build 3.7C0 reconcileCheckpoint contract', () => {
       'unavailable',
     ];
     expect(kinds).toHaveLength(7);
+
+    const revision = asRevision(3);
+    const reconciled: ConversationStateReconcileCheckpointOutcome = {
+      kind: 'reconciled',
+      revision,
+    };
+    const already: ConversationStateReconcileCheckpointOutcome = {
+      kind: 'already-reconciled',
+      revision,
+    };
+    const notFound: ConversationStateReconcileCheckpointOutcome = { kind: 'not-found' };
+    const notEligibleRequired: ConversationStateReconcileCheckpointOutcome = {
+      kind: 'not-eligible',
+      status: 'not_required',
+      currentRevision: revision,
+    };
+    const notEligibleSucceeded: ConversationStateReconcileCheckpointOutcome = {
+      kind: 'not-eligible',
+      status: 'succeeded',
+      currentRevision: revision,
+    };
+    const stale: ConversationStateReconcileCheckpointOutcome = {
+      kind: 'stale-revision',
+      currentRevision: revision,
+    };
+    const conflict: ConversationStateReconcileCheckpointOutcome = {
+      kind: 'idempotency-conflict',
+    };
+    const unavailable: ConversationStateReconcileCheckpointOutcome = {
+      kind: 'unavailable',
+      reason: 'store unavailable',
+    };
+
+    expect(reconciled.kind).toBe('reconciled');
+    expect(already.kind).toBe('already-reconciled');
+    expect(notFound.kind).toBe('not-found');
+    expect(notEligibleRequired.status).toBe('not_required');
+    expect(notEligibleSucceeded.status).toBe('succeeded');
+    expect(stale.currentRevision).toBe(revision);
+    expect(conflict.kind).toBe('idempotency-conflict');
+    expect(unavailable.reason).toMatch(/unavailable/i);
   });
 });
 
@@ -131,5 +217,22 @@ describe('Build 3.7C0 offline persistence retention and factory contract', () =>
       automaticResendAvailable: false,
       productionWired: false,
     });
+  });
+});
+
+describe('Build 3.7C0 persistence facade export manifests', () => {
+  it('matches exact production facade export surfaces', () => {
+    for (const [relativePath, manifest] of Object.entries(
+      COMMUNICATION_PERSISTENCE_FACADE_EXPORT_MANIFESTS,
+    )) {
+      const absolute = join(process.cwd(), 'src', relativePath);
+      const exported = extractExportedNames(readFileSync(absolute, 'utf8'), absolute);
+      expect(exported.hasExportStar, relativePath).toBe(false);
+      expect(exported.hasReexport, relativePath).toBe(false);
+      expect(exported.names).toEqual([...manifest.allowedExports].sort());
+      expect(manifest.allowedImporters).toEqual([
+        'host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts',
+      ]);
+    }
   });
 });

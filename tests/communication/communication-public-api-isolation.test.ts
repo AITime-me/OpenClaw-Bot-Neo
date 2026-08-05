@@ -23,8 +23,9 @@ const forbiddenCommunicationExports = [
   'getAuthenticatedCommunicationPrincipalCanonical',
   'principalRegistry',
   'validatedTextOutputRegistry',
-  'readCommunicationPrincipalPersistenceClaims',
+  'readAuthenticatedCommunicationPrincipalPersistenceClaims',
   'readValidatedTextOutputPlaintextForOfflineOutbox',
+  'sealFreshObservedAdmissionEvidenceForPersistence',
   'createOfflineSqliteCommunicationPorts',
 ] as const;
 
@@ -73,8 +74,9 @@ describe('communication public API isolation', () => {
     expect(root.getAuthenticatedCommunicationPrincipalCanonical).toBeUndefined();
     expect(root.principalRegistry).toBeUndefined();
     expect(root.validatedTextOutputRegistry).toBeUndefined();
-    expect(root.readCommunicationPrincipalPersistenceClaims).toBeUndefined();
+    expect(root.readAuthenticatedCommunicationPrincipalPersistenceClaims).toBeUndefined();
     expect(root.readValidatedTextOutputPlaintextForOfflineOutbox).toBeUndefined();
+    expect(root.sealFreshObservedAdmissionEvidenceForPersistence).toBeUndefined();
     expect(root.createOfflineSqliteCommunicationPorts).toBeUndefined();
   });
 

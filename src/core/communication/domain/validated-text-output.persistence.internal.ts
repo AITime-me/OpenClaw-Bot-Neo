@@ -8,26 +8,26 @@ import {
 /**
  * Persistence-only facade for validated text output (Build 3.7C0).
  *
- * Allowed importer (exact): host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts
- * Does not export sealer, registries, or unrestricted canonical getters.
+ * Exact export surface only. Allowed importer (exact):
+ * host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts
+ *
+ * Does not re-export original internals, sealer, registries, or unrestricted canonical getters.
  */
 
-export { isValidatedTextOutput };
-
 /** Safe metadata without plaintext body. */
-export interface ValidatedTextOutputSafeMetadata {
+export interface ValidatedTextOutputPersistenceMetadata {
   readonly source: ValidatedTextOutputSource;
   readonly payloadDigest: PayloadDigest;
   readonly byteLength: number;
 }
 
-export const verifyValidatedTextOutputForPersistence = (
+export const isGenuineValidatedTextOutputForPersistence = (
   value: unknown,
 ): value is ValidatedTextOutput => isValidatedTextOutput(value);
 
-export const readValidatedTextOutputSafeMetadata = (
+export const readValidatedTextOutputMetadataForPersistence = (
   value: ValidatedTextOutput,
-): ValidatedTextOutputSafeMetadata | null => {
+): ValidatedTextOutputPersistenceMetadata | null => {
   const canonical = getValidatedTextOutputCanonical(value);
   if (canonical === null) return null;
   return Object.freeze({
@@ -44,6 +44,7 @@ export const readValidatedTextOutputSafeMetadata = (
 export const readValidatedTextOutputPlaintextForOfflineOutbox = (
   value: ValidatedTextOutput,
 ): string | null => {
+  if (!isValidatedTextOutput(value)) return null;
   const canonical = getValidatedTextOutputCanonical(value);
   return canonical?.text ?? null;
 };

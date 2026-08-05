@@ -25,9 +25,12 @@ describe('communication boundary fixtures', () => {
     ['forbidden-communication-persistence-sibling-host', 'INTERNAL_MODULE_LEAK'],
     ['forbidden-communication-persistence-runtime', 'INTERNAL_MODULE_LEAK'],
     ['forbidden-communication-persistence-adapter', 'INTERNAL_MODULE_LEAK'],
-    ['forbidden-communication-persistence-barrel', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-communication-persistence-barrel', 'PERSISTENCE_FACADE_BARREL_REEXPORT'],
     ['forbidden-communication-original-internal-direct', 'INTERNAL_MODULE_LEAK'],
     ['forbidden-communication-text-delivery-internal', 'INTERNAL_MODULE_LEAK'],
+    ['forbidden-communication-persistence-extra-export', 'PERSISTENCE_FACADE_EXTRA_EXPORT'],
+    ['forbidden-communication-persistence-export-star', 'PERSISTENCE_FACADE_EXPORT_STAR'],
+    ['forbidden-communication-persistence-reexport', 'PERSISTENCE_FACADE_REEXPORT'],
   ])('rejects fixture %s with %s', (name, code) => {
     const report = analyzeBoundaries({ rootDir: fixture(name), requiredLayers: [] });
     expect(codes(report)).toContain(code);

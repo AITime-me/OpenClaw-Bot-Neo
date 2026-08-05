@@ -71,6 +71,7 @@ export type {
 
 export type {
   ConversationCheckpointReconcileEligibleFrom,
+  ConversationCheckpointReconcileIneligibleStatus,
   ConversationStateCheckpointCommand,
   ConversationStateCheckpointOutcome,
   ConversationStateKey,

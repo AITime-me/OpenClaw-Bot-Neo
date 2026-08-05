@@ -47,12 +47,19 @@ export interface ConversationStateReconcileCheckpointCommand {
   readonly idempotencyKey: string;
 }
 
+/** Statuses that make a checkpoint not eligible for reconciliation. */
+export type ConversationCheckpointReconcileIneligibleStatus = 'not_required' | 'succeeded';
+
 export type ConversationStateReconcileCheckpointOutcome =
-  | { readonly kind: 'reconciled' }
-  | { readonly kind: 'already-reconciled' }
+  | { readonly kind: 'reconciled'; readonly revision: ConversationRevision }
+  | { readonly kind: 'already-reconciled'; readonly revision: ConversationRevision }
   | { readonly kind: 'not-found' }
-  | { readonly kind: 'not-eligible' }
-  | { readonly kind: 'stale-revision' }
+  | {
+      readonly kind: 'not-eligible';
+      readonly status: ConversationCheckpointReconcileIneligibleStatus;
+      readonly currentRevision: ConversationRevision;
+    }
+  | { readonly kind: 'stale-revision'; readonly currentRevision: ConversationRevision }
   | { readonly kind: 'idempotency-conflict' }
   | { readonly kind: 'unavailable'; readonly reason: string };
 

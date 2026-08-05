@@ -1,3 +1,3 @@
-export const readCommunicationPrincipalPersistenceClaims = (): never => {
+export const readAuthenticatedCommunicationPrincipalPersistenceClaims = (): never => {
   throw new Error('fixture stub');
 };

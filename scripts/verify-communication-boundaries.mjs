@@ -79,7 +79,7 @@ if (!existsSync(communicationRoot)) {
   if (existsSync(domainBarrel)) {
     const barrel = readFileSync(domainBarrel, 'utf8');
     if (
-      /issueAuthenticatedCommunicationPrincipal|sealFreshObservedAdmissionEvidence|principalRegistry|sealValidatedTextOutput|validatedOutputRegistry|getAuthenticatedCommunicationPrincipalCanonical|validatedTextOutputRegistry|persistence\.internal|readValidatedTextOutputPlaintextForOfflineOutbox|readCommunicationPrincipalPersistenceClaims/.test(
+      /issueAuthenticatedCommunicationPrincipal|sealFreshObservedAdmissionEvidence|principalRegistry|sealValidatedTextOutput|validatedOutputRegistry|getAuthenticatedCommunicationPrincipalCanonical|validatedTextOutputRegistry|persistence\.internal|readValidatedTextOutputPlaintextForOfflineOutbox|readAuthenticatedCommunicationPrincipalPersistenceClaims|sealFreshObservedAdmissionEvidenceForPersistence|isGenuineValidatedTextOutputForPersistence/.test(
         barrel,
       )
     ) {

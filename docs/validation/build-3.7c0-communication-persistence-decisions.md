@@ -53,15 +53,27 @@ Contract constants live in
 Candidates do not contain authority, principal, admission evidence, output capability, payload, or
 recipient, and do not authorize LLM, delivery, or resend.
 
-Query bounds: `states` length 1..16; `limit` 1..100; invalid bounds → `CONFIG_INVALID`.
+Query validation is fail-closed:
+
+- `states` must be an array of length 1..16 with only legal turn states and no duplicates;
+- `limit` must be a `Number.isSafeInteger` in 1..100;
+- `NaN`, `Infinity`, `-Infinity`, fractions, unsafe integers, and non-arrays → `CONFIG_INVALID`.
+
 Ordering: `updatedAt`, `observedAt`, `turnId`.
 
 ## Decision 3 — reconcileCheckpoint
 
 Eligible only: `pending → succeeded`, `failed → succeeded`.
 
-Outcomes: `reconciled` | `already-reconciled` | `not-found` | `not-eligible` | `stale-revision` |
-`idempotency-conflict` | `unavailable`.
+Outcomes:
+
+- `reconciled` → `revision`
+- `already-reconciled` → `revision`
+- `not-found`
+- `not-eligible` → `status: not_required | succeeded` + `currentRevision`
+- `stale-revision` → `currentRevision`
+- `idempotency-conflict`
+- `unavailable` → `reason`
 
 Reconciliation must not create a snapshot, mutate context/summary/pause state, or invoke
 LLM/delivery/memory/audit. Successful reconcile increments revision by 1. Fingerprint is computed
@@ -85,14 +97,26 @@ src/core/communication/domain/authenticated-communication-principal.persistence.
 src/core/communication/domain/validated-text-output.persistence.internal.ts
 ```
 
-Allowed exports only: seal fresh admission evidence after atomic insert; read minimal principal
-claims; verify validated output; read safe metadata; read plaintext only for offline outbox.
+Exact export surfaces (wrappers only; no `export *`, no re-export of original internals):
+
+- fresh-observed: `sealFreshObservedAdmissionEvidenceForPersistence(turnId)`
+- principal: `AuthenticatedCommunicationPrincipalPersistenceClaims`,
+  `readAuthenticatedCommunicationPrincipalPersistenceClaims(principal)`
+  (claims: turnId, ownerId, conversationId, transportInstanceId, bindingVersion, observedAt —
+  no `actorId`)
+- validated-output: `ValidatedTextOutputPersistenceMetadata`,
+  `isGenuineValidatedTextOutputForPersistence`,
+  `readValidatedTextOutputMetadataForPersistence`,
+  `readValidatedTextOutputPlaintextForOfflineOutbox`
+
 Registries, issuer, sealer, and canonical getters are not exported.
 
 Exact allowlisted importer only:
 `host/storage/sqlite/communication/create-offline-sqlite-communication-ports.ts`
-(wildcard forbidden). AST boundary checker, communication verifier, and dependency-cruiser enforce
-this; negative fixtures cover sibling host, runtime, adapter, barrel, and direct original internals.
+(wildcard forbidden). AST boundary checker enforces exact export names, no extra exports, no
+`export *`, no re-export, exact importer path, no barrel re-export, and no dynamic import.
+dependency-cruiser and negative fixtures cover sibling host, runtime, adapter, barrel, extra export,
+export star, re-export, and direct original internals.
 
 ## Still absent
 

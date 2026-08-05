@@ -177,6 +177,9 @@ It does **not** require successful delivery, checkpoint, or completion audit.
 - conversation paused/degraded;
 - no ordinary next turn on stale context;
 - idempotent checkpoint reconciliation only (`pending|failed → succeeded`);
+- reconcile outcomes: `reconciled`/`already-reconciled` (+`revision`), `not-found`,
+  `not-eligible` (`not_required|succeeded` + `currentRevision`), `stale-revision` (+`currentRevision`),
+  `idempotency-conflict`, `unavailable` (+`reason`);
 - reconcile does not create snapshots or mutate context/summary/pause; revision +1; fingerprint
   inside port; no LLM/delivery/memory/audit side effects;
 - then idempotent completion-audit retry;

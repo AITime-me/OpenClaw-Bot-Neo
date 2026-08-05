@@ -1,7 +1,7 @@
 import type { CorrelationId, ISO8601, OwnerId } from '../../domain/identity.js';
 import { err, ok, type Result } from '../../domain/result.js';
 import {
-  COMMUNICATION_TURN_STATES,
+  isCommunicationTurnState,
   type CommunicationTurnState,
   type CommunicationTurnRecord,
 } from './communication-turn.js';
@@ -76,50 +76,54 @@ export const COMMUNICATION_RECOVERY_CANDIDATE_ORDER = Object.freeze([
   'turnId',
 ] as const);
 
-export const validateCommunicationRecoveryCandidateQuery = (
-  query: CommunicationRecoveryCandidateQuery,
-): Result<void, CommunicationError> => {
+const configInvalid = (reason: string): Result<void, CommunicationError> =>
+  err(communicationError('CONFIG_INVALID', reason));
+
+/**
+ * Fail-closed recovery query validation.
+ * Accepts untrusted query shapes; non-array states and non-safe-integer limits are rejected.
+ */
+export const validateCommunicationRecoveryCandidateQuery = (query: {
+  readonly states: unknown;
+  readonly limit: unknown;
+}): Result<void, CommunicationError> => {
+  if (!Array.isArray(query.states)) {
+    return configInvalid('Recovery query states must be an array.');
+  }
+
   const stateCount = query.states.length;
   if (
     stateCount < MIN_COMMUNICATION_RECOVERY_STATE_COUNT ||
     stateCount > MAX_COMMUNICATION_RECOVERY_STATE_COUNT
   ) {
-    return err(
-      communicationError(
-        'CONFIG_INVALID',
-        `Recovery query states must contain ${String(MIN_COMMUNICATION_RECOVERY_STATE_COUNT)}..${String(MAX_COMMUNICATION_RECOVERY_STATE_COUNT)} entries.`,
-      ),
-    );
-  }
-
-  if (stateCount > COMMUNICATION_TURN_STATES.length) {
-    return err(
-      communicationError('CONFIG_INVALID', 'Recovery query states exceed known turn state count.'),
+    return configInvalid(
+      `Recovery query states must contain ${String(MIN_COMMUNICATION_RECOVERY_STATE_COUNT)}..${String(MAX_COMMUNICATION_RECOVERY_STATE_COUNT)} entries.`,
     );
   }
 
   const seen = new Set<string>();
   for (const state of query.states) {
-    if (!(COMMUNICATION_TURN_STATES as readonly string[]).includes(state)) {
-      return err(communicationError('CONFIG_INVALID', 'Recovery query contains an unknown state.'));
+    if (!isCommunicationTurnState(state)) {
+      return configInvalid('Recovery query contains an unknown or illegal state.');
     }
     if (seen.has(state)) {
-      return err(
-        communicationError('CONFIG_INVALID', 'Recovery query states must not contain duplicates.'),
-      );
+      return configInvalid('Recovery query states must not contain duplicates.');
     }
     seen.add(state);
+  }
+
+  if (typeof query.limit !== 'number' || !Number.isSafeInteger(query.limit)) {
+    return configInvalid(
+      'Recovery query limit must be a safe integer (NaN, Infinity, fractions, and unsafe integers are rejected).',
+    );
   }
 
   if (
     query.limit < MIN_COMMUNICATION_RECOVERY_LIMIT ||
     query.limit > MAX_COMMUNICATION_RECOVERY_LIMIT
   ) {
-    return err(
-      communicationError(
-        'CONFIG_INVALID',
-        `Recovery query limit must be ${String(MIN_COMMUNICATION_RECOVERY_LIMIT)}..${String(MAX_COMMUNICATION_RECOVERY_LIMIT)}.`,
-      ),
+    return configInvalid(
+      `Recovery query limit must be ${String(MIN_COMMUNICATION_RECOVERY_LIMIT)}..${String(MAX_COMMUNICATION_RECOVERY_LIMIT)}.`,
     );
   }
 

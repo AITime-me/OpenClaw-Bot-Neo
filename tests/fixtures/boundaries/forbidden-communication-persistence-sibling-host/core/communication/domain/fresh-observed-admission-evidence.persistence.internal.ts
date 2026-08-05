@@ -1,3 +1,3 @@
-export const sealFreshObservedAdmissionEvidence = (): never => {
+export const sealFreshObservedAdmissionEvidenceForPersistence = (): never => {
   throw new Error('fixture stub');
 };
