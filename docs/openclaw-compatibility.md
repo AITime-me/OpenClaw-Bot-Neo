@@ -20,12 +20,15 @@ Build 3.7E1 implementation status: NOT_STARTED
 
 Build 3.7F status: BLOCKED
 
+PRODUCTION_READY: FALSE
+
 Meaning:
 
 - existence of a modern Codex/ChatGPT technical subscription route was confirmed by Build 3.7E0
   official-source research;
 - Build 3.7E1A selects a **probe-only Codex app-server stdio** route as the Neo architecture
   target for the next implementation package;
+- durable 3.7D live wiring of that Codex route remains blocked by encryption;
 - compatibility of a future **OpenClaw**/Neo runtime integration was **not** verified and remains
   **OUT_OF_SCOPE** for 3.7E1A;
 - no OpenClaw runtime, adapter, OAuth integration, capability probe, or model call was executed in

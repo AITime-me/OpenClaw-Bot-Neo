@@ -21,13 +21,15 @@
 
 Build 3.7B–D are offline only
 
-Build 3.7E1A status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; LIVE_PROBE owner-approval required)
+Build 3.7E1A status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; LIVE_PROBE owner-approval required; live probe not run)
 
 Build 3.7E1 status: BLOCKED
 
 Build 3.7E1 implementation status: NOT_STARTED
 
 Build 3.7F status: BLOCKED
+
+PRODUCTION_READY: FALSE
 
 Build 3.7E0 next stage: 3.7B
 
@@ -193,12 +195,28 @@ integration blocked by encryption; implementation ready; live probe not run; pro
 Future exact paths (normative; not implemented in 3.7E1A):
 
 ```text
+src/communication/adapters/codex-app-server/create-codex-app-server-route.ts
 src/communication/adapters/codex-app-server/codex-app-server-capability-probe.ts
 src/communication/adapters/codex-app-server/codex-app-server-llm-completion.ts
-src/communication/adapters/codex-app-server/create-codex-app-server-route.ts
+src/communication/adapters/codex-app-server/codex-app-server-protocol.ts
+src/communication/adapters/codex-app-server/codex-app-server-client.ts
+src/communication/adapters/codex-app-server/codex-app-server-config.ts
+src/communication/adapters/codex-app-server/codex-app-server-child-env.ts
+src/communication/adapters/codex-app-server/codex-app-server-executable-pin.ts
+src/communication/adapters/codex-app-server/fake/fake-codex-app-server.ts
+tests/communication/codex-app-server-protocol.test.ts
+tests/communication/codex-app-server-child-env.test.ts
+tests/communication/codex-app-server-executable-pin.test.ts
+tests/communication/codex-app-server-client.fake.test.ts
+tests/communication/codex-app-server-llm-completion.fake.test.ts
+tests/communication/codex-app-server-boundaries.test.ts
+scripts/verify-communication-boundaries.mjs
+.dependency-cruiser.cjs
+scripts/lib/boundary-checker.mjs
 ```
 
-Codex app-server is a **separate** route from OpenClaw. Do not reunify under `codex-openclaw`.
+Codex app-server is a **separate** route from OpenClaw. Do not reunify them under a combined route name.
+Durable 3.7D live wiring remains blocked by encryption. PRODUCTION_READY: FALSE.
 
 ### OpenClaw route — out of scope / unverified
 

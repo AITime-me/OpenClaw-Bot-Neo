@@ -18,6 +18,8 @@ Build 3.7E1 implementation status: NOT_STARTED
 
 Build 3.7F status: BLOCKED
 
+PRODUCTION_READY: FALSE
+
 See [3.7B closeout](../validation/build-3.7b-communication-contracts-closeout.md) and
 [3.7E1A decisions](../validation/build-3.7e1a-codex-subscription-probe-decisions.md).
 
@@ -306,6 +308,8 @@ Build 3.7E1 status: BLOCKED
 Build 3.7E1 implementation status: NOT_STARTED
 
 Build 3.7F status: BLOCKED
+
+PRODUCTION_READY: FALSE
 
 Build 3.7E0 live operational approval: UNRESOLVED
 

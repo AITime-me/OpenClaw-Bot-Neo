@@ -168,8 +168,10 @@
 - Build 3.7C status: offline SQLite communication persistence implemented; live runtime absent.
 - Build 3.7D status: offline executable communication runtime implemented (fake LLM/delivery only);
   fail-safe no-resume recovery; schema v1 unchanged.
-- Build 3.7E1A status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; live probe not run; OpenClaw out of
-  scope; Neo SQLite probe persistence forbidden; durable 3.7D integration blocked by encryption)
+- Build 3.7E1A status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; live probe not run; probe-only
+  Codex app-server stdio; OpenClaw out of scope / UNVERIFIED; Neo SQLite probe persistence
+  forbidden; durable 3.7D integration blocked by encryption)
+- PRODUCTION_READY: FALSE
 - Build 3.7E1 status: BLOCKED
 - Build 3.7E1 implementation status: NOT_STARTED
 - Build 3.7F status: BLOCKED

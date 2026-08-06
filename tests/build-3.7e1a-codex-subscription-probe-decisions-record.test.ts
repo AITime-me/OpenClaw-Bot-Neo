@@ -5,11 +5,24 @@ import { describe, expect, it } from 'vitest';
 
 const REPO_ROOT = process.cwd();
 const BUILD_BASE = 'b443d7b8e6afc7d2ba5860e53f86f390a0f07f16';
-const BUILD_SUBJECT = 'docs(communication): decide Build 3.7E1A Codex probe route';
+const BUILD_SUBJECTS = [
+  'docs(communication): decide Build 3.7E1A Codex probe route',
+  'docs(communication): complete Build 3.7E1A probe contract',
+] as const;
 
 const CLOSEOUT_REL = 'docs/validation/build-3.7e1a-codex-subscription-probe-decisions.md';
 const CLOSEOUT_PATH = join(REPO_ROOT, CLOSEOUT_REL);
 const TEST_REL = 'tests/build-3.7e1a-codex-subscription-probe-decisions-record.test.ts';
+
+const COMPANION_DOCS = [
+  'docs/communication/text-implementation-map.md',
+  'docs/communication/text-architecture.md',
+  'docs/llm-provider.md',
+  'docs/openclaw-compatibility.md',
+  'docs/acceptance-criteria.md',
+] as const;
+
+const ARCHITECTURE_PACKAGE_FILES = [CLOSEOUT_REL, TEST_REL, ...COMPANION_DOCS] as const;
 
 const HISTORICAL_CLOSEOUTS = [
   'docs/validation/build-3.7a-text-communication-design-closeout.md',
@@ -21,15 +34,7 @@ const HISTORICAL_CLOSEOUTS = [
   'docs/validation/build-3.7e0-subscription-route-feasibility.md',
 ] as const;
 
-const ALLOWED_EXACT = new Set([
-  CLOSEOUT_REL,
-  TEST_REL,
-  'docs/communication/text-implementation-map.md',
-  'docs/communication/text-architecture.md',
-  'docs/llm-provider.md',
-  'docs/openclaw-compatibility.md',
-  'docs/acceptance-criteria.md',
-]);
+const ALLOWED_EXACT = new Set<string>(ARCHITECTURE_PACKAGE_FILES);
 
 const FORBIDDEN_EXACT = [
   'package.json',
@@ -62,6 +67,42 @@ const EXPECTED_MARKERS: ReadonlyArray<readonly [string, string]> = [
 ];
 
 const EXPECTED_MARKER_KEYS = new Set(EXPECTED_MARKERS.map(([key]) => key));
+
+const REQUIRED_CONTRACT_HEADINGS = [
+  '## Decision 9 — Child process environment allowlist and denylist',
+  '## Decision 10 — Executable pin tuple and checks',
+  '## Decision 11 — Exact app-server RPC sequence',
+  '## Decision 12 — Event allowlist and forbidden events',
+  '## Decision 13 — Provider invocation start boundary',
+  '## Decision 14 — Timeout / abort / crash / malformed-frame outcome mapping',
+  '## Decision 15 — API / fallback evidence and proof limits',
+  '## Decision 16 — Fake test matrix',
+  '## Decision 17 — Manual owner-approved live probe procedure',
+  '## Decision 18 — Schema / dependency / package export decisions',
+  '## Decision 19 — Future implementation file map',
+] as const;
+
+const REQUIRED_CONTRACT_TOKENS = [
+  'OPENAI_API_KEY',
+  'CODEX_API_KEY',
+  'absolutePath',
+  'sha256',
+  'initialize',
+  'initialized',
+  'thread/start',
+  'turn/start',
+  'ephemeral: true',
+  'provider invocation start',
+  'cancelled-before-invocation',
+  'outcome-unknown',
+  'malformed',
+  'fake Codex app-server',
+  'codex-app-server-protocol.ts',
+  'codex-app-server-client.ts',
+  'codex-app-server-config.ts',
+  'fake/fake-codex-app-server.ts',
+  'verify-communication-boundaries.mjs',
+] as const;
 
 function git(args: readonly string[]): string {
   return execFileSync('git', args, {
@@ -142,21 +183,18 @@ function resolveBuildTip(): { tip: string; includeWorkingTree: boolean } {
         ? { hash: line, subject: '' }
         : { hash: line.slice(0, tab), subject: line.slice(tab + 1) };
     })
-    .filter((entry) => entry.subject === BUILD_SUBJECT);
+    .filter((entry) => (BUILD_SUBJECTS as readonly string[]).includes(entry.subject));
 
-  if (matches.length > 1) {
-    throw new Error(
-      `expected at most one build commit with subject "${BUILD_SUBJECT}", found ${String(matches.length)}`,
-    );
+  const working = workingTreePaths();
+  if (working.length > 0) {
+    return { tip: git(['rev-parse', 'HEAD']), includeWorkingTree: true };
   }
 
-  if (matches.length === 1) {
-    const only = matches[0];
-    if (!only) throw new Error('build commit match missing');
-    return { tip: only.hash, includeWorkingTree: false };
+  if (matches.length === 0) {
+    return { tip: git(['rev-parse', 'HEAD']), includeWorkingTree: true };
   }
 
-  return { tip: git(['rev-parse', 'HEAD']), includeWorkingTree: true };
+  return { tip: git(['rev-parse', 'HEAD']), includeWorkingTree: false };
 }
 
 function changedPathsBetween(base: string, tip: string): string[] {
@@ -208,6 +246,12 @@ function isForbiddenPath(pathValue: string): boolean {
   return FORBIDDEN_PREFIXES.some((prefix) => posix.startsWith(prefix));
 }
 
+function readCompanion(relativePath: string): string {
+  const absolute = join(REPO_ROOT, relativePath);
+  expect(existsSync(absolute), `missing companion: ${relativePath}`).toBe(true);
+  return readFileSync(absolute, 'utf8');
+}
+
 describe('Build 3.7E1A Codex subscription probe decisions record', () => {
   const record = readFileSync(CLOSEOUT_PATH, 'utf8');
   const tipInfo = resolveBuildTip();
@@ -235,19 +279,55 @@ describe('Build 3.7E1A Codex subscription probe decisions record', () => {
     expect(markers.get('OPENCLAW_ROUTE')).toBe('OUT_OF_SCOPE');
   });
 
-  it('limits Build 3.7E1A changed paths to the architecture-only allowlist', () => {
+  it('proves IMPLEMENTATION_READY with the exact probe implementation contract', () => {
+    for (const heading of REQUIRED_CONTRACT_HEADINGS) {
+      expect(record.includes(heading), `missing contract heading: ${heading}`).toBe(true);
+    }
+    for (const token of REQUIRED_CONTRACT_TOKENS) {
+      expect(record.includes(token), `missing contract token: ${token}`).toBe(true);
+    }
+    expect(record).toMatch(/Child process environment allowlist/);
+    expect(record).toMatch(/Executable pin tuple/);
+    expect(record).toMatch(/Exact app-server RPC sequence/);
+    expect(record).toMatch(/Fake test matrix/);
+    expect(record).toMatch(/Manual owner-approved live probe procedure/);
+    expect(record).toMatch(/Future implementation file map/);
+    expect(record.includes('codex-openclaw')).toBe(false);
+  });
+
+  it('requires the exact architecture package file set of 7 paths', () => {
     const committed = changedPathsBetween(BUILD_BASE, tipInfo.tip);
     const working = tipInfo.includeWorkingTree ? workingTreePaths() : [];
-    const all = [...new Set([...committed, ...working])];
-    expect(all.length).toBeGreaterThan(0);
+    const all = [...new Set([...committed, ...working])].sort();
+    const expected = [...ARCHITECTURE_PACKAGE_FILES].sort();
+    expect(all).toEqual(expected);
+    expect(ARCHITECTURE_PACKAGE_FILES).toHaveLength(7);
     for (const pathValue of all) {
       expect(isAllowedPath(pathValue), `disallowed path: ${pathValue}`).toBe(true);
       expect(isForbiddenPath(pathValue), `forbidden path changed: ${pathValue}`).toBe(false);
     }
-    expect(existsSync(CLOSEOUT_PATH)).toBe(true);
-    expect(record.includes('codex-openclaw')).toBe(false);
-    expect(record).toMatch(/Codex app-server/);
-    expect(record).toMatch(/OpenClaw/);
+  });
+
+  it('reads all five companion docs and checks status consistency', () => {
+    expect(COMPANION_DOCS).toHaveLength(5);
+    for (const relativePath of COMPANION_DOCS) {
+      const text = readCompanion(relativePath);
+      expect(text).toMatch(/probe-only/i);
+      expect(text).toMatch(/Build 3\.7E1 implementation status:\s*NOT_STARTED/);
+      expect(text).toMatch(/live probe not run/i);
+      expect(text).toMatch(/blocked by encryption/i);
+      expect(text).toMatch(/OpenClaw/);
+      expect(text).toMatch(/UNVERIFIED|OUT_OF_SCOPE|out of scope|out-of-scope/i);
+      expect(text).toMatch(/Codex app-server/);
+      expect(text.includes('codex-openclaw')).toBe(false);
+      const productionReadyTrue = /PRODUCTION_READY:\s*TRUE/.test(text);
+      const productionReadyClaim = /\bproduction ready\b/i.test(text);
+      expect(productionReadyTrue, `${relativePath} claims PRODUCTION_READY TRUE`).toBe(false);
+      expect(productionReadyClaim, `${relativePath} claims production ready`).toBe(false);
+      expect(text).toMatch(
+        /PRODUCTION_READY:\s*FALSE|production remain blocked|live probe and production remain blocked/i,
+      );
+    }
   });
 
   it('keeps historical closeout content hashes equal to Build base', () => {
@@ -269,6 +349,7 @@ describe('Build 3.7E1A Codex subscription probe decisions record', () => {
     for (const pathValue of all) {
       expect(pathValue.startsWith('src/'), `src changed: ${pathValue}`).toBe(false);
       expect(pathValue === 'package.json' || pathValue === 'package-lock.json').toBe(false);
+      expect(pathValue === '.env.example').toBe(false);
       expect(pathValue === 'docs/security-policy.md' || pathValue === 'docs/deployment.md').toBe(
         false,
       );
