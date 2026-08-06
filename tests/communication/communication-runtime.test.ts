@@ -1,4 +1,5 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -25,6 +26,7 @@ import { issueAuthenticatedCommunicationPrincipal } from '../../src/core/communi
 import {
   deriveCommunicationIdempotencyKey,
   parseCommunicationBindingVersion,
+  parseCommunicationIdempotencyKey,
   parseConversationId,
   parseConversationRevision,
   parseExternalTransportConversationReference,
@@ -209,18 +211,108 @@ type TurnRow = {
   readonly llm_outcome: string | null;
   readonly delivery_status: string;
   readonly turn_revision: number;
+  readonly checkpoint_status?: string;
+  readonly audit_start_status?: string;
+  readonly audit_completion_status?: string;
 };
+
+const auditIdempotencyKey = (seed: string): string =>
+  createHash('sha256').update(seed).digest('hex');
 
 const readTurns = (storageRoot: string): TurnRow[] => {
   const db = openSqliteDatabaseFile(`${storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`);
   const rows = db
     .prepare(
-      `SELECT turn_id, correlation_id, state, conversation_id, llm_outcome, delivery_status, turn_revision
+      `SELECT turn_id, correlation_id, state, conversation_id, llm_outcome, delivery_status,
+              turn_revision, checkpoint_status, audit_start_status, audit_completion_status
        FROM turns ORDER BY observed_at ASC, turn_id ASC`,
     )
     .all() as TurnRow[];
   db.close();
   return rows;
+};
+
+const countAuditRows = (
+  storageRoot: string,
+): {
+  readonly starts: number;
+  readonly completions: number;
+  readonly startKinds: readonly string[];
+  readonly completionKinds: readonly string[];
+} => {
+  const db = openSqliteDatabaseFile(`${storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`);
+  const starts = db
+    .prepare(`SELECT operation_kind FROM audit_start ORDER BY timestamp ASC`)
+    .all() as Array<{
+    operation_kind: string;
+  }>;
+  const completions = db
+    .prepare(`SELECT operation_kind FROM audit_completion ORDER BY timestamp ASC`)
+    .all() as Array<{ operation_kind: string }>;
+  db.close();
+  return {
+    starts: starts.length,
+    completions: completions.length,
+    startKinds: starts.map((row) => row.operation_kind),
+    completionKinds: completions.map((row) => row.operation_kind),
+  };
+};
+
+const seedDurableAuditStart = async (
+  handle: OfflineSqliteCommunicationPortsHandle,
+  input: {
+    readonly turnId: string;
+    readonly correlationId: string;
+    readonly ownerId?: string;
+    readonly conversationId: string;
+  },
+): Promise<void> => {
+  const recorded = await handle.audit.recordStart(
+    {
+      turnId: must(parseTurnId(input.turnId)),
+      correlationId: must(parseCorrelationId(input.correlationId)),
+      ownerId: must(parseOwnerId(input.ownerId ?? 'owner-1')),
+      conversationId: must(parseConversationId(input.conversationId)),
+      operationKind: 'text-turn',
+      policyVersion: must(parsePolicyVersion('1.0.0')),
+      idempotencyKey: must(
+        parseCommunicationIdempotencyKey(auditIdempotencyKey(`audit-start-${input.turnId}`)),
+      ),
+      timestamp: must(parseISO8601('2026-08-05T12:00:00.000Z')),
+      redactedMetadata: { phase: 'start' },
+    },
+    ctx(),
+  );
+  if (
+    !recorded.ok ||
+    (recorded.value.kind !== 'recorded' && recorded.value.kind !== 'already-recorded')
+  )
+    throw new Error(`audit start seed failed: ${JSON.stringify(recorded)}`);
+};
+
+const insertAuditStartSql = (
+  storageRoot: string,
+  input: {
+    readonly turnId: string;
+    readonly correlationId: string;
+    readonly conversationId: string;
+  },
+): void => {
+  const db = openSqliteDatabaseFile(`${storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`);
+  db.prepare(
+    `INSERT INTO audit_start (
+       idempotency_key, turn_id, correlation_id, owner_id, conversation_id,
+       operation_kind, policy_version, timestamp, metadata_json
+     ) VALUES (?, ?, ?, 'owner-1', ?, 'text-turn', '1.0.0', ?, ?)`,
+  ).run(
+    auditIdempotencyKey(`audit-start-${input.turnId}`),
+    input.turnId,
+    input.correlationId,
+    input.conversationId,
+    '2026-08-05T12:00:00.000Z',
+    '{"phase":"start"}',
+  );
+  db.close();
 };
 
 const observation = (
@@ -1196,12 +1288,20 @@ describe('Build 3.7D communication runtime', () => {
       ctx(),
     );
     expect(checkpointed.ok).toBe(true);
+    await seedDurableAuditStart(firstPorts.value, {
+      turnId: seeded.turnId,
+      correlationId: seeded.correlationId,
+      conversationId: String(conversation),
+    });
     const db = openSqliteDatabaseFile(`${storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`);
     db.prepare(
       `UPDATE turns
           SET state = 'delivered',
               delivery_status = 'delivered',
-              llm_outcome = 'completed'
+              llm_outcome = 'completed',
+              checkpoint_status = 'pending',
+              audit_start_status = 'succeeded',
+              audit_completion_status = 'pending'
         WHERE turn_id = ?`,
     ).run(seeded.turnId);
     db.close();
@@ -1227,7 +1327,15 @@ describe('Build 3.7D communication runtime', () => {
     if (!loaded.ok || loaded.value.kind !== 'found') throw new Error('load');
     expect(loaded.value.snapshot.pauseState).toBe('degraded');
     expect(loaded.value.snapshot.checkpoint.status).toBe('failed');
-    expect(readTurns(storageRoot)[0]?.state).toBe('completed');
+    const recovered = readTurns(storageRoot)[0];
+    expect(recovered?.state).toBe('completed');
+    expect(recovered?.checkpoint_status).toBe('failed');
+    expect(recovered?.audit_completion_status).toBe('failed');
+    const audits = countAuditRows(storageRoot);
+    expect(audits.starts).toBe(1);
+    expect(audits.completions).toBe(1);
+    expect(audits.startKinds).toEqual(['text-turn']);
+    expect(audits.completionKinds).toEqual(['text-turn']);
     await slice.orchestrator.close();
     reopened.value.close();
     root.close();
@@ -1522,6 +1630,11 @@ describe('Build 3.7D communication runtime', () => {
          'corr-recover-barrier', 'delivered', 'pending', 'succeeded', 'pending', NULL, NULL, ?, ?)`,
     ).run('turn-recover-barrier-1', 'a'.repeat(64), now, now);
     db.close();
+    insertAuditStartSql(storageRoot, {
+      turnId: 'turn-recover-barrier-1',
+      correlationId: 'corr-recover-barrier',
+      conversationId: 'conversation-conv-recover-barrier',
+    });
     firstPorts.value.close();
 
     const reopened = createOfflineSqliteCommunicationPorts(root, {
@@ -1551,7 +1664,10 @@ describe('Build 3.7D communication runtime', () => {
     if (!loaded.ok || loaded.value.kind !== 'found') throw new Error('barrier load');
     expect(loaded.value.snapshot.pauseState).toBe('degraded');
     expect(loaded.value.snapshot.checkpoint.status).toBe('failed');
-    expect(readTurns(storageRoot)[0]?.state).toBe('completed');
+    const recovered = readTurns(storageRoot)[0];
+    expect(recovered?.state).toBe('completed');
+    expect(recovered?.checkpoint_status).toBe('failed');
+    expect(recovered?.audit_completion_status).toBe('failed');
     await slice.orchestrator.close();
     reopened.value.close();
     root.close();
@@ -1705,7 +1821,7 @@ describe('Build 3.7D communication runtime', () => {
     expect(rewrite.ok).toBe(false);
   });
 
-  it('requires barrier when checkpoint succeeded but conversation snapshot is missing', async () => {
+  it('fails closed on succeeded checkpoint with missing snapshot contradiction', async () => {
     const storageRoot = createTempStorageRoot();
     const root = openGenuineRoot(storageRoot);
     const firstPorts = createOfflineSqliteCommunicationPorts(root, {
@@ -1726,6 +1842,11 @@ describe('Build 3.7D communication runtime', () => {
          'corr-missing-snap', 'delivered', 'succeeded', 'succeeded', 'pending', 'completed', NULL, ?, ?)`,
     ).run('turn-missing-snap', 'b'.repeat(64), now, now);
     db.close();
+    insertAuditStartSql(storageRoot, {
+      turnId: 'turn-missing-snap',
+      correlationId: 'corr-missing-snap',
+      conversationId: 'conversation-conv-missing-snap',
+    });
     firstPorts.value.close();
 
     const reopened = createOfflineSqliteCommunicationPorts(root, {
@@ -1744,24 +1865,23 @@ describe('Build 3.7D communication runtime', () => {
       root.close();
     });
     const started = await slice.orchestrator.start(ctx());
-    expect(started.ok).toBe(true);
-    const owner = must(parseOwnerId('owner-1'));
-    const conversation = must(parseConversationId('conversation-conv-missing-snap'));
-    const loaded = await reopened.value.conversationState.load(
-      { ownerId: owner, conversationId: conversation },
+    expect(started.ok).toBe(false);
+    expect(slice.orchestrator.diagnostics().lifecycle).toBe('failed');
+    expect(readTurns(storageRoot)[0]?.state).toBe('delivered');
+    expect(readTurns(storageRoot)[0]?.checkpoint_status).toBe('succeeded');
+    expect(countAuditRows(storageRoot).completions).toBe(0);
+    const denied = await slice.orchestrator.submitObservation(
+      observation('conv-missing-snap', 'msg-missing-snap'),
       ctx(),
     );
-    expect(loaded.ok && loaded.value.kind === 'found').toBe(true);
-    if (!loaded.ok || loaded.value.kind !== 'found') throw new Error('load');
-    expect(loaded.value.snapshot.pauseState).toBe('degraded');
-    expect(readTurns(storageRoot)[0]?.state).toBe('completed');
+    expect(denied.ok).toBe(false);
     await slice.orchestrator.close();
     reopened.value.close();
     root.close();
     markClosed();
   });
 
-  it('keeps ingress closed when completion audit stays pending after restart', async () => {
+  it('disables ingress when original durable audit start is missing', async () => {
     const storageRoot = createTempStorageRoot();
     const root = openGenuineRoot(storageRoot);
     const firstPorts = createOfflineSqliteCommunicationPorts(root, {
@@ -1778,9 +1898,9 @@ describe('Build 3.7D communication runtime', () => {
          conversation_sequence, owner_id, conversation_id, correlation_id,
          delivery_status, checkpoint_status, audit_start_status, audit_completion_status,
          llm_outcome, error_code, observed_at, updated_at
-       ) VALUES (?, 'transport-ref-1', ?, 'delivered', 4, 1, 'owner-1', 'conversation-conv-audit-pending',
-         'corr-audit-pending', 'delivered', 'succeeded', 'succeeded', 'pending', 'completed', NULL, ?, ?)`,
-    ).run('turn-audit-pending', 'c'.repeat(64), now, now);
+       ) VALUES (?, 'transport-ref-1', ?, 'delivered', 4, 1, 'owner-1', 'conversation-conv-missing-start',
+         'corr-missing-start', 'delivered', 'pending', 'succeeded', 'pending', 'completed', NULL, ?, ?)`,
+    ).run('turn-missing-start', 'e'.repeat(64), now, now);
     db.close();
     firstPorts.value.close();
 
@@ -1790,16 +1910,8 @@ describe('Build 3.7D communication runtime', () => {
     });
     expect(reopened.ok).toBe(true);
     if (!reopened.ok) throw new Error('reopen');
-    const audit = {
-      ...reopened.value.audit,
-      recordCompletion: () =>
-        Promise.resolve(ok({ kind: 'unavailable' as const, reason: 'audit-pending-denied' })),
-    };
     const slice = createReferenceTextSlice({
-      ports: Object.freeze({
-        ...toReferencePorts(reopened.value),
-        audit: audit as never,
-      }),
+      ports: toReferencePorts(reopened.value),
       scanner: fakeSensitiveDataScanner('allow'),
     });
     const markClosed = trackFixtureClose(async () => {
@@ -1810,19 +1922,16 @@ describe('Build 3.7D communication runtime', () => {
     const started = await slice.orchestrator.start(ctx());
     expect(started.ok).toBe(false);
     expect(slice.orchestrator.diagnostics().lifecycle).toBe('failed');
-    expect(readTurns(storageRoot)[0]?.state).toBe('delivered');
-    const denied = await slice.orchestrator.submitObservation(
-      observation('conv-audit-pending', 'msg-audit-pending'),
-      ctx(),
-    );
-    expect(denied.ok).toBe(false);
+    expect(countAuditRows(storageRoot).starts).toBe(0);
+    expect(countAuditRows(storageRoot).completions).toBe(0);
+    expect(readTurns(storageRoot)[0]?.state).not.toBe('completed');
     await slice.orchestrator.close();
     reopened.value.close();
     root.close();
     markClosed();
   });
 
-  it('reconciles completion audit successfully and idempotently on recovery', async () => {
+  it('retries completion audit as text-turn without creating audit start after delivery', async () => {
     const storageRoot = createTempStorageRoot();
     const root = openGenuineRoot(storageRoot);
     const firstPorts = createOfflineSqliteCommunicationPorts(root, {
@@ -1842,10 +1951,15 @@ describe('Build 3.7D communication runtime', () => {
        ) VALUES (?, 'transport-ref-1', ?, 'delivered', 4, 1, 'owner-1', 'conversation-conv-audit-ok',
          'corr-audit-ok', 'delivered', 'succeeded', 'succeeded', 'pending', 'completed', NULL, ?, ?)`,
     ).run('turn-audit-ok', 'd'.repeat(64), now, now);
+    db.close();
+    insertAuditStartSql(storageRoot, {
+      turnId: 'turn-audit-ok',
+      correlationId: 'corr-audit-ok',
+      conversationId: 'conversation-conv-audit-ok',
+    });
     const owner = must(parseOwnerId('owner-1'));
     const conversation = must(parseConversationId('conversation-conv-audit-ok'));
     const corr = must(parseCorrelationId('corr-audit-ok'));
-    db.close();
     const snap = await firstPorts.value.conversationState.checkpoint(
       {
         key: { ownerId: owner, conversationId: conversation },
@@ -1868,6 +1982,7 @@ describe('Build 3.7D communication runtime', () => {
       ctx(),
     );
     expect(snap.ok).toBe(true);
+    expect(countAuditRows(storageRoot).starts).toBe(1);
     firstPorts.value.close();
 
     const reopened = createOfflineSqliteCommunicationPorts(root, {
@@ -1887,22 +2002,120 @@ describe('Build 3.7D communication runtime', () => {
     });
     const started = await slice.orchestrator.start(ctx());
     expect(started.ok).toBe(true);
-    const verifyDb = openSqliteDatabaseFile(
-      `${storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`,
+    const audits = countAuditRows(storageRoot);
+    expect(audits.starts).toBe(1);
+    expect(audits.completions).toBe(1);
+    expect(audits.startKinds).toEqual(['text-turn']);
+    expect(audits.completionKinds).toEqual(['text-turn']);
+    expect(readTurns(storageRoot)[0]?.state).toBe('completed');
+    expect(readTurns(storageRoot)[0]?.audit_completion_status).toBe('succeeded');
+    await slice.orchestrator.close();
+    reopened.value.close();
+
+    const again = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(again.ok).toBe(true);
+    if (!again.ok) throw new Error('reopen2');
+    const slice2 = createReferenceTextSlice({
+      ports: toReferencePorts(again.value),
+      scanner: fakeSensitiveDataScanner('allow'),
+    });
+    const started2 = await slice2.orchestrator.start(ctx());
+    expect(started2.ok).toBe(true);
+    const audits2 = countAuditRows(storageRoot);
+    expect(audits2.starts).toBe(1);
+    expect(audits2.completions).toBe(1);
+    expect(audits2.completionKinds).toEqual(['text-turn']);
+    await slice2.orchestrator.close();
+    again.value.close();
+    root.close();
+    markClosed();
+  });
+
+  it('fails closed when already-recorded completion audit payload mismatches', async () => {
+    const storageRoot = createTempStorageRoot();
+    const root = openGenuineRoot(storageRoot);
+    const firstPorts = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(firstPorts.ok).toBe(true);
+    if (!firstPorts.ok) throw new Error('open');
+    const turnId = 'turn-audit-mismatch';
+    const corr = 'corr-audit-mismatch';
+    const conversationId = 'conversation-conv-audit-mismatch';
+    const db = openSqliteDatabaseFile(`${storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`);
+    const now = '2026-08-05T12:00:00.000Z';
+    db.prepare(
+      `INSERT INTO turns (
+         turn_id, transport_instance_id, idempotency_key, state, turn_revision,
+         conversation_sequence, owner_id, conversation_id, correlation_id,
+         delivery_status, checkpoint_status, audit_start_status, audit_completion_status,
+         llm_outcome, error_code, observed_at, updated_at
+       ) VALUES (?, 'transport-ref-1', ?, 'delivered', 4, 1, 'owner-1', ?,
+         ?, 'delivered', 'pending', 'succeeded', 'pending', 'completed', NULL, ?, ?)`,
+    ).run(turnId, 'f'.repeat(64), conversationId, corr, now, now);
+    db.prepare(
+      `INSERT INTO audit_start (
+         idempotency_key, turn_id, correlation_id, owner_id, conversation_id,
+         operation_kind, policy_version, timestamp, metadata_json
+       ) VALUES (?, ?, ?, 'owner-1', ?, 'text-turn', '1.0.0', ?, ?)`,
+    ).run(
+      auditIdempotencyKey(`audit-start-${turnId}`),
+      turnId,
+      corr,
+      conversationId,
+      now,
+      '{"phase":"start"}',
     );
-    const row = verifyDb
-      .prepare(`SELECT state, audit_completion_status FROM turns WHERE turn_id = ?`)
-      .get('turn-audit-ok') as { state: string; audit_completion_status: string };
-    verifyDb.close();
-    expect(row.state).toBe('completed');
-    expect(row.audit_completion_status).toBe('succeeded');
+    db.prepare(
+      `INSERT INTO audit_completion (
+         idempotency_key, turn_id, correlation_id, owner_id, conversation_id,
+         operation_kind, policy_version, timestamp, delivery_status, checkpoint_status,
+         audit_start_status, audit_completion_status, error_code, metadata_json
+       ) VALUES (?, ?, ?, 'owner-1', ?, 'checkpoint-reconciliation', '1.0.0', ?, 'delivered', 'failed',
+         'succeeded', 'failed', 'CONVERSATION_CHECKPOINT_FAILED', ?)`,
+    ).run(
+      auditIdempotencyKey(`audit-completion-${turnId}`),
+      turnId,
+      corr,
+      conversationId,
+      now,
+      '{"checkpointStatus":"failed","deliveryStatus":"delivered","phase":"completion"}',
+    );
+    db.close();
+    firstPorts.value.close();
+
+    const reopened = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) throw new Error('reopen');
+    const slice = createReferenceTextSlice({
+      ports: toReferencePorts(reopened.value),
+      scanner: fakeSensitiveDataScanner('allow'),
+    });
+    const markClosed = trackFixtureClose(async () => {
+      await slice.orchestrator.close();
+      reopened.value.close();
+      root.close();
+    });
+    const started = await slice.orchestrator.start(ctx());
+    expect(started.ok).toBe(false);
+    expect(slice.orchestrator.diagnostics().lifecycle).toBe('failed');
+    expect(countAuditRows(storageRoot).completions).toBe(1);
+    expect(countAuditRows(storageRoot).completionKinds).toEqual(['checkpoint-reconciliation']);
+    expect(readTurns(storageRoot)[0]?.state).toBe('delivered');
     await slice.orchestrator.close();
     reopened.value.close();
     root.close();
     markClosed();
   });
 
-  it('terminalizes synchronous LLM throw after durable start without retry', async () => {
+  it('terminalizes synchronous LLM throw after durable start and records degraded barrier', async () => {
     const fixture = openCustomRuntime({
       llm: {
         complete() {
@@ -1920,10 +2133,20 @@ describe('Build 3.7D communication runtime', () => {
     expect(row?.llm_outcome).toBe('outcome-unknown');
     expect(row?.state).toBe('completed');
     expect(fixture.slice.orchestrator.sideEffects.llmCalls).toBe(1);
+    const owner = must(parseOwnerId('owner-1'));
+    const conversation = must(parseConversationId('conversation-conv-sync-llm'));
+    const loaded = await fixture.handle.conversationState.load(
+      { ownerId: owner, conversationId: conversation },
+      ctx(),
+    );
+    expect(loaded.ok && loaded.value.kind === 'found').toBe(true);
+    if (!loaded.ok || loaded.value.kind !== 'found') throw new Error('barrier');
+    expect(loaded.value.snapshot.pauseState).toBe('degraded');
+    expect(loaded.value.snapshot.checkpoint.status).toBe('failed');
     await releaseFixture(fixture);
   });
 
-  it('terminalizes synchronous delivery throw after durable start without resend', async () => {
+  it('terminalizes synchronous delivery throw after durable start and records degraded barrier', async () => {
     const fixture = openCustomRuntime({
       delivery: {
         deliver() {
@@ -1941,14 +2164,51 @@ describe('Build 3.7D communication runtime', () => {
     expect(row?.delivery_status).toBe('outcome_unknown');
     expect(row?.state).toBe('completed');
     expect(fixture.slice.orchestrator.sideEffects.deliveryCalls).toBe(1);
+    const owner = must(parseOwnerId('owner-1'));
+    const conversation = must(parseConversationId('conversation-conv-sync-delivery'));
+    const loaded = await fixture.handle.conversationState.load(
+      { ownerId: owner, conversationId: conversation },
+      ctx(),
+    );
+    expect(loaded.ok && loaded.value.kind === 'found').toBe(true);
+    if (!loaded.ok || loaded.value.kind !== 'found') throw new Error('barrier');
+    expect(loaded.value.snapshot.pauseState).toBe('degraded');
+    expect(loaded.value.snapshot.checkpoint.status).toBe('failed');
     await releaseFixture(fixture);
   });
 
-  it('latches delivery abort/deadline and ignores late resolve or reject', async () => {
+  it('latches delivery abort and ignores late resolve', async () => {
     let resolveLate: ((value: unknown) => void) | undefined;
-    let rejectLate: ((reason?: unknown) => void) | undefined;
-    const deferred = new Promise((resolve, reject) => {
+    const deferred = new Promise((resolve) => {
       resolveLate = resolve;
+    });
+    const fixture = openCustomRuntime({
+      delivery: {
+        deliver() {
+          return deferred as never;
+        },
+      },
+    });
+    await startRuntime(fixture);
+    await fixture.slice.orchestrator.submitObservation(
+      observation('conv-delivery-late-resolve', 'msg-delivery-late-resolve'),
+      ctx(),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const closed = fixture.slice.orchestrator.close();
+    await expect(closed).resolves.toMatchObject({ ok: true });
+    expect(readTurns(fixture.storageRoot)[0]?.delivery_status).toBe('outcome_unknown');
+    resolveLate?.({ ok: true, value: { kind: 'delivered' } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(readTurns(fixture.storageRoot)[0]?.delivery_status).toBe('outcome_unknown');
+    fixture.markClosed?.();
+    fixture.handle.close();
+    fixture.root.close();
+  });
+
+  it('latches delivery abort and ignores late reject', async () => {
+    let rejectLate: ((reason?: unknown) => void) | undefined;
+    const deferred = new Promise((_resolve, reject) => {
       rejectLate = reject;
     });
     const fixture = openCustomRuntime({
@@ -1960,14 +2220,13 @@ describe('Build 3.7D communication runtime', () => {
     });
     await startRuntime(fixture);
     await fixture.slice.orchestrator.submitObservation(
-      observation('conv-delivery-late', 'msg-delivery-late'),
+      observation('conv-delivery-late-reject', 'msg-delivery-late-reject'),
       ctx(),
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
     const closed = fixture.slice.orchestrator.close();
     await expect(closed).resolves.toMatchObject({ ok: true });
     expect(readTurns(fixture.storageRoot)[0]?.delivery_status).toBe('outcome_unknown');
-    resolveLate?.({ ok: true, value: { kind: 'delivered' } });
     rejectLate?.(new Error('late-reject'));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(readTurns(fixture.storageRoot)[0]?.delivery_status).toBe('outcome_unknown');

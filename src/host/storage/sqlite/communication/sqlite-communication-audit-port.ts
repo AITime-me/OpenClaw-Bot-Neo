@@ -28,13 +28,42 @@ type Prepared = {
   readonly insertCompletion: SqliteStatement;
 };
 
+type AuditStartRow = {
+  readonly idempotency_key: string;
+  readonly turn_id: string;
+  readonly correlation_id: string;
+  readonly owner_id: string;
+  readonly conversation_id: string;
+  readonly operation_kind: string;
+  readonly policy_version: string;
+  readonly metadata_json: string;
+};
+
+type AuditCompletionRow = {
+  readonly idempotency_key: string;
+  readonly turn_id: string;
+  readonly correlation_id: string;
+  readonly owner_id: string;
+  readonly conversation_id: string;
+  readonly operation_kind: string;
+  readonly policy_version: string;
+  readonly delivery_status: string;
+  readonly checkpoint_status: string;
+  readonly audit_start_status: string;
+  readonly audit_completion_status: string;
+  readonly error_code: string | null;
+  readonly metadata_json: string;
+};
+
 const closedError = (): CommunicationError =>
   communicationError('AUDIT_START_FAILED', 'Communication audit port is closed.');
 
 const prepare = (db: SqliteDatabase): Prepared =>
   Object.freeze({
     selectStartByKey: db.prepare(
-      `SELECT idempotency_key FROM audit_start WHERE idempotency_key = ? LIMIT 1`,
+      `SELECT idempotency_key, turn_id, correlation_id, owner_id, conversation_id,
+              operation_kind, policy_version, metadata_json
+         FROM audit_start WHERE idempotency_key = ? LIMIT 1`,
     ),
     selectStartByTurn: db.prepare(
       `SELECT idempotency_key FROM audit_start WHERE turn_id = ? LIMIT 1`,
@@ -46,7 +75,10 @@ const prepare = (db: SqliteDatabase): Prepared =>
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     selectCompletionByKey: db.prepare(
-      `SELECT idempotency_key FROM audit_completion WHERE idempotency_key = ? LIMIT 1`,
+      `SELECT idempotency_key, turn_id, correlation_id, owner_id, conversation_id,
+              operation_kind, policy_version, delivery_status, checkpoint_status,
+              audit_start_status, audit_completion_status, error_code, metadata_json
+         FROM audit_completion WHERE idempotency_key = ? LIMIT 1`,
     ),
     insertCompletion: db.prepare(
       `INSERT INTO audit_completion (
@@ -56,6 +88,37 @@ const prepare = (db: SqliteDatabase): Prepared =>
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
   });
+
+const startSemanticallyEquivalent = (
+  existing: AuditStartRow,
+  event: CommunicationAuditStartEvent,
+  metadataJson: string,
+): boolean =>
+  existing.turn_id === String(event.turnId) &&
+  existing.correlation_id === String(event.correlationId) &&
+  existing.owner_id === String(event.ownerId) &&
+  existing.conversation_id === String(event.conversationId) &&
+  existing.operation_kind === event.operationKind &&
+  existing.policy_version === String(event.policyVersion) &&
+  existing.metadata_json === metadataJson;
+
+const completionSemanticallyEquivalent = (
+  existing: AuditCompletionRow,
+  event: CommunicationAuditCompletionEvent,
+  metadataJson: string,
+): boolean =>
+  existing.turn_id === String(event.turnId) &&
+  existing.correlation_id === String(event.correlationId) &&
+  existing.owner_id === String(event.ownerId) &&
+  existing.conversation_id === String(event.conversationId) &&
+  existing.operation_kind === event.operationKind &&
+  existing.policy_version === String(event.policyVersion) &&
+  existing.delivery_status === event.deliveryStatus &&
+  existing.checkpoint_status === event.checkpointStatus &&
+  existing.audit_start_status === event.auditStartStatus &&
+  existing.audit_completion_status === event.auditCompletionStatus &&
+  (existing.error_code ?? null) === (event.errorCode ?? null) &&
+  existing.metadata_json === metadataJson;
 
 type AuditScanPhase = 'start' | 'completion';
 
@@ -110,8 +173,15 @@ export const createSqliteCommunicationAuditPort = (
       try {
         const outcome = runImmediate(db, (): CommunicationAuditRecordOutcome => {
           const existing = statements.selectStartByKey.get(event.idempotencyKey) as
-            { idempotency_key: string } | undefined;
-          if (existing !== undefined) return { kind: 'already-recorded' };
+            AuditStartRow | undefined;
+          if (existing !== undefined) {
+            if (startSemanticallyEquivalent(existing, event, encoded.json))
+              return { kind: 'already-recorded' };
+            return {
+              kind: 'rejected',
+              reason: 'Audit start idempotency key collides with a non-equivalent payload.',
+            };
+          }
           try {
             statements.insertStart.run(
               event.idempotencyKey,
@@ -125,7 +195,16 @@ export const createSqliteCommunicationAuditPort = (
               encoded.json,
             );
           } catch (error) {
-            if (isSqliteUniqueConstraint(error)) return { kind: 'already-recorded' };
+            if (isSqliteUniqueConstraint(error)) {
+              const raced = statements.selectStartByKey.get(event.idempotencyKey) as
+                AuditStartRow | undefined;
+              if (raced !== undefined && startSemanticallyEquivalent(raced, event, encoded.json))
+                return { kind: 'already-recorded' };
+              return {
+                kind: 'rejected',
+                reason: 'Audit start idempotency key collides with a non-equivalent payload.',
+              };
+            }
             throw error;
           }
           return { kind: 'recorded' };
@@ -167,8 +246,15 @@ export const createSqliteCommunicationAuditPort = (
             };
 
           const existing = statements.selectCompletionByKey.get(event.idempotencyKey) as
-            { idempotency_key: string } | undefined;
-          if (existing !== undefined) return { kind: 'already-recorded' };
+            AuditCompletionRow | undefined;
+          if (existing !== undefined) {
+            if (completionSemanticallyEquivalent(existing, event, encoded.json))
+              return { kind: 'already-recorded' };
+            return {
+              kind: 'rejected',
+              reason: 'Audit completion idempotency key collides with a non-equivalent payload.',
+            };
+          }
 
           try {
             statements.insertCompletion.run(
@@ -188,7 +274,19 @@ export const createSqliteCommunicationAuditPort = (
               encoded.json,
             );
           } catch (error) {
-            if (isSqliteUniqueConstraint(error)) return { kind: 'already-recorded' };
+            if (isSqliteUniqueConstraint(error)) {
+              const raced = statements.selectCompletionByKey.get(event.idempotencyKey) as
+                AuditCompletionRow | undefined;
+              if (
+                raced !== undefined &&
+                completionSemanticallyEquivalent(raced, event, encoded.json)
+              )
+                return { kind: 'already-recorded' };
+              return {
+                kind: 'rejected',
+                reason: 'Audit completion idempotency key collides with a non-equivalent payload.',
+              };
+            }
             throw error;
           }
           return { kind: 'recorded' };
