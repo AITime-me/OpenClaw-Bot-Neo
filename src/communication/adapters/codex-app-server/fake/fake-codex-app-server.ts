@@ -6,9 +6,6 @@ import {
   type JsonRpcId,
 } from '../codex-app-server-protocol.js';
 
-const isPlainObject = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
-
 export type FakeCodexAppServerScenario =
   | 'happy-path'
   | 'account-null'
@@ -35,10 +32,26 @@ export type FakeCodexAppServerScenario =
   | 'cleanup-spawned-no-thread'
   | 'cleanup-thread-no-dispatch'
   | 'cleanup-active-turn'
-  | 'cleanup-child-crashed';
+  | 'cleanup-child-crashed'
+  | 'duplicate-response-id'
+  | 'late-response'
+  | 'result-and-error'
+  | 'server-request-before-dispatch'
+  | 'server-request-after-dispatch'
+  | 'forbidden-item-command'
+  | 'forbidden-item-file'
+  | 'forbidden-item-web'
+  | 'forbidden-item-mcp'
+  | 'turn-failed'
+  | 'turn-interrupted'
+  | 'wrong-turn-id'
+  | 'wrong-thread-id'
+  | 'stdin-write-fail'
+  | 'unknown-response-id';
 
 type FakeController = {
   readonly scenario: FakeCodexAppServerScenario;
+  readonly rpcTrace: string[];
   triggerAbort(): void;
   forceExit(code?: number): void;
 };
@@ -49,6 +62,55 @@ export type FakeCodexAppServerHandle = {
   readonly getAbortSignal: () => AbortSignal;
 };
 
+const happyAccount = {
+  account: { type: 'chatgpt', email: 'owner@example.com', planType: 'plus' },
+  requiresOpenaiAuth: true,
+};
+
+const happyConfig = {
+  config: {
+    model: 'gpt-probe',
+    mcpServers: {},
+    web: false,
+    shell: false,
+    apps: { _default: { enabled: false } },
+    hooks: false,
+  },
+};
+
+const happyLimits = {
+  rateLimits: {
+    limitId: 'codex',
+    limitName: null,
+    primary: { usedPercent: 10, windowDurationMins: 15, resetsAt: 1_900_000_000 },
+    secondary: null,
+    rateLimitReachedType: null,
+  },
+  rateLimitsByLimitId: {
+    codex: {
+      limitId: 'codex',
+      limitName: null,
+      primary: { usedPercent: 10, windowDurationMins: 15, resetsAt: 1_900_000_000 },
+      secondary: null,
+      rateLimitReachedType: null,
+    },
+  },
+};
+
+const happyModels = {
+  data: [
+    {
+      id: 'gpt-probe',
+      model: 'gpt-probe',
+      displayName: 'Probe',
+      hidden: false,
+      isDefault: true,
+      inputModalities: ['text'],
+    },
+  ],
+  nextCursor: null,
+};
+
 export const createFakeCodexAppServerTransport = (
   scenario: FakeCodexAppServerScenario,
 ): FakeCodexAppServerHandle => {
@@ -57,8 +119,9 @@ export const createFakeCodexAppServerTransport = (
   let exited = false;
   let stdinClosed = false;
   const abort = new AbortController();
-  let turnStarted = false;
   let threadId: string | null = null;
+  const rpcTrace: string[] = [];
+  const stderrBuf = '';
 
   const emitLine = (line: string): void => {
     queueMicrotask(() => {
@@ -85,14 +148,47 @@ export const createFakeCodexAppServerTransport = (
   };
 
   const handleRequest = (method: string, id: JsonRpcId, params: unknown): void => {
+    rpcTrace.push(method);
     if (scenario === 'initialize-timeout' && method === 'initialize') return;
     if (scenario === 'thread-start-timeout' && method === 'thread/start') return;
     if (scenario === 'malformed-before-dispatch' && method === 'initialize') {
       emitLine('not-json{');
       return;
     }
+    if (scenario === 'result-and-error' && method === 'initialize') {
+      emitLine(JSON.stringify({ id, result: {}, error: { message: 'both' } }));
+      return;
+    }
+    if (scenario === 'duplicate-response-id' && method === 'initialize') {
+      respond(id, { serverInfo: { name: 'fake' } });
+      respond(id, { serverInfo: { name: 'dup' } });
+      return;
+    }
+    if (scenario === 'unknown-response-id' && method === 'initialize') {
+      respond(999, { serverInfo: { name: 'fake' } });
+      return;
+    }
+    if (scenario === 'late-response' && method === 'config/read') {
+      respond(1, { serverInfo: { name: 'late-initialize' } });
+      respond(id, happyConfig);
+      return;
+    }
+    if (scenario === 'late-response' && method === 'initialize') {
+      respond(id, { serverInfo: { name: 'fake' } });
+      return;
+    }
+    if (scenario === 'server-request-before-dispatch' && method === 'initialize') {
+      emitLine(
+        JSON.stringify({
+          method: 'item/commandExecution/requestApproval',
+          id: 'srv_1',
+          params: {},
+        }),
+      );
+      return;
+    }
     if (scenario === 'cleanup-spawned-no-thread' && method === 'initialize') {
-      respond(id, { ok: true });
+      respond(id, { serverInfo: { name: 'fake' } });
       forceExit(0);
       return;
     }
@@ -107,55 +203,87 @@ export const createFakeCodexAppServerTransport = (
         return;
       case 'config/read':
         if (scenario === 'effective-config-violation') {
-          respond(id, { web: true, mcpServers: { x: {} } });
+          respond(id, {
+            config: { web: true, mcpServers: { x: {} }, apps: { demo: { enabled: true } } },
+          });
           return;
         }
-        respond(id, { mcpServers: {}, web: false, shell: false, apps: false, hooks: false });
+        respond(id, happyConfig);
         return;
       case 'configRequirements/read':
-        respond(id, {});
+        respond(id, { requirements: null });
         return;
       case 'account/read':
         if (scenario === 'account-null') {
-          respond(id, null);
+          respond(id, { account: null, requiresOpenaiAuth: true });
           return;
         }
         if (scenario === 'non-chatgpt-auth') {
-          respond(id, { type: 'api' });
+          respond(id, { account: { type: 'apiKey' }, requiresOpenaiAuth: true });
           return;
         }
-        respond(id, { type: 'chatgpt' });
+        respond(id, happyAccount);
         return;
       case 'account/rateLimits/read':
         if (scenario === 'quota-exhausted') {
-          respond(id, { remaining: 0, exhausted: true });
+          respond(id, {
+            rateLimits: {
+              limitId: 'codex',
+              primary: { usedPercent: 100, windowDurationMins: 15, resetsAt: 1 },
+              secondary: null,
+              rateLimitReachedType: 'primary',
+            },
+          });
           return;
         }
-        respond(id, { remaining: 10, exhausted: false });
+        respond(id, happyLimits);
         return;
       case 'model/list':
         if (scenario === 'empty-models') {
-          respond(id, { models: [] });
+          respond(id, { data: [], nextCursor: null });
           return;
         }
         if (scenario === 'multiple-models') {
           respond(id, {
-            models: [
-              { id: 'a', textCapable: true },
-              { id: 'b', textCapable: true },
+            data: [
+              {
+                id: 'a',
+                isDefault: true,
+                hidden: false,
+                inputModalities: ['text'],
+              },
+              {
+                id: 'b',
+                isDefault: true,
+                hidden: false,
+                inputModalities: ['text'],
+              },
             ],
+            nextCursor: null,
           });
           return;
         }
         if (scenario === 'unsupported-models') {
-          respond(id, { models: [{ id: 'vision-only', textCapable: false }] });
+          respond(id, {
+            data: [
+              {
+                id: 'vision-only',
+                isDefault: true,
+                hidden: false,
+                inputModalities: ['image'],
+              },
+            ],
+            nextCursor: null,
+          });
           return;
         }
-        respond(id, { models: [{ id: 'gpt-probe', textCapable: true }] });
+        respond(id, happyModels);
         return;
       case 'thread/start':
         threadId = 'thr_fake_1';
-        respond(id, { thread: { id: threadId, ephemeral: true } });
+        respond(id, {
+          thread: { id: threadId, ephemeral: true, preview: '', createdAt: 1 },
+        });
         notify('thread/started', { thread: { id: threadId } });
         if (scenario === 'cleanup-thread-no-dispatch') {
           queueMicrotask(() => {
@@ -163,19 +291,39 @@ export const createFakeCodexAppServerTransport = (
           });
           return;
         }
+        if (scenario === 'server-request-after-dispatch') {
+          // continue to turn/start
+        }
         return;
       case 'turn/start': {
-        turnStarted = true;
         const input = (params as { input?: Array<{ text?: string }> }).input;
         const text = input?.[0]?.text ?? '';
         if (text !== FIXED_PROBE_PROMPT) {
           respondError(id, 'unexpected-prompt');
           return;
         }
-        respond(id, { turn: { id: 'turn_1' } });
-        notify('turn/started', { turn: { id: 'turn_1' } });
+        respond(id, { turn: { id: 'turn_1', status: 'inProgress', items: [] } });
+        notify('turn/started', {
+          turn: { id: 'turn_1', status: 'inProgress', items: [] },
+        });
+        if (scenario === 'server-request-after-dispatch') {
+          emitLine(
+            JSON.stringify({
+              method: 'item/commandExecution/requestApproval',
+              id: 'srv_2',
+              params: { threadId },
+            }),
+          );
+          return;
+        }
         if (scenario === 'model-rerouted') {
-          notify('model/rerouted', { from: 'gpt-probe', to: 'other' });
+          notify('model/rerouted', {
+            threadId,
+            turnId: 'turn_1',
+            fromModel: 'gpt-probe',
+            toModel: 'other',
+            reason: 'test',
+          });
           return;
         }
         if (scenario === 'web-event-after-dispatch') {
@@ -194,6 +342,24 @@ export const createFakeCodexAppServerTransport = (
           notify('mcpServer/tool/call', {});
           return;
         }
+        if (scenario === 'forbidden-item-command') {
+          notify('item/started', { item: { type: 'commandExecution', id: 'i1' } });
+          return;
+        }
+        if (scenario === 'forbidden-item-file') {
+          notify('item/completed', { item: { type: 'fileChange', id: 'i1', changes: [] } });
+          return;
+        }
+        if (scenario === 'forbidden-item-web') {
+          notify('item/completed', { item: { type: 'webSearch', id: 'i1', query: 'x' } });
+          return;
+        }
+        if (scenario === 'forbidden-item-mcp') {
+          notify('item/completed', {
+            item: { type: 'mcpToolCall', id: 'i1', server: 's', tool: 't', status: 'completed' },
+          });
+          return;
+        }
         if (scenario === 'malformed-after-dispatch') {
           emitLine('{broken');
           return;
@@ -205,20 +371,66 @@ export const createFakeCodexAppServerTransport = (
         if (scenario === 'timeout-after-dispatch' || scenario === 'abort-after-dispatch') {
           return;
         }
+        if (scenario === 'cleanup-active-turn') return;
         if (scenario === 'invalid-output') {
           notify('item/completed', {
-            item: { type: 'agentMessage', text: '{"ok":false}' },
+            item: { type: 'agentMessage', id: 'i1', text: '{"ok":false}' },
           });
-          notify('turn/completed', { turn: { id: 'turn_1' } });
+          notify('turn/completed', {
+            turn: { id: 'turn_1', status: 'completed', items: [] },
+            threadId,
+          });
           return;
         }
-        if (scenario === 'cleanup-active-turn') {
+        if (scenario === 'turn-failed') {
+          notify('item/completed', {
+            item: { type: 'agentMessage', id: 'i1', text: '{"ok":true}' },
+          });
+          notify('turn/completed', {
+            turn: {
+              id: 'turn_1',
+              status: 'failed',
+              error: { message: 'failed' },
+              items: [],
+            },
+            threadId,
+          });
+          return;
+        }
+        if (scenario === 'turn-interrupted') {
+          notify('turn/completed', {
+            turn: { id: 'turn_1', status: 'interrupted', items: [] },
+            threadId,
+          });
+          return;
+        }
+        if (scenario === 'wrong-turn-id') {
+          notify('item/completed', {
+            item: { type: 'agentMessage', id: 'i1', text: '{"ok":true}' },
+          });
+          notify('turn/completed', {
+            turn: { id: 'turn_OTHER', status: 'completed', items: [] },
+            threadId,
+          });
+          return;
+        }
+        if (scenario === 'wrong-thread-id') {
+          notify('item/completed', {
+            item: { type: 'agentMessage', id: 'i1', text: '{"ok":true}' },
+          });
+          notify('turn/completed', {
+            turn: { id: 'turn_1', status: 'completed', items: [] },
+            threadId: 'thr_OTHER',
+          });
           return;
         }
         notify('item/completed', {
-          item: { type: 'agentMessage', text: '{"ok":true}' },
+          item: { type: 'agentMessage', id: 'i1', text: '{"ok":true}' },
         });
-        notify('turn/completed', { turn: { id: 'turn_1' } });
+        notify('turn/completed', {
+          turn: { id: 'turn_1', status: 'completed', items: [] },
+          threadId,
+        });
         return;
       }
       case 'turn/interrupt':
@@ -234,22 +446,25 @@ export const createFakeCodexAppServerTransport = (
 
   const transport: CodexAppServerTransport = {
     writeLine(line) {
-      if (exited || stdinClosed) return;
-      // Client JSON-RPC requests carry both method+id; parseJsonlFrame marks those malformed.
-      // Accept notifications (initialized) and ignore success/failure echoes.
+      if (scenario === 'stdin-write-fail')
+        return Promise.reject(new Error('stdin-write-failed:test'));
+      if (exited || stdinClosed) return Promise.reject(new Error('stdin-closed'));
       const frame = parseJsonlFrame(line);
-      if (frame.kind === 'notification') return;
-      if (frame.kind === 'success' || frame.kind === 'failure') return;
+      if (frame.kind === 'notification') return Promise.resolve();
+      if (frame.kind === 'success' || frame.kind === 'failure') return Promise.resolve();
       let parsed: unknown;
       try {
         parsed = JSON.parse(line);
       } catch {
-        return;
+        return Promise.resolve();
       }
-      if (!isPlainObject(parsed)) return;
-      if (typeof parsed.method === 'string' && 'id' in parsed) {
-        handleRequest(parsed.method, parsed.id as JsonRpcId, parsed.params);
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+        return Promise.resolve();
+      const record = parsed as Record<string, unknown>;
+      if (typeof record.method === 'string' && 'id' in record) {
+        handleRequest(record.method, record.id as JsonRpcId, record.params);
       }
+      return Promise.resolve();
     },
     onLine(handler) {
       lineHandlers.push(handler);
@@ -264,15 +479,14 @@ export const createFakeCodexAppServerTransport = (
     },
     closeStdin() {
       stdinClosed = true;
-      if (scenario === 'cleanup-spawned-no-thread' || scenario === 'cleanup-thread-no-dispatch') {
-        forceExit(0);
-        return;
-      }
-      if (!exited && (scenario === 'happy-path' || turnStarted)) forceExit(0);
-      else if (!exited) forceExit(0);
+      if (!exited) forceExit(0);
     },
     dispose() {
       if (!exited) forceExit(null);
+    },
+    getStderrRedacted: () => stderrBuf,
+    awaitReaped() {
+      return Promise.resolve(exited);
     },
   };
 
@@ -280,6 +494,7 @@ export const createFakeCodexAppServerTransport = (
     transport,
     controller: {
       scenario,
+      rpcTrace,
       triggerAbort: () => {
         abort.abort();
       },
@@ -291,5 +506,5 @@ export const createFakeCodexAppServerTransport = (
   };
 };
 
-/** Test helper: unused serializeRequest keeps protocol import side stable for lint. */
+/** Test helper keeps protocol import side stable for lint. */
 export const _fakeProtocolTouch = (): string => serializeRequest({ method: 'initialize', id: 0 });

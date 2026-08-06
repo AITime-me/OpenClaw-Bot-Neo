@@ -8,6 +8,7 @@ export type CodexExecutablePin = {
   readonly absolutePath: string;
   readonly version: string;
   readonly sha256: string;
+  readonly sizeBytes: number;
   readonly argv: readonly string[];
 };
 
@@ -19,10 +20,24 @@ export type SpawnSpec = {
   readonly args: readonly string[];
   readonly options: {
     readonly shell: false;
+    readonly cwd: string;
     readonly env: NodeJS.ProcessEnv;
     readonly stdio: ['pipe', 'pipe', 'pipe'];
   };
 };
+
+const FORBIDDEN_ARGV_PATTERNS = [
+  /\bws:\/\//i,
+  /\bwss:\/\//i,
+  /\bunix:\/\//i,
+  /\bremote\b/i,
+  /\bcode-mode\b/i,
+  /--config\b/i,
+  /--provider\b/i,
+  /--model-provider\b/i,
+  /--base-url\b/i,
+  /--api-key\b/i,
+] as const;
 
 export const assertPinnedAbsolutePath = (absolutePath: string): PinVerificationResult => {
   if (!isAbsolute(absolutePath))
@@ -38,50 +53,82 @@ export const hashFileSha256 = (absolutePath: string): string => {
   return createHash('sha256').update(bytes).digest('hex');
 };
 
-const argvAllowed = (argv: readonly string[]): boolean => {
-  if (argv.length === 0) return false;
-  if (argv[0] !== 'app-server') return false;
-  const joined = argv.join(' ');
-  if (/\bws:\/\//i.test(joined) || /\bunix:\/\//i.test(joined)) return false;
-  if (/[;&|`$]/.test(joined)) return false;
-  return true;
+export const readExecutableSizeBytes = (absolutePath: string): number => {
+  const st = statSync(absolutePath);
+  return st.size;
 };
+
+/** Exact stdio launch argv only: `app-server` or `app-server --listen stdio://`. */
+export const argvIsExactStdioLaunch = (argv: readonly string[]): boolean => {
+  if (argv.length === 1 && argv[0] === 'app-server') return true;
+  if (
+    argv.length === 3 &&
+    argv[0] === 'app-server' &&
+    argv[1] === '--listen' &&
+    argv[2] === 'stdio://'
+  )
+    return true;
+  return false;
+};
+
+export const argvAllowed = (argv: readonly string[]): PinVerificationResult => {
+  if (!argvIsExactStdioLaunch(argv))
+    return { ok: false, reason: 'argv must be exact app-server stdio launch' };
+  const joined = argv.join(' ');
+  for (const pattern of FORBIDDEN_ARGV_PATTERNS) {
+    if (pattern.test(joined))
+      return { ok: false, reason: `forbidden argv flag/pattern: ${pattern.source}` };
+  }
+  if (/[;&|`$]/.test(joined)) return { ok: false, reason: 'argv contains shell metacharacters' };
+  return { ok: true };
+};
+
+export type VersionReader = (absolutePath: string) => string;
 
 export const verifyPinImmediatelyBeforeSpawn = (
   pin: CodexExecutablePin,
-  options?: {
-    readonly readVersion?: (absolutePath: string) => string;
+  options: {
+    readonly readVersion: VersionReader;
   },
 ): PinVerificationResult => {
   const pathCheck = assertPinnedAbsolutePath(pin.absolutePath);
   if (!pathCheck.ok) return pathCheck;
-  if (!argvAllowed(pin.argv))
-    return { ok: false, reason: 'argv must start with app-server and use allowlisted flags only' };
+  const argvCheck = argvAllowed(pin.argv);
+  if (!argvCheck.ok) return argvCheck;
+  if (typeof pin.version !== 'string' || pin.version.length === 0)
+    return { ok: false, reason: 'pin version is required' };
+  if (!Number.isInteger(pin.sizeBytes) || pin.sizeBytes < 0)
+    return { ok: false, reason: 'pin sizeBytes is required' };
   try {
     const st = statSync(pin.absolutePath);
     if (!st.isFile()) return { ok: false, reason: 'pinned path is not a file' };
+    if (st.size !== pin.sizeBytes)
+      return { ok: false, reason: 'executable size mismatch immediately before spawn' };
   } catch {
     return { ok: false, reason: 'pinned executable file identity check failed' };
   }
   const actualHash = hashFileSha256(pin.absolutePath);
   if (actualHash.toLowerCase() !== pin.sha256.toLowerCase())
     return { ok: false, reason: 'executable sha256 mismatch immediately before spawn' };
-  if (options?.readVersion) {
-    const actualVersion = options.readVersion(pin.absolutePath);
-    if (actualVersion !== pin.version)
-      return { ok: false, reason: 'executable version mismatch immediately before spawn' };
-  }
+  const actualVersion = options.readVersion(pin.absolutePath);
+  if (actualVersion !== pin.version)
+    return { ok: false, reason: 'executable version mismatch immediately before spawn' };
   return { ok: true };
 };
 
 export const createSpawnSpec = (
   pin: CodexExecutablePin,
   envInput: CodexAppServerChildEnvInput,
+  options: {
+    readonly readVersion: VersionReader;
+    readonly cwd: string;
+  },
 ):
   | { readonly ok: true; readonly spec: SpawnSpec }
   | { readonly ok: false; readonly reason: string } => {
-  const pinCheck = verifyPinImmediatelyBeforeSpawn(pin);
+  const pinCheck = verifyPinImmediatelyBeforeSpawn(pin, { readVersion: options.readVersion });
   if (!pinCheck.ok) return pinCheck;
+  if (!isAbsolute(options.cwd)) return { ok: false, reason: 'spawn cwd must be absolute' };
   const envBuild = buildCodexAppServerChildEnv(envInput);
   if (!envBuild.ok) return envBuild;
   return {
@@ -91,6 +138,7 @@ export const createSpawnSpec = (
       args: [...pin.argv],
       options: {
         shell: false,
+        cwd: options.cwd,
         env: envBuild.env,
         stdio: ['pipe', 'pipe', 'pipe'],
       },

@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createCodexAppServerLlmCompletion } from '../../src/communication/adapters/codex-app-server/codex-app-server-llm-completion.js';
 import { createFakeCodexAppServerTransport } from '../../src/communication/adapters/codex-app-server/fake/fake-codex-app-server.js';
@@ -52,8 +55,11 @@ const request = (): LlmCompletionRequest => ({
 describe('codex-app-server llm completion fake', () => {
   it('completes happy-path via fake transport without sqlite persistence hooks', async () => {
     const fake = createFakeCodexAppServerTransport('happy-path');
+    const cwd = mkdtempSync(join(tmpdir(), 'neo-llm-'));
     const llm = createCodexAppServerLlmCompletion({
       transport: fake.transport,
+      cwd,
+      readableRoots: [cwd],
       timeouts: { turnTimeoutMs: 500, preflightTimeoutMs: 500 },
     });
     const result = await llm.complete(request(), operationContext());
@@ -62,17 +68,21 @@ describe('codex-app-server llm completion fake', () => {
     expect(result.value.outcome).toBe('completed');
   });
 
-  it('createCodexAppServerRoute exposes probe-only llm port', async () => {
+  it('createCodexAppServerRoute exposes probe-only llm port with fake transport', async () => {
     const fake = createFakeCodexAppServerTransport('account-null');
+    const home = mkdtempSync(join(tmpdir(), 'neo-route-'));
     const route = createCodexAppServerRoute(
       {
         pin: {
-          absolutePath: '/tmp/does-not-matter',
+          absolutePath: join(home, 'bin'),
           version: '0',
           sha256: '0'.repeat(64),
+          sizeBytes: 1,
           argv: ['app-server'],
         },
-        codexHome: '/tmp/neo-codex-home',
+        codexHome: home,
+        repositoryRoot: resolve(process.cwd()),
+        readVersion: () => '0',
       },
       { transport: fake.transport },
     );

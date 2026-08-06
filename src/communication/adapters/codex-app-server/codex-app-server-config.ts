@@ -34,16 +34,48 @@ export type CodexAppServerRouteConfig = {
   readonly pin: CodexExecutablePin;
   readonly codexHome: string;
   readonly home?: string;
+  readonly tempDir?: string;
+  readonly probeCwd?: string;
+  readonly repositoryRoot: string;
   readonly lang?: string;
   readonly lcAll?: string;
   readonly tz?: string;
   readonly timeouts?: Partial<CodexAppServerTimeouts>;
+  readonly readVersion: (absolutePath: string) => string;
+};
+
+export type TimeoutValidation =
+  | { readonly ok: true; readonly timeouts: CodexAppServerTimeouts }
+  | { readonly ok: false; readonly reason: string };
+
+export const validateAndResolveTimeouts = (
+  partial?: Partial<CodexAppServerTimeouts>,
+): TimeoutValidation => {
+  const timeouts: CodexAppServerTimeouts = {
+    ...DEFAULT_CODEX_APP_SERVER_TIMEOUTS,
+    ...(partial ?? {}),
+  };
+  for (const [key, value] of Object.entries(timeouts)) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)
+      return { ok: false, reason: `timeout ${key} must be a positive finite number` };
+  }
+  if (timeouts.exitWaitMs + timeouts.termGraceMs > timeouts.closeBudgetMs)
+    return { ok: false, reason: 'exitWait+termGrace must fit closeBudget' };
+  if (
+    timeouts.interruptBudgetMs + timeouts.unsubscribeBudgetMs + timeouts.closeBudgetMs >
+    timeouts.totalActiveCleanupBudgetMs
+  )
+    return {
+      ok: false,
+      reason: 'interrupt+unsubscribe+close must fit totalActiveCleanupBudget',
+    };
+  return { ok: true, timeouts: Object.freeze(timeouts) };
 };
 
 export const resolveTimeouts = (
   partial?: Partial<CodexAppServerTimeouts>,
-): CodexAppServerTimeouts =>
-  Object.freeze({
-    ...DEFAULT_CODEX_APP_SERVER_TIMEOUTS,
-    ...(partial ?? {}),
-  });
+): CodexAppServerTimeouts => {
+  const validated = validateAndResolveTimeouts(partial);
+  if (!validated.ok) throw new Error(validated.reason);
+  return validated.timeouts;
+};

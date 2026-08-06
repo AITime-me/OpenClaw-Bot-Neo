@@ -1,4 +1,4 @@
-/** Codex app-server JSONL protocol helpers (Build 3.7E1 probe-only). */
+/** Official Codex app-server JSONL protocol helpers (Build 3.7E1 corrective). */
 
 export const FIXED_PROBE_PROMPT =
   'Return one JSON object with ok=true and no other fields.' as const;
@@ -33,11 +33,23 @@ export const ALLOWED_SERVER_NOTIFICATION_METHODS = Object.freeze([
   'item/agentMessage/delta',
 ] as const);
 
+export const ALLOWED_ITEM_TYPES = Object.freeze(['agentMessage', 'userMessage'] as const);
+
 export const FORBIDDEN_POST_DISPATCH_EVENTS = Object.freeze([
   'model/rerouted',
   'item/commandExecution/requestApproval',
   'item/fileChange/requestApproval',
   'item/permissions/requestApproval',
+] as const);
+
+export const FORBIDDEN_ITEM_TYPES = Object.freeze([
+  'commandExecution',
+  'fileChange',
+  'mcpToolCall',
+  'dynamicToolCall',
+  'webSearch',
+  'imageView',
+  'collabToolCall',
 ] as const);
 
 export type JsonRpcId = number | string;
@@ -68,11 +80,19 @@ export type JsonRpcServerNotification = {
   readonly params?: unknown;
 };
 
+/** Server-initiated JSON-RPC request (approvals / tools) — rejected by Neo probe. */
+export type JsonRpcServerRequest = {
+  readonly method: string;
+  readonly id: JsonRpcId;
+  readonly params?: unknown;
+};
+
 export type ParsedFrame =
   | { readonly kind: 'success'; readonly value: JsonRpcSuccess }
   | { readonly kind: 'failure'; readonly value: JsonRpcFailure }
   | { readonly kind: 'notification'; readonly value: JsonRpcServerNotification }
-  | { readonly kind: 'malformed'; readonly raw: string };
+  | { readonly kind: 'server-request'; readonly value: JsonRpcServerRequest }
+  | { readonly kind: 'malformed'; readonly raw: string; readonly reason: string };
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -92,42 +112,65 @@ export const serializeNotification = (notification: JsonRpcNotification): string
 
 export const parseJsonlFrame = (raw: string): ParsedFrame => {
   const trimmed = raw.trim();
-  if (trimmed.length === 0) return { kind: 'malformed', raw };
+  if (trimmed.length === 0) return { kind: 'malformed', raw, reason: 'empty' };
   let parsed: unknown;
   try {
     parsed = JSON.parse(trimmed);
   } catch {
-    return { kind: 'malformed', raw };
+    return { kind: 'malformed', raw, reason: 'non-json' };
   }
-  if (!isPlainObject(parsed)) return { kind: 'malformed', raw };
-  const record = parsed;
-  if ('id' in record && 'result' in record)
+  if (!isPlainObject(parsed)) return { kind: 'malformed', raw, reason: 'non-object' };
+
+  const hasResult = 'result' in parsed;
+  const hasError = 'error' in parsed;
+  const hasMethod = typeof parsed.method === 'string';
+  const hasId = 'id' in parsed;
+
+  if (hasResult && hasError) return { kind: 'malformed', raw, reason: 'result-and-error' };
+
+  if (hasId && hasResult && !hasMethod)
     return {
       kind: 'success',
-      value: { id: record.id as JsonRpcId, result: record.result },
+      value: { id: parsed.id as JsonRpcId, result: parsed.result },
     };
-  if ('id' in record && 'error' in record) {
+
+  if (hasId && hasError && !hasMethod) {
     let errorValue: JsonRpcFailure['error'] = { message: 'unknown' };
-    if (isPlainObject(record.error)) {
+    if (isPlainObject(parsed.error)) {
       errorValue = {
-        ...(typeof record.error.code === 'number' ? { code: record.error.code } : {}),
-        ...(typeof record.error.message === 'string' ? { message: record.error.message } : {}),
+        ...(typeof parsed.error.code === 'number' ? { code: parsed.error.code } : {}),
+        ...(typeof parsed.error.message === 'string' ? { message: parsed.error.message } : {}),
       };
     }
     return {
       kind: 'failure',
+      value: { id: parsed.id as JsonRpcId, error: errorValue },
+    };
+  }
+
+  if (hasMethod && hasId) {
+    const method = parsed.method;
+    if (typeof method !== 'string') return { kind: 'malformed', raw, reason: 'method-not-string' };
+    return {
+      kind: 'server-request',
       value: {
-        id: record.id as JsonRpcId,
-        error: errorValue,
+        method,
+        id: parsed.id as JsonRpcId,
+        params: parsed.params,
       },
     };
   }
-  if (typeof record.method === 'string' && !('id' in record))
+
+  if (hasMethod && !hasId) {
+    const method = parsed.method;
+    if (typeof method !== 'string') return { kind: 'malformed', raw, reason: 'method-not-string' };
     return {
       kind: 'notification',
-      value: { method: record.method, params: record.params },
+      value: { method, params: parsed.params },
     };
-  return { kind: 'malformed', raw };
+  }
+
+  return { kind: 'malformed', raw, reason: 'unclassified' };
 };
 
 export const isExactOkTrueOutput = (text: string): boolean => {
@@ -143,7 +186,7 @@ export const isExactOkTrueOutput = (text: string): boolean => {
   return parsed.ok === true;
 };
 
-export const isForbiddenPostDispatchMethod = (method: string): boolean => {
+export const isForbiddenNotificationMethod = (method: string): boolean => {
   if ((FORBIDDEN_POST_DISPATCH_EVENTS as readonly string[]).includes(method)) return true;
   if (method.startsWith('mcp') || method.includes('mcpServer')) return true;
   if (/shell|commandExecution|fileChange|webSearch|web_browser|browsing/i.test(method)) return true;
@@ -152,3 +195,215 @@ export const isForbiddenPostDispatchMethod = (method: string): boolean => {
 
 export const isAllowedServerNotification = (method: string): boolean =>
   (ALLOWED_SERVER_NOTIFICATION_METHODS as readonly string[]).includes(method);
+
+export const isAllowedItemType = (type: unknown): type is (typeof ALLOWED_ITEM_TYPES)[number] =>
+  typeof type === 'string' && (ALLOWED_ITEM_TYPES as readonly string[]).includes(type);
+
+export const isForbiddenItemType = (type: unknown): boolean =>
+  typeof type === 'string' && (FORBIDDEN_ITEM_TYPES as readonly string[]).includes(type);
+
+/** Decode official account/read → result.account.type */
+export type AccountDecode =
+  | { readonly kind: 'null' }
+  | { readonly kind: 'chatgpt'; readonly account: Record<string, unknown> }
+  | { readonly kind: 'non-chatgpt'; readonly type: string }
+  | { readonly kind: 'malformed'; readonly reason: string };
+
+export const decodeAccountReadResult = (result: unknown): AccountDecode => {
+  if (!isPlainObject(result)) return { kind: 'malformed', reason: 'account-result-not-object' };
+  if (!('account' in result)) return { kind: 'malformed', reason: 'account-field-missing' };
+  if (result.account === null) return { kind: 'null' };
+  if (!isPlainObject(result.account)) return { kind: 'malformed', reason: 'account-not-object' };
+  const type = result.account.type;
+  if (typeof type !== 'string' || type.length === 0)
+    return { kind: 'malformed', reason: 'account-type-missing' };
+  if (type === 'chatgpt') return { kind: 'chatgpt', account: result.account };
+  return { kind: 'non-chatgpt', type };
+};
+
+export type ConfigDecode =
+  | { readonly kind: 'ok'; readonly config: Record<string, unknown> }
+  | { readonly kind: 'malformed'; readonly reason: string };
+
+export const decodeConfigReadResult = (result: unknown): ConfigDecode => {
+  if (!isPlainObject(result)) return { kind: 'malformed', reason: 'config-result-not-object' };
+  if (!('config' in result)) return { kind: 'malformed', reason: 'config-field-missing' };
+  if (!isPlainObject(result.config)) return { kind: 'malformed', reason: 'config-not-object' };
+  return { kind: 'ok', config: result.config };
+};
+
+export type RequirementsDecode =
+  | { readonly kind: 'ok'; readonly requirements: Record<string, unknown> | null }
+  | { readonly kind: 'malformed'; readonly reason: string };
+
+export const decodeConfigRequirementsResult = (result: unknown): RequirementsDecode => {
+  if (!isPlainObject(result))
+    return { kind: 'malformed', reason: 'requirements-result-not-object' };
+  if (!('requirements' in result))
+    return { kind: 'malformed', reason: 'requirements-field-missing' };
+  if (result.requirements === null) return { kind: 'ok', requirements: null };
+  if (!isPlainObject(result.requirements))
+    return { kind: 'malformed', reason: 'requirements-not-object' };
+  return { kind: 'ok', requirements: result.requirements };
+};
+
+export type RateLimitsDecode =
+  | { readonly kind: 'ok'; readonly exhausted: boolean }
+  | { readonly kind: 'malformed'; readonly reason: string };
+
+const bucketReached = (bucket: unknown): boolean | null => {
+  if (!isPlainObject(bucket)) return null;
+  if (!('rateLimitReachedType' in bucket)) return null;
+  return bucket.rateLimitReachedType !== null && bucket.rateLimitReachedType !== undefined;
+};
+
+export const decodeRateLimitsReadResult = (result: unknown): RateLimitsDecode => {
+  if (!isPlainObject(result)) return { kind: 'malformed', reason: 'rateLimits-result-not-object' };
+  if (!('rateLimits' in result)) return { kind: 'malformed', reason: 'rateLimits-field-missing' };
+  const primaryReached = bucketReached(result.rateLimits);
+  if (primaryReached === null) return { kind: 'malformed', reason: 'rateLimits-shape-invalid' };
+
+  let exhausted = primaryReached;
+  if ('rateLimitsByLimitId' in result && result.rateLimitsByLimitId !== undefined) {
+    if (!isPlainObject(result.rateLimitsByLimitId))
+      return { kind: 'malformed', reason: 'rateLimitsByLimitId-not-object' };
+    for (const value of Object.values(result.rateLimitsByLimitId)) {
+      const reached = bucketReached(value);
+      if (reached === null)
+        return { kind: 'malformed', reason: 'rateLimitsByLimitId-bucket-invalid' };
+      if (reached) exhausted = true;
+    }
+  }
+  return { kind: 'ok', exhausted };
+};
+
+export type ModelDecode =
+  | { readonly kind: 'ok'; readonly modelId: string }
+  | { readonly kind: 'empty' }
+  | { readonly kind: 'multiple' }
+  | { readonly kind: 'unsupported' }
+  | { readonly kind: 'malformed'; readonly reason: string };
+
+export const decodeModelListResult = (result: unknown): ModelDecode => {
+  if (!isPlainObject(result)) return { kind: 'malformed', reason: 'model-list-not-object' };
+  if (!Array.isArray(result.data)) return { kind: 'malformed', reason: 'model-data-missing' };
+  const visibleDefaults: string[] = [];
+  let sawTextCapableNonDefault = false;
+  for (const entry of result.data) {
+    if (!isPlainObject(entry)) return { kind: 'malformed', reason: 'model-entry-not-object' };
+    if (entry.hidden === true) continue;
+    if (typeof entry.id !== 'string' || entry.id.length === 0)
+      return { kind: 'malformed', reason: 'model-id-missing' };
+    if (!Array.isArray(entry.inputModalities))
+      return { kind: 'malformed', reason: 'inputModalities-missing' };
+    const hasText = entry.inputModalities.includes('text');
+    if (entry.isDefault === true) {
+      if (!hasText) return { kind: 'unsupported' };
+      visibleDefaults.push(entry.id);
+    } else if (hasText) {
+      sawTextCapableNonDefault = true;
+    }
+  }
+  if (visibleDefaults.length === 0) {
+    if (result.data.length === 0) return { kind: 'empty' };
+    if (sawTextCapableNonDefault) return { kind: 'empty' };
+    return { kind: 'unsupported' };
+  }
+  if (visibleDefaults.length > 1) return { kind: 'multiple' };
+  const only = visibleDefaults[0];
+  if (only === undefined) return { kind: 'empty' };
+  return { kind: 'ok', modelId: only };
+};
+
+export const hasEffectiveConfigViolation = (
+  config: Record<string, unknown>,
+  requirements: Record<string, unknown> | null,
+): boolean => {
+  const serialized = JSON.stringify({ config, requirements }).toLowerCase();
+  if (serialized.includes('base_url') || serialized.includes('baseurl')) return true;
+  if (serialized.includes('customprovider') || serialized.includes('custom_provider')) return true;
+  if (serialized.includes('openai_api_key') || serialized.includes('codex_api_key')) return true;
+  const features = ['web', 'shell', 'hooks', 'mcp', 'mcpservers'];
+  for (const feature of features) {
+    if (serialized.includes(`"${feature}":true`)) return true;
+  }
+  if (isPlainObject(config.mcp_servers) && Object.keys(config.mcp_servers).length > 0) return true;
+  if (isPlainObject(config.mcpServers) && Object.keys(config.mcpServers).length > 0) return true;
+  if (config.web === true || config.shell === true || config.hooks === true) return true;
+  if (isPlainObject(config.apps)) {
+    for (const value of Object.values(config.apps)) {
+      if (isPlainObject(value) && value.enabled === true) return true;
+    }
+  }
+  if (requirements !== null) {
+    if (isPlainObject(requirements.network) && requirements.network.enabled === true) return true;
+    if (
+      isPlainObject(requirements.featureRequirements) &&
+      requirements.featureRequirements.unified_exec === true
+    )
+      return true;
+  }
+  return false;
+};
+
+export const extractThreadId = (result: unknown): string | null => {
+  if (!isPlainObject(result)) return null;
+  const thread = result.thread;
+  if (!isPlainObject(thread)) return null;
+  return typeof thread.id === 'string' && thread.id.length > 0 ? thread.id : null;
+};
+
+export const extractTurnId = (result: unknown): string | null => {
+  if (!isPlainObject(result)) return null;
+  const turn = result.turn;
+  if (!isPlainObject(turn)) return null;
+  return typeof turn.id === 'string' && turn.id.length > 0 ? turn.id : null;
+};
+
+export type TurnCompletedDecode =
+  | { readonly kind: 'completed'; readonly turnId: string; readonly threadId: string | null }
+  | { readonly kind: 'failed-or-interrupted'; readonly status: string }
+  | { readonly kind: 'malformed'; readonly reason: string };
+
+export const decodeTurnCompletedParams = (params: unknown): TurnCompletedDecode => {
+  if (!isPlainObject(params)) return { kind: 'malformed', reason: 'turn-completed-params' };
+  if (!isPlainObject(params.turn)) return { kind: 'malformed', reason: 'turn-missing' };
+  const turnId = typeof params.turn.id === 'string' ? params.turn.id : '';
+  if (turnId.length === 0) return { kind: 'malformed', reason: 'turn-id-missing' };
+  const status = params.turn.status;
+  if (status !== 'completed' && status !== 'failed' && status !== 'interrupted')
+    return { kind: 'malformed', reason: 'turn-status-unknown' };
+  if (status !== 'completed') return { kind: 'failed-or-interrupted', status };
+  const threadId =
+    typeof params.threadId === 'string'
+      ? params.threadId
+      : typeof params.turn.threadId === 'string'
+        ? params.turn.threadId
+        : null;
+  return { kind: 'completed', turnId, threadId };
+};
+
+export const extractAgentMessageText = (params: unknown): string | null => {
+  if (!isPlainObject(params)) return null;
+  if (!isPlainObject(params.item)) return null;
+  if (params.item.type !== 'agentMessage') return null;
+  return typeof params.item.text === 'string' ? params.item.text : null;
+};
+
+export const extractItemType = (params: unknown): string | null => {
+  if (!isPlainObject(params)) return null;
+  if (!isPlainObject(params.item)) return null;
+  return typeof params.item.type === 'string' ? params.item.type : null;
+};
+
+/** Restricted read-only sandbox denying repository / shared developer roots. */
+export const buildProbeSandboxPolicy = (options: {
+  readonly readableRoots: readonly string[];
+}): Record<string, unknown> => ({
+  type: 'readOnly',
+  access: {
+    type: 'restricted',
+    includePlatformDefaults: false,
+    readableRoots: [...options.readableRoots],
+  },
+});

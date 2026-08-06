@@ -49,7 +49,11 @@ END_BUILD_3_7E1_MARKERS
 
 - Prompt/output are not written to Neo SQLite by this adapter
 - Neo does not read credential files; `cli_auth_credentials_store="file"` under isolated CODEX_HOME
-- Spawn contract: pinned absolutePath, `shell: false`, no PATH
+- Spawn contract: pinned absolutePath + version + sha256 + sizeBytes, `shell: false`, no PATH,
+  isolated HOME/USERPROFILE/temp/cwd, owner one-shot capability required for live spawn
+- Official nested wire decoders: `result.account.type`, `result.config`, `result.requirements`,
+  nested `rateLimits`/`rateLimitReachedType`, `model/list` `data[]` with `isDefault` +
+  `inputModalities` including `text`
 
 ## Next stage
 

@@ -5,11 +5,20 @@
  *
  * Requires:
  *   OWNER_PROBE_CONFIRMATION=OWNER_APPROVE_SINGLE_NON_PERSISTENT_CODEX_PROBE
- * Plus pin/home env vars when actually spawning (still refuses without confirmation).
+ * Plus pin/home env vars for live spawn.
  *
  * Does not run automatically. Does not read credential file contents into Neo logs.
+ * LIVE_PROBE_STATUS remains NOT_RUN unless a real pinned binary is provided and exits
+ * with a classified outcome (this Build still does not execute a live model call in CI).
  */
+import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 const REQUIRED = 'OWNER_APPROVE_SINGLE_NON_PERSISTENT_CODEX_PROBE';
+const here = dirname(fileURLToPath(import.meta.url));
+const runner = join(here, 'codex-app-server-owner-probe-runner.mjs');
 
 if (process.env.OWNER_PROBE_CONFIRMATION !== REQUIRED) {
   process.stderr.write(
@@ -20,8 +29,15 @@ if (process.env.OWNER_PROBE_CONFIRMATION !== REQUIRED) {
   process.exit(2);
 }
 
-process.stderr.write(
-  'Owner confirmation present. Live Codex spawn is still gated on pin env vars and is not run by default CI.\n',
-);
-process.stderr.write('LIVE_PROBE_STATUS: NOT_RUN (manual script scaffold only in this Build).\n');
-process.exit(0);
+if (!existsSync(runner)) {
+  process.stderr.write('REFUSED: owner probe runner missing.\n');
+  process.exit(2);
+}
+
+const result = spawnSync(process.execPath, [runner], {
+  env: process.env,
+  stdio: 'inherit',
+  shell: false,
+});
+
+process.exit(result.status === null ? 1 : result.status);

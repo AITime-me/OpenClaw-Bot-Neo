@@ -166,26 +166,29 @@ Neo must not write tokens, refresh material, or `auth.json` contents.
 Pin tuple (all required before spawn):
 
 1. `absolutePath` — absolute filesystem path to the Codex executable;
-2. `version` — exact version string obtained from a pre-spawn `--version` (or equivalent) check
-   against the same absolute path;
+2. `version` — exact version string obtained from a pre-spawn version check against the **same**
+   absolute path;
 3. `sha256` — hex SHA-256 of the executable file bytes at `absolutePath`;
-4. `argv` — exact argv vector beginning with `app-server` and including only allowlisted flags
-   (`--listen stdio://` or the documented stdio default with **no** `ws://` / `unix://` listen).
+4. `sizeBytes` — exact byte size of the same executable file;
+5. `argv` — exact stdio launch only: `["app-server"]` or
+   `["app-server", "--listen", "stdio://"]`.
 
 Mandatory spawn contract:
 
-- spawn **only** via pinned `absolutePath` (Node `spawn(absolutePath, argv, { shell: false, ... })`);
+- spawn **only** via pinned `absolutePath` (Node `spawn(absolutePath, argv, { shell: false, cwd:
+  probeCwd, ... })`);
 - `shell: false` is mandatory;
 - basename / `PATH` resolution are **forbidden**;
 - `PATH` must not be present in the child env;
 - reject relative paths;
-- reject version mismatch vs configured expected version;
-- reject hash mismatch vs configured expected hash;
-- reject argv containing network listen endpoints, remote flags, or shell metacharacters;
-- version, hash, and file identity checks run **immediately before spawn**; mismatch aborts without
-  spawn.
+- reject version / hash / size / file-identity mismatch vs the same absolute executable
+  immediately before spawn;
+- reject argv containing `ws://` / `wss://` / `unix://` / remote / code-mode / config / provider
+  override flags or shell metacharacters;
+- isolated `CODEX_HOME`, `HOME`/`USERPROFILE`, temp (`TMPDIR`/`TEMP`/`TMP`), and probe `cwd` must be
+  canonical, dedicated, and must not collide with developer/shared homes or the repository.
 
-Exact tokens for tests: `shell: false`, `absolutePath`, `PATH` not passed to child.
+Exact tokens for tests: `shell: false`, `absolutePath`, `PATH` not passed to child, `sizeBytes`.
 
 ## Decision 11 — Exact capability-probe RPC lifecycle
 
@@ -216,18 +219,24 @@ Exact ordered lifecycle:
 
 All must pass before `turn/start`:
 
-- Unique auth mapping (one input state → exactly one outcome; no alternative outcomes):
-  - `account === null` **or** ChatGPT auth absent / unreadably missing → `provider-unavailable`
-    (no dispatch);
-  - recognized non-ChatGPT auth mode (`account.type` present and ≠ `chatgpt`) →
+- Unique auth mapping (one input state → exactly one outcome; no alternative outcomes) using the
+  official nested wire shape `result.account`:
+  - `result.account === null` **or** ChatGPT auth absent / unreadably missing / malformed
+    `result.account` → `provider-unavailable` (no dispatch);
+  - recognized non-ChatGPT auth mode (`result.account.type` present and ≠ `chatgpt`) →
     `policy-rejected` (no dispatch);
-  - `account.type === "chatgpt"` required to continue;
-- effective config from `config/read` / `configRequirements/read` must show **no** custom
-  provider / base URL, and **no** web, shell, apps, MCP, hooks, or other agentic capabilities;
-- quota / rate-limit evidence from `account/rateLimits/read` must allow the probe **before**
-  dispatch; known exhaustion → `quota-unavailable` without `turn/start`;
-- bounded `model/list` must yield **exactly one** visible default text-capable model; empty,
-  multiple, or unsupported discovery → `policy-rejected` without dispatch;
+  - `result.account.type === "chatgpt"` required to continue;
+- effective config from official `result.config` (`config/read`) and `result.requirements`
+  (`configRequirements/read`; may be `null`) must show **no** custom provider / base URL, and
+  **no** web, shell, apps, MCP, hooks, or other agentic capabilities; missing/malformed nested
+  fields → fail-closed `provider-unavailable`;
+- quota / rate-limit evidence from official nested `result.rateLimits` /
+  `result.rateLimitsByLimitId` (`account/rateLimits/read`) with `rateLimitReachedType` must allow
+  the probe **before** dispatch; known exhaustion → `quota-unavailable` without `turn/start`;
+  missing/malformed nested evidence → fail-closed;
+- bounded `model/list` must yield **exactly one** visible default text-capable model from official
+  `result.data[]` where `isDefault=true` and `inputModalities` includes `text`; empty, multiple,
+  or unsupported discovery → `policy-rejected` without dispatch;
 - fixed probe prompt (exact):
   `Return one JSON object with ok=true and no other fields.`
 - exact accepted output schema (exact JSON object): `{ "ok": true }`
@@ -235,15 +244,28 @@ All must pass before `turn/start`:
 
 Exact auth mapping tokens for tests:
 
-- `account === null` → `provider-unavailable`
+- `account === null` → `provider-unavailable` (official wire: `result.account === null`)
+- `result.account.type`
 - recognized non-ChatGPT auth mode → `policy-rejected`
 - one input state → one outcome
+
+Official nested decode tokens for tests:
+
+- `result.config`
+- `result.requirements`
+- `rateLimitReachedType`
+- `isDefault`
+- `inputModalities`
 
 `thread/start` params remain:
 
 - `ephemeral: true`;
 - `approvalPolicy: "never"`;
 - `sandbox: "readOnly"`;
+- restricted `sandboxPolicy` read-only access whose `readableRoots` are limited to the isolated
+  probe contour (repository / shared developer roots forbidden; unknown filesystem policy →
+  fail-closed);
+- dedicated empty probe `cwd` under isolated `CODEX_HOME` (not the repository root);
 - the single discovered default text-capable model id;
 - no `dynamicTools`, no MCP requirements, no `thread/resume` / `thread/fork`.
 

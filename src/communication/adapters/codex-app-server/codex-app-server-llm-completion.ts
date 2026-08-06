@@ -17,17 +17,23 @@ import {
 } from './codex-app-server-client.js';
 import type { CodexExecutablePin } from './codex-app-server-executable-pin.js';
 import type { CodexAppServerChildEnvInput } from './codex-app-server-child-env.js';
+import type { CodexOwnerSpawnCapability } from './codex-app-server-owner-capability.js';
+import type { VersionReader } from './codex-app-server-executable-pin.js';
 
 export type CodexAppServerLlmCompletionDeps = {
   readonly transport?: CodexAppServerTransport;
   readonly pin?: CodexExecutablePin;
   readonly envInput?: CodexAppServerChildEnvInput;
+  readonly cwd?: string;
+  readonly readableRoots?: readonly string[];
+  readonly readVersion?: VersionReader;
+  readonly ownerCapability?: CodexOwnerSpawnCapability;
   readonly timeouts?: Partial<CodexAppServerTimeouts>;
 };
 
 /**
  * Probe-only LlmCompletionPort. Always sends FIXED_PROBE_PROMPT (never logs prompt/output).
- * Does not persist to Neo SQLite.
+ * Does not persist to Neo SQLite. Live spawn requires owner capability.
  */
 export const createCodexAppServerLlmCompletion = (
   deps: CodexAppServerLlmCompletionDeps,
@@ -38,21 +44,41 @@ export const createCodexAppServerLlmCompletion = (
   ): Promise<Result<LlmCompletionResult, CommunicationError>> {
     void _operationContext;
     let transport = deps.transport;
+    let probeCwd = deps.cwd ?? '/tmp/neo-fake-probe-cwd';
+    let readableRoots = deps.readableRoots ?? [probeCwd];
+
     if (transport === undefined) {
-      if (deps.pin === undefined || deps.envInput === undefined)
+      if (
+        deps.pin === undefined ||
+        deps.envInput === undefined ||
+        deps.cwd === undefined ||
+        deps.readVersion === undefined ||
+        deps.ownerCapability === undefined
+      )
         return err(
           communicationError(
             'CONFIG_INVALID',
-            'codex app-server probe requires transport or pin+env',
+            'live Codex probe requires pin+env+cwd+readVersion+ownerCapability (or fake transport)',
           ),
         );
-      const created = createChildProcessTransport(deps.pin, deps.envInput);
+      const created = createChildProcessTransport({
+        pin: deps.pin,
+        envInput: deps.envInput,
+        cwd: deps.cwd,
+        readVersion: deps.readVersion,
+        ownerCapability: deps.ownerCapability,
+      });
       if (!created.ok) return err(communicationError('CONFIG_INVALID', created.reason));
       transport = created.transport;
+      probeCwd = deps.cwd;
+      readableRoots = deps.readableRoots ?? [deps.cwd];
     }
+
     const result = await runCapabilityProbeOnTransport({
       transport,
       abortSignal: request.abortSignal,
+      probeCwd,
+      readableRoots,
       ...(deps.timeouts !== undefined ? { timeouts: deps.timeouts } : {}),
     });
     if (result.kind === 'config-error')

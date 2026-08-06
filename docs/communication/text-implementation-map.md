@@ -212,6 +212,8 @@ src/communication/adapters/codex-app-server/codex-app-server-client.ts
 src/communication/adapters/codex-app-server/codex-app-server-config.ts
 src/communication/adapters/codex-app-server/codex-app-server-child-env.ts
 src/communication/adapters/codex-app-server/codex-app-server-executable-pin.ts
+src/communication/adapters/codex-app-server/codex-app-server-isolation.ts
+src/communication/adapters/codex-app-server/codex-app-server-owner-capability.ts
 src/communication/adapters/codex-app-server/fake/fake-codex-app-server.ts
 tests/communication/codex-app-server-protocol.test.ts
 tests/communication/codex-app-server-child-env.test.ts
@@ -220,6 +222,7 @@ tests/communication/codex-app-server-client.fake.test.ts
 tests/communication/codex-app-server-llm-completion.fake.test.ts
 tests/communication/codex-app-server-boundaries.test.ts
 scripts/manual/codex-app-server-owner-probe.mjs
+scripts/manual/codex-app-server-owner-probe-runner.mjs
 scripts/verify-communication-boundaries.mjs
 scripts/verify-communication-flow.mjs
 .dependency-cruiser.cjs
@@ -228,11 +231,11 @@ docs/validation/build-3.7e1-codex-subscription-probe-closeout.md
 tests/build-3.7e1-codex-subscription-probe-closeout-record.test.ts
 ```
 
-Status: **probe-only implementation**. Fake Decision 16 matrix covered in CI.
-`LIVE_PROBE_STATUS: NOT_RUN`. Manual owner probe script requires exact
-`OWNER_PROBE_CONFIRMATION` and is not part of default check. Codex app-server is a **separate**
-route from OpenClaw. Durable 3.7D live wiring remains blocked by encryption.
-PRODUCTION_READY: FALSE.
+Status: **probe-only implementation** (corrective wire/isolation/owner-gate alignment). Fake Decision 16
+matrix covered in CI. `LIVE_PROBE_STATUS: NOT_RUN`. Manual owner probe script requires exact
+`OWNER_PROBE_CONFIRMATION` and is not part of default check. Live spawn requires a one-shot owner
+capability. Codex app-server is a **separate** route from OpenClaw. Durable 3.7D live wiring remains
+blocked by encryption. PRODUCTION_READY: FALSE.
 
 ### OpenClaw route — out of scope / unverified
 

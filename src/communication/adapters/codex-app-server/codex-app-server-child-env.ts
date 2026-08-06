@@ -33,7 +33,8 @@ export const CHILD_ENV_DENYLIST = Object.freeze([
 
 export type CodexAppServerChildEnvInput = {
   readonly codexHome: string;
-  readonly home?: string;
+  readonly home: string;
+  readonly tempDir: string;
   readonly lang?: string;
   readonly lcAll?: string;
   readonly tz?: string;
@@ -56,12 +57,17 @@ export const buildCodexAppServerChildEnv = (
 ): ChildEnvBuildResult => {
   if (!isAbsolutePath(input.codexHome))
     return { ok: false, reason: 'CODEX_HOME must be an absolute path' };
-  const home = input.home ?? input.codexHome;
-  if (!isAbsolutePath(home)) return { ok: false, reason: 'HOME must be an absolute path' };
+  if (!isAbsolutePath(input.home)) return { ok: false, reason: 'HOME must be an absolute path' };
+  if (!isAbsolutePath(input.tempDir))
+    return { ok: false, reason: 'tempDir must be an absolute path' };
 
   const env: NodeJS.ProcessEnv = {
     CODEX_HOME: input.codexHome,
-    HOME: home,
+    HOME: input.home,
+    USERPROFILE: input.home,
+    TMPDIR: input.tempDir,
+    TEMP: input.tempDir,
+    TMP: input.tempDir,
   };
   if (input.lang !== undefined) {
     if (input.lang.length === 0) return { ok: false, reason: 'LANG must be non-empty' };

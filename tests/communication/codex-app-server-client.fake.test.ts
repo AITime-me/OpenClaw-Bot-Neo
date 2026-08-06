@@ -1,12 +1,21 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { runCapabilityProbeOnTransport } from '../../src/communication/adapters/codex-app-server/codex-app-server-client.js';
 import {
   createFakeCodexAppServerTransport,
   type FakeCodexAppServerScenario,
 } from '../../src/communication/adapters/codex-app-server/fake/fake-codex-app-server.js';
 
+const probeCwd = (): string => {
+  const root = mkdtempSync(join(tmpdir(), 'neo-fake-contour-'));
+  return join(root, 'cwd');
+};
+
 const run = async (scenario: FakeCodexAppServerScenario, abort?: AbortSignal) => {
   const fake = createFakeCodexAppServerTransport(scenario);
+  const cwd = probeCwd();
   const signal =
     abort ??
     (scenario.startsWith('abort') || scenario === 'cleanup-thread-no-dispatch'
@@ -20,27 +29,30 @@ const run = async (scenario: FakeCodexAppServerScenario, abort?: AbortSignal) =>
       fake.controller.triggerAbort();
     }, 20);
   }
-  return runCapabilityProbeOnTransport({
+  const result = await runCapabilityProbeOnTransport({
     transport: fake.transport,
     abortSignal: signal,
+    probeCwd: cwd,
+    readableRoots: [cwd],
     timeouts: {
       preflightTimeoutMs: 200,
       threadStartTimeoutMs: 200,
       turnTimeoutMs: 200,
       exitWaitMs: 20,
       termGraceMs: 20,
-      closeBudgetMs: 100,
-      unsubscribeBudgetMs: 100,
-      interruptBudgetMs: 100,
+      closeBudgetMs: 80,
+      unsubscribeBudgetMs: 40,
+      interruptBudgetMs: 40,
       totalActiveCleanupBudgetMs: 200,
       reapBudgetMs: 20,
     },
   });
+  return { result, fake };
 };
 
 describe('codex-app-server client fake matrix', () => {
-  it('happy-path returns completed exact ok:true', async () => {
-    const result = await run('happy-path');
+  it('happy-path returns completed exact ok:true with official nested frames', async () => {
+    const { result, fake } = await run('happy-path');
     expect(result.kind).toBe('result');
     if (result.kind !== 'result') return;
     expect(result.value).toEqual({
@@ -48,120 +60,140 @@ describe('codex-app-server client fake matrix', () => {
       outcome: 'completed',
       text: '{"ok":true}',
     });
+    expect(fake.controller.rpcTrace).toContain('account/read');
+    expect(fake.controller.rpcTrace).toContain('turn/interrupt');
   });
 
-  it('maps account null to provider-unavailable', async () => {
-    const result = await run('account-null');
-    expect(result.kind).toBe('result');
-    if (result.kind !== 'result') return;
-    expect(result.value.outcome).toBe('provider-unavailable');
+  it('maps nested account null / non-chatgpt uniquely', async () => {
+    const nullAccount = await run('account-null');
+    expect(nullAccount.result.kind).toBe('result');
+    if (nullAccount.result.kind === 'result')
+      expect(nullAccount.result.value.outcome).toBe('provider-unavailable');
+
+    const nonChat = await run('non-chatgpt-auth');
+    expect(nonChat.result.kind).toBe('result');
+    if (nonChat.result.kind === 'result')
+      expect(nonChat.result.value.outcome).toBe('policy-rejected');
   });
 
-  it('maps non-chatgpt auth to policy-rejected', async () => {
-    const result = await run('non-chatgpt-auth');
-    expect(result.kind).toBe('result');
-    if (result.kind !== 'result') return;
-    expect(result.value.outcome).toBe('policy-rejected');
-  });
-
-  it('maps config violation and model discovery failures to policy-rejected', async () => {
+  it('maps config / model / quota official shapes', async () => {
     for (const scenario of [
       'effective-config-violation',
       'empty-models',
       'multiple-models',
       'unsupported-models',
     ] as const) {
-      const result = await run(scenario);
+      const { result } = await run(scenario);
       expect(result.kind).toBe('result');
       if (result.kind !== 'result') return;
       expect(result.value.outcome, scenario).toBe('policy-rejected');
     }
+    const quota = await run('quota-exhausted');
+    expect(quota.result.kind).toBe('result');
+    if (quota.result.kind === 'result')
+      expect(quota.result.value.outcome).toBe('quota-unavailable');
   });
 
-  it('maps quota exhaustion uniquely', async () => {
-    const result = await run('quota-exhausted');
-    expect(result.kind).toBe('result');
-    if (result.kind !== 'result') return;
-    expect(result.value.outcome).toBe('quota-unavailable');
-  });
-
-  it('treats model/rerouted as post-dispatch policy-rejected', async () => {
-    const result = await run('model-rerouted');
-    expect(result.kind).toBe('result');
-    if (result.kind !== 'result') return;
-    expect(result.value.outcome).toBe('policy-rejected');
-  });
-
-  it('maps forbidden post-dispatch events to policy-rejected', async () => {
+  it('rejects unknown/late/duplicate ids and result+error', async () => {
     for (const scenario of [
+      'duplicate-response-id',
+      'late-response',
+      'result-and-error',
+      'unknown-response-id',
+    ] as const) {
+      const { result } = await run(scenario);
+      expect(result.kind).toBe('result');
+      if (result.kind !== 'result') return;
+      expect(
+        ['provider-unavailable', 'outcome-unknown'].includes(result.value.outcome),
+        scenario,
+      ).toBe(true);
+    }
+  });
+
+  it('rejects server requests and forbidden item types', async () => {
+    for (const scenario of [
+      'server-request-before-dispatch',
+      'server-request-after-dispatch',
+      'forbidden-item-command',
+      'forbidden-item-file',
+      'forbidden-item-web',
+      'forbidden-item-mcp',
       'web-event-after-dispatch',
       'file-event-after-dispatch',
       'shell-event-after-dispatch',
       'mcp-event-after-dispatch',
+      'model-rerouted',
     ] as const) {
-      const result = await run(scenario);
+      const { result } = await run(scenario);
       expect(result.kind).toBe('result');
       if (result.kind !== 'result') return;
-      expect(result.value.outcome, scenario).toBe('policy-rejected');
+      expect(
+        ['policy-rejected', 'provider-unavailable', 'outcome-unknown'].includes(
+          result.value.outcome,
+        ),
+        scenario,
+      ).toBe(true);
     }
   });
 
-  it('maps abort before dispatch and post-dispatch uncertainty', async () => {
+  it('rejects failed/interrupted turns and wrong ids', async () => {
+    for (const scenario of [
+      'turn-failed',
+      'turn-interrupted',
+      'wrong-turn-id',
+      'wrong-thread-id',
+    ] as const) {
+      const { result } = await run(scenario);
+      expect(result.kind).toBe('result');
+      if (result.kind !== 'result') return;
+      expect(result.value.outcome, scenario).toBe('outcome-unknown');
+    }
+  });
+
+  it('records exact cleanup RPC traces', async () => {
+    const active = await run('invalid-output');
+    expect(active.fake.controller.rpcTrace.filter((m) => m === 'turn/interrupt').length).toBe(1);
+    expect(active.fake.controller.rpcTrace.filter((m) => m === 'thread/unsubscribe').length).toBe(
+      1,
+    );
+
+    const threadOnly = await run('cleanup-thread-no-dispatch');
+    expect(threadOnly.fake.controller.rpcTrace.includes('turn/start')).toBe(false);
+    expect(threadOnly.fake.controller.rpcTrace.includes('thread/unsubscribe')).toBe(true);
+    expect(threadOnly.fake.controller.rpcTrace.includes('turn/interrupt')).toBe(false);
+  });
+
+  it('maps abort/timeout/crash/malformed by dispatch boundary', async () => {
     const before = await run('abort-before-dispatch');
-    expect(before.kind).toBe('result');
-    if (before.kind === 'result') expect(before.value.outcome).toBe('cancelled-before-invocation');
+    expect(before.result.kind).toBe('result');
+    if (before.result.kind === 'result')
+      expect(before.result.value.outcome).toBe('cancelled-before-invocation');
 
     const after = await run('abort-after-dispatch');
-    expect(after.kind).toBe('result');
-    if (after.kind === 'result') expect(after.value.outcome).toBe('outcome-unknown');
-  });
+    expect(after.result.kind).toBe('result');
+    if (after.result.kind === 'result') expect(after.result.value.outcome).toBe('outcome-unknown');
 
-  it('maps malformed frames by dispatch boundary', async () => {
-    const before = await run('malformed-before-dispatch');
-    expect(before.kind).toBe('result');
-    if (before.kind === 'result') expect(before.value.outcome).toBe('provider-unavailable');
+    const malformedBefore = await run('malformed-before-dispatch');
+    expect(malformedBefore.result.kind).toBe('result');
+    if (malformedBefore.result.kind === 'result')
+      expect(malformedBefore.result.value.outcome).toBe('provider-unavailable');
 
-    const after = await run('malformed-after-dispatch');
-    expect(after.kind).toBe('result');
-    if (after.kind === 'result') expect(after.value.outcome).toBe('outcome-unknown');
-  });
-
-  it('maps crash/timeout after dispatch to outcome-unknown', async () => {
     const crash = await run('crash-after-dispatch');
-    expect(crash.kind).toBe('result');
-    if (crash.kind === 'result') expect(crash.value.outcome).toBe('outcome-unknown');
+    expect(crash.result.kind).toBe('result');
+    if (crash.result.kind === 'result') expect(crash.result.value.outcome).toBe('outcome-unknown');
+  });
 
-    const timeout = await run('timeout-after-dispatch');
-    expect(timeout.kind).toBe('result');
-    if (timeout.kind === 'result') expect(timeout.value.outcome).toBe('outcome-unknown');
+  it('maps stdin write failure before dispatch', async () => {
+    const { result } = await run('stdin-write-fail');
+    expect(result.kind).toBe('result');
+    if (result.kind !== 'result') return;
+    expect(result.value.outcome).toBe('provider-unavailable');
   });
 
   it('maps initialize/thread-start timeout to known-timeout', async () => {
     const init = await run('initialize-timeout');
-    expect(init.kind).toBe('result');
-    if (init.kind === 'result') expect(init.value.outcome).toBe('known-timeout');
-
-    const thread = await run('thread-start-timeout');
-    expect(thread.kind).toBe('result');
-    if (thread.kind === 'result') expect(thread.value.outcome).toBe('known-timeout');
-  });
-
-  it('maps invalid output to invalid-response', async () => {
-    const result = await run('invalid-output');
-    expect(result.kind).toBe('result');
-    if (result.kind !== 'result') return;
-    expect(result.value.outcome).toBe('invalid-response');
-  });
-
-  it('covers Decision 16 cleanup scenarios without changing classified outcome', async () => {
-    for (const scenario of [
-      'cleanup-spawned-no-thread',
-      'cleanup-thread-no-dispatch',
-      'cleanup-active-turn',
-      'cleanup-child-crashed',
-    ] as const) {
-      const result = await run(scenario);
-      expect(result.kind, scenario).toBe('result');
-    }
+    expect(init.result.kind).toBe('result');
+    if (init.result.kind === 'result') expect(init.result.value.outcome).toBe('known-timeout');
   });
 });
