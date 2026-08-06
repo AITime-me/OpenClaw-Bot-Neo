@@ -1,7 +1,11 @@
-export { createReferenceTextSlice } from './create-reference-text-slice.js';
+export {
+  createReferenceTextSlice,
+  createVerifiedOfflineReferenceComposition,
+} from './create-reference-text-slice.js';
 export type {
   ReferenceTextSlice,
   ReferenceTextSliceOptions,
+  ReferenceOfflinePorts,
 } from './create-reference-text-slice.js';
 export { createReferenceLlmCompletion } from './reference-llm-completion.js';
 export type { ReferenceLlmScenario } from './reference-llm-completion.js';

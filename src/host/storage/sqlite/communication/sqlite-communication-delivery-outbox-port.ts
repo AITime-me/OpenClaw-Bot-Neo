@@ -314,7 +314,7 @@ export const createSqliteCommunicationDeliveryOutboxPort = (
       void _operationContext;
       const closed = requireOpen();
       if (closed) return err(closed);
-      scrubBeforeMethod();
+      // Strictly read-only lookup: no retention scrub and no mutating SQL.
       try {
         const existing = statements.selectOutcome.get(query.turnId, query.correlationId) as
           OutcomeRow | undefined;

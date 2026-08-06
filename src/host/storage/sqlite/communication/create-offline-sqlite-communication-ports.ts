@@ -97,6 +97,10 @@ export interface OfflineSqliteCommunicationPortsHandle {
   readonly audit: CommunicationAuditPort;
   readonly outbox: CommunicationDeliveryOutboxPort;
   readonly diagnostics: OfflineSqliteCommunicationPortsDiagnostics;
+  /** Absolute POSIX path of neo-communication.sqlite — exclusive runtime ownership key. */
+  readonly ownershipKey: string;
+  /** Effective frozen queueConfig used by the ledger (identity-checkable). */
+  readonly queueConfig: CommunicationQueueConfig;
   readonly close: () => Result<void, StorageFailure>;
 }
 
@@ -226,7 +230,8 @@ const openOfflineSqliteCommunicationPortsInternal = (
         },
       });
     }
-    resolvedQueueConfig = parsedQueue.value;
+    // Preserve caller-supplied frozen instance for verified reference composition identity checks.
+    resolvedQueueConfig = options.queueConfig;
   }
 
   const acquired = acquireOpenedPosixStorageRootLease(openedRoot);
@@ -420,6 +425,8 @@ const openOfflineSqliteCommunicationPortsInternal = (
         audit,
         outbox,
         diagnostics: SUCCESS_DIAGNOSTICS,
+        ownershipKey: databasePath,
+        queueConfig: resolvedQueueConfig,
         close,
       }),
     );

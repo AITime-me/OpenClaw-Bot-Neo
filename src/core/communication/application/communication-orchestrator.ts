@@ -31,6 +31,11 @@ import { createPerConversationTurnDispatcher } from './per-conversation-turn-dis
 import { recoverCommunicationTurns } from './recover-communication-turns.service.js';
 import { processTextTurn } from './process-text-turn.service.js';
 import { parseISO8601 } from '../../domain/identity.js';
+import {
+  tryAcquireCommunicationRuntimeOwnership,
+  type CommunicationRuntimeOwnershipHandle,
+} from './communication-runtime-ownership.js';
+import { createConversationAdmissionSerializer } from './conversation-admission-serializer.js';
 
 export type CommunicationOrchestratorDeps = {
   readonly ledger: CommunicationTurnLedgerPort;
@@ -45,6 +50,9 @@ export type CommunicationOrchestratorDeps = {
   readonly killSwitch: CommunicationKillSwitchPort;
   readonly scanner: SensitiveDataScannerPort;
   readonly queueConfig: CommunicationQueueConfig;
+  /** Must match effective ports.queueConfig by object identity for verified composition. */
+  readonly expectedQueueConfig?: CommunicationQueueConfig;
+  readonly ownershipKey: string;
   readonly policyVersion: PolicyVersion;
   readonly transportInstanceId: string;
   readonly bindingVersion: string;
@@ -69,20 +77,35 @@ export type CommunicationOrchestrator = {
 };
 
 /**
- * Channel-independent offline communication orchestrator (Build 3.7D).
+ * Channel-independent offline communication orchestrator (Build 3.7D corrective).
  */
 export const createCommunicationOrchestrator = (
   deps: CommunicationOrchestratorDeps,
 ): CommunicationOrchestrator => {
+  if (deps.expectedQueueConfig !== undefined && deps.expectedQueueConfig !== deps.queueConfig) {
+    throw new TypeError(
+      'Orchestrator queueConfig identity mismatch with expectedQueueConfig (fail closed).',
+    );
+  }
+
   let lifecycle: CommunicationRuntimeLifecycle = 'new';
   let ingressEnabled = false;
   let generation = 0;
+  let ownership: CommunicationRuntimeOwnershipHandle | null = null;
   const sideEffects = { llmCalls: 0, deliveryCalls: 0, memoryCalls: 0 };
   const dispatcher = createPerConversationTurnDispatcher(deps.queueConfig);
+  const admission = createConversationAdmissionSerializer();
   const transportInstanceId = parseTransportInstanceId(deps.transportInstanceId);
   const bindingVersion = parseCommunicationBindingVersion(deps.bindingVersion);
   if (!transportInstanceId.ok || !bindingVersion.ok)
     throw new TypeError('Orchestrator transport/binding identity is invalid.');
+
+  const failRuntime = (): void => {
+    lifecycle = 'failed';
+    ingressEnabled = false;
+    dispatcher.beginDrain();
+    generation += 1;
+  };
 
   const diagnostics = (): CommunicationRuntimeDiagnostics =>
     createCommunicationRuntimeDiagnostics({ lifecycle, ingressEnabled });
@@ -97,6 +120,16 @@ export const createCommunicationOrchestrator = (
       };
     lifecycle = 'recovering';
     ingressEnabled = false;
+
+    if (ownership === null) {
+      const acquired = tryAcquireCommunicationRuntimeOwnership(deps.ownershipKey);
+      if (!acquired.ok) {
+        lifecycle = 'failed';
+        return acquired;
+      }
+      ownership = acquired.value;
+    }
+
     const recovered = await recoverCommunicationTurns(
       {
         ledger: deps.ledger,
@@ -109,6 +142,8 @@ export const createCommunicationOrchestrator = (
     if (!recovered.ok) {
       lifecycle = 'failed';
       ingressEnabled = false;
+      ownership.release();
+      ownership = null;
       return recovered;
     }
     lifecycle = 'running';
@@ -173,6 +208,7 @@ export const createCommunicationOrchestrator = (
         ok: false,
         error: communicationError('LEDGER_UNAVAILABLE', observed.value.kind),
       };
+    const freshObserved = observed.value;
 
     const binding = await deps.binding.resolveBinding(
       {
@@ -180,7 +216,7 @@ export const createCommunicationOrchestrator = (
         transportInstanceId: transportInstanceId.value,
         bindingVersion: bindingVersion.value,
         idempotencyKey,
-        admissionEvidence: observed.value.admissionEvidence,
+        admissionEvidence: freshObserved.admissionEvidence,
       },
       operationContext,
     );
@@ -204,7 +240,7 @@ export const createCommunicationOrchestrator = (
       transportInstanceId: transportInstanceId.value,
       bindingVersion: bindingVersion.value,
       observedAt: observedAt.value,
-      admissionEvidence: observed.value.admissionEvidence,
+      admissionEvidence: freshObserved.admissionEvidence,
     });
     if (!principal.ok)
       return {
@@ -212,110 +248,134 @@ export const createCommunicationOrchestrator = (
         error: communicationError('AUTHENTICATION_REJECTED', principal.error.reason),
       };
 
-    let revision: number = Number(observed.value.turnRevision);
-    const auth = await deps.ledger.recordAuthenticationResult(
-      {
-        turnId: turnId.value,
-        expectedRevision: observed.value.turnRevision,
-        correlationId: correlationId.value,
-        outcome: { kind: 'authenticated', principal: principal.value },
-      },
-      operationContext,
-    );
-    if (!auth.ok) return auth;
-    if (auth.value.kind !== 'recorded' && auth.value.kind !== 'already-recorded')
-      return {
-        ok: false,
-        error: communicationError('LEDGER_UNAVAILABLE', auth.value.kind),
-      };
-    if (auth.value.kind === 'recorded') revision = Number(auth.value.turnRevision);
+    return admission.runExclusive(String(bound.conversationId), async () => {
+      if (!ingressEnabled || lifecycle !== 'running')
+        return {
+          ok: false as const,
+          error: communicationError('CONFIG_INVALID', 'Ingress is disabled.'),
+        };
 
-    const accepted = await deps.ledger.acceptConversationTurn(
-      {
-        turnId: turnId.value,
-        expectedRevision: revision as never,
-        correlationId: correlationId.value,
-      },
-      operationContext,
-    );
-    if (!accepted.ok) return accepted;
-    if (accepted.value.kind === 'queue-full' || accepted.value.kind === 'global-queue-full')
-      return {
-        ok: false,
-        error: communicationError(
-          accepted.value.kind === 'queue-full' ? 'QUEUE_FULL' : 'GLOBAL_QUEUE_FULL',
-          accepted.value.kind,
-        ),
-      };
-    if (accepted.value.kind !== 'accepted' && accepted.value.kind !== 'already-accepted')
-      return {
-        ok: false,
-        error: communicationError('LEDGER_UNAVAILABLE', accepted.value.kind),
-      };
-    if (accepted.value.kind === 'accepted') revision = Number(accepted.value.turnRevision);
+      let revision: number = Number(freshObserved.turnRevision);
+      const auth = await deps.ledger.recordAuthenticationResult(
+        {
+          turnId: turnId.value,
+          expectedRevision: freshObserved.turnRevision,
+          correlationId: correlationId.value,
+          outcome: { kind: 'authenticated', principal: principal.value },
+        },
+        operationContext,
+      );
+      if (!auth.ok) return auth;
+      if (auth.value.kind !== 'recorded' && auth.value.kind !== 'already-recorded')
+        return {
+          ok: false as const,
+          error: communicationError('LEDGER_UNAVAILABLE', auth.value.kind),
+        };
+      if (auth.value.kind === 'recorded') revision = Number(auth.value.turnRevision);
 
-    const queued = await deps.ledger.transition(
-      {
-        turnId: turnId.value,
-        expectedRevision: revision as never,
-        expectedState: 'accepted',
-        targetState: 'queued',
-        correlationId: correlationId.value,
-      },
-      operationContext,
-    );
-    if (!queued.ok) return queued;
-    if (queued.value.kind === 'transitioned') revision = Number(queued.value.turnRevision);
+      const accepted = await deps.ledger.acceptConversationTurn(
+        {
+          turnId: turnId.value,
+          expectedRevision: revision as never,
+          correlationId: correlationId.value,
+        },
+        operationContext,
+      );
+      if (!accepted.ok) return accepted;
+      if (accepted.value.kind === 'queue-full' || accepted.value.kind === 'global-queue-full')
+        return {
+          ok: false as const,
+          error: communicationError(
+            accepted.value.kind === 'queue-full' ? 'QUEUE_FULL' : 'GLOBAL_QUEUE_FULL',
+            accepted.value.kind,
+          ),
+        };
+      if (accepted.value.kind !== 'accepted' && accepted.value.kind !== 'already-accepted')
+        return {
+          ok: false as const,
+          error: communicationError('LEDGER_UNAVAILABLE', accepted.value.kind),
+        };
+      const conversationSequence = Number(accepted.value.conversationSequence);
+      if (accepted.value.kind === 'accepted') revision = Number(accepted.value.turnRevision);
 
-    const jobGeneration = generation;
-    const enqueued = dispatcher.enqueue({
-      conversationId: bound.conversationId,
-      run: async () => {
-        await processTextTurn(
-          {
-            ledger: deps.ledger,
-            audit: deps.audit,
-            outbox: deps.outbox,
-            conversationState: deps.conversationState,
-            llm: deps.llm,
-            delivery: deps.delivery,
-            memory: deps.memory,
-            scanner: deps.scanner,
-            killSwitch: deps.killSwitch,
-            isGenerationCurrent: (g) => g === generation,
-            noteLlmCall: () => {
-              sideEffects.llmCalls += 1;
-            },
-            noteDeliveryCall: () => {
-              sideEffects.deliveryCalls += 1;
-            },
-            noteMemoryCall: () => {
-              sideEffects.memoryCalls += 1;
-            },
-          },
-          {
-            turnId: turnId.value,
-            correlationId: correlationId.value,
-            principal: principal.value,
-            ownerId: bound.ownerId,
-            conversationId: bound.conversationId,
-            observation: observation.value,
-            turnRevision: revision as TurnRevision,
-            policyVersion: deps.policyVersion,
-            abortSignal: AbortSignal.timeout(deps.defaultDeadlineMs ?? 5_000),
-            deadlineMs: deps.defaultDeadlineMs ?? 5_000,
-            generation: jobGeneration,
-          },
-          operationContext,
-        );
-      },
+      const queued = await deps.ledger.transition(
+        {
+          turnId: turnId.value,
+          expectedRevision: revision as never,
+          expectedState: 'accepted',
+          targetState: 'queued',
+          correlationId: correlationId.value,
+        },
+        operationContext,
+      );
+      if (!queued.ok) return queued;
+      if (queued.value.kind === 'transitioned') revision = Number(queued.value.turnRevision);
+
+      const jobGeneration = generation;
+      const enqueued = dispatcher.enqueue({
+        conversationId: bound.conversationId,
+        conversationSequence,
+        run: async () => {
+          if (lifecycle === 'failed') return;
+          let result: Result<
+            { kind: 'completed' } | { kind: 'completed-blocked-by-gate' },
+            CommunicationError
+          >;
+          try {
+            result = await processTextTurn(
+              {
+                ledger: deps.ledger,
+                audit: deps.audit,
+                outbox: deps.outbox,
+                conversationState: deps.conversationState,
+                llm: deps.llm,
+                delivery: deps.delivery,
+                memory: deps.memory,
+                scanner: deps.scanner,
+                killSwitch: deps.killSwitch,
+                isGenerationCurrent: (g) => g === generation,
+                noteLlmCall: () => {
+                  sideEffects.llmCalls += 1;
+                },
+                noteDeliveryCall: () => {
+                  sideEffects.deliveryCalls += 1;
+                },
+                noteMemoryCall: () => {
+                  sideEffects.memoryCalls += 1;
+                },
+              },
+              {
+                turnId: turnId.value,
+                correlationId: correlationId.value,
+                principal: principal.value,
+                ownerId: bound.ownerId,
+                conversationId: bound.conversationId,
+                observation: observation.value,
+                turnRevision: revision as TurnRevision,
+                policyVersion: deps.policyVersion,
+                abortSignal: AbortSignal.timeout(deps.defaultDeadlineMs ?? 5_000),
+                deadlineMs: deps.defaultDeadlineMs ?? 5_000,
+                generation: jobGeneration,
+              },
+              operationContext,
+            );
+          } catch {
+            failRuntime();
+            return;
+          }
+          if (!result.ok) failRuntime();
+        },
+      });
+      if (!enqueued.ok)
+        return {
+          ok: false as const,
+          error: communicationError(
+            enqueued.reason === 'global-queue-full' ? 'GLOBAL_QUEUE_FULL' : 'QUEUE_FULL',
+            enqueued.reason,
+          ),
+        };
+      return ok({ accepted: true as const });
     });
-    if (!enqueued.ok)
-      return {
-        ok: false,
-        error: communicationError('QUEUE_FULL', enqueued.reason),
-      };
-    return ok({ accepted: true });
   };
 
   const beginDrain = (): void => {
@@ -330,6 +390,8 @@ export const createCommunicationOrchestrator = (
     await dispatcher.whenIdle();
     lifecycle = 'closed';
     ingressEnabled = false;
+    ownership?.release();
+    ownership = null;
     return ok(undefined);
   };
 

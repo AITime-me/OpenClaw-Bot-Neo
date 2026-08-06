@@ -85,23 +85,18 @@ const dirIdentity = (
   });
 
 const createTempStorageRoot = (): string => {
-  const base = mkdtempSync(join(tmpdir(), 'openclaw-comm-'));
-  tempRoots.push(base);
-  const posixRoot =
-    '/openclaw-neo-comm-' +
-    String(process.pid) +
-    '-' +
-    String(Date.now()) +
-    '-' +
-    Math.random().toString(16).slice(2);
-  mkdirSync(posixRoot, { recursive: true });
-  tempRoots.push(posixRoot);
-  return posixRoot;
+  const native = mkdtempSync(join(tmpdir(), 'openclaw-comm-'));
+  tempRoots.push(native);
+  const normalized = native.replace(/\\/g, '/');
+  const match = /^[A-Za-z]:\/(.*)$/.exec(normalized);
+  if (match?.[1] !== undefined) return `/${match[1]}`;
+  return normalized;
 };
 
 const createFakeSystem = (storageRoot: string): PosixStorageSystem => {
   const nodes: Record<string, { identity: PosixPathIdentity }> = {
     [storageRoot]: { identity: dirIdentity({ ino: '12' }) },
+    [storageRoot.replace(/\\/g, '/')]: { identity: dirIdentity({ ino: '12' }) },
     [REPO_ROOT]: { identity: dirIdentity({ ino: '99', uid: 0, mode: 0o755 }) },
   };
   const parts = storageRoot.split('/').filter((part) => part.length > 0);

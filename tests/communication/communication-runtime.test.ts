@@ -1,9 +1,26 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createReferenceTextSlice } from '../../src/communication/reference/create-reference-text-slice.js';
+import {
+  createReferenceTextSlice,
+  type ReferenceOfflinePorts,
+} from '../../src/communication/reference/create-reference-text-slice.js';
+import { resetCommunicationRuntimeOwnershipForTests } from '../../src/core/communication/application/index.js';
 import { REFERENCE_COMMUNICATION_QUEUE_CONFIG } from '../../src/core/communication/application/reference-queue-config.js';
+import { communicationError } from '../../src/core/communication/domain/communication-errors.js';
+import { ok } from '../../src/core/domain/result.js';
+import type { LlmCompletionPort } from '../../src/core/communication/ports/llm-completion.port.js';
+import type { TextDeliveryPort } from '../../src/core/communication/ports/text-delivery.port.js';
+import type { ConversationStatePort } from '../../src/core/communication/ports/conversation-state.port.js';
+import { createReferenceLlmCompletion } from '../../src/communication/reference/reference-llm-completion.js';
+import { createReferenceTextDelivery } from '../../src/communication/reference/reference-text-delivery.js';
+import { createReferenceIdentityBinding } from '../../src/communication/reference/reference-identity-binding.js';
+import { createReferenceMemoryAuthorization } from '../../src/communication/reference/reference-memory-authorization.js';
+import { createReferenceKillSwitch } from '../../src/communication/reference/reference-kill-switch.js';
+import { createReferenceIdGenerator } from '../../src/communication/reference/reference-id-generator.js';
+import { createCommunicationOrchestrator } from '../../src/core/communication/application/communication-orchestrator.js';
+import { parsePolicyVersion } from '../../src/core/domain/identity.js';
 import { issueAuthenticatedCommunicationPrincipal } from '../../src/core/communication/domain/authenticated-communication-principal.internal.js';
 import {
   deriveCommunicationIdempotencyKey,
@@ -47,6 +64,7 @@ const SERVICE_UID = 1001;
 const tempRoots: string[] = [];
 
 afterEach(() => {
+  resetCommunicationRuntimeOwnershipForTests();
   while (tempRoots.length > 0) {
     const root = tempRoots.pop();
     if (root === undefined) continue;
@@ -73,31 +91,31 @@ const dirIdentity = (
   });
 
 const createTempStorageRoot = (): string => {
-  const base = mkdtempSync(join(tmpdir(), 'openclaw-comm-runtime-'));
-  tempRoots.push(base);
-  const posixRoot =
-    '/openclaw-neo-runtime-' +
-    String(process.pid) +
-    '-' +
-    String(Date.now()) +
-    '-' +
-    Math.random().toString(16).slice(2);
-  mkdirSync(posixRoot, { recursive: true });
-  tempRoots.push(posixRoot);
-  return posixRoot;
+  const native = mkdtempSync(join(tmpdir(), 'openclaw-comm-runtime-'));
+  tempRoots.push(native);
+  const normalized = native.replace(/\\/g, '/');
+  const match = /^[A-Za-z]:\/(.*)$/.exec(normalized);
+  if (match?.[1] !== undefined) return `/${match[1]}`;
+  return normalized;
 };
+
+const storagePlatform = (): 'win32' | 'posix' => 'posix';
+
+const splitStorageRootSegments = (storageRoot: string): string[] =>
+  storageRoot.split('/').filter((part) => part.length > 0);
 
 const createFakeSystem = (storageRoot: string): PosixStorageSystem => {
   const nodes: Record<string, { identity: PosixPathIdentity }> = {
     [storageRoot]: { identity: dirIdentity({ ino: '12' }) },
+    [storageRoot.replace(/\\/g, '/')]: { identity: dirIdentity({ ino: '12' }) },
     [REPO_ROOT]: { identity: dirIdentity({ ino: '99', uid: 0, mode: 0o755 }) },
   };
-  const parts = storageRoot.split('/').filter((part) => part.length > 0);
+  const parts = splitStorageRootSegments(storageRoot);
   let current = '';
   for (let index = 0; index < parts.length - 1; index += 1) {
     const segment = parts[index];
     if (segment === undefined) continue;
-    current = current + '/' + segment;
+    current = current.length === 0 ? `/${segment}` : `${current}/${segment}`;
     nodes[current] = { identity: dirIdentity({ ino: String(20 + index), uid: 0, mode: 0o755 }) };
   }
   let openCount = 0;
@@ -135,7 +153,7 @@ const createFakeSystem = (storageRoot: string): PosixStorageSystem => {
 };
 
 const openGenuineRoot = (storageRoot: string): OpenedPosixStorageRoot => {
-  const plan = createLocalStoragePlan({ platform: 'posix', storageRoot });
+  const plan = createLocalStoragePlan({ platform: storagePlatform(), storageRoot });
   expect(plan.ok).toBe(true);
   if (!plan.ok) throw new Error('plan');
   const opened = openPosixStorageRootWithSystem(
@@ -212,10 +230,24 @@ type RuntimeFixture = {
   readonly slice: ReferenceTextSlice;
 };
 
+const toReferencePorts = (
+  handle: OfflineSqliteCommunicationPortsHandle,
+  overrides?: Partial<Pick<ReferenceOfflinePorts, 'conversationState'>>,
+): ReferenceOfflinePorts =>
+  Object.freeze({
+    ledger: handle.ledger,
+    audit: handle.audit,
+    outbox: handle.outbox,
+    conversationState: overrides?.conversationState ?? handle.conversationState,
+    ownershipKey: handle.ownershipKey,
+    queueConfig: handle.queueConfig,
+  });
+
 const openRuntime = (options?: {
   readonly scanner?: SensitiveDataScannerPort;
   readonly llmScenario?: Parameters<typeof createReferenceTextSlice>[0]['llmScenario'];
   readonly deliveryScenario?: Parameters<typeof createReferenceTextSlice>[0]['deliveryScenario'];
+  readonly conversationState?: ConversationStatePort;
 }): RuntimeFixture => {
   const storageRoot = createTempStorageRoot();
   const root = openGenuineRoot(storageRoot);
@@ -225,8 +257,16 @@ const openRuntime = (options?: {
   });
   expect(ports.ok).toBe(true);
   if (!ports.ok) throw new Error(JSON.stringify(ports));
+  expect(ports.value.ownershipKey.length).toBeGreaterThan(0);
+  expect(ports.value.queueConfig).toBe(REFERENCE_COMMUNICATION_QUEUE_CONFIG);
+  const referencePorts = toReferencePorts(
+    ports.value,
+    options?.conversationState !== undefined
+      ? { conversationState: options.conversationState }
+      : undefined,
+  );
   const slice = createReferenceTextSlice({
-    ports: ports.value,
+    ports: referencePorts,
     scanner: options?.scanner ?? fakeSensitiveDataScanner('allow'),
     ...(options?.llmScenario !== undefined ? { llmScenario: options.llmScenario } : {}),
     ...(options?.deliveryScenario !== undefined
@@ -237,11 +277,88 @@ const openRuntime = (options?: {
   return { storageRoot, root, handle: ports.value, slice };
 };
 
+const openCustomRuntime = (options: {
+  readonly llm?: LlmCompletionPort;
+  readonly delivery?: TextDeliveryPort;
+  readonly conversationState?: ConversationStatePort;
+}): RuntimeFixture => {
+  const storageRoot = createTempStorageRoot();
+  const root = openGenuineRoot(storageRoot);
+  const ports = createOfflineSqliteCommunicationPorts(root, {
+    scanner: fakeSensitiveDataScanner('allow'),
+    queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+  });
+  expect(ports.ok).toBe(true);
+  if (!ports.ok) throw new Error(JSON.stringify(ports));
+  const referencePorts = toReferencePorts(
+    ports.value,
+    options.conversationState !== undefined
+      ? { conversationState: options.conversationState }
+      : undefined,
+  );
+  const policyVersion = must(parsePolicyVersion('1.0.0'));
+  const orchestrator = createCommunicationOrchestrator({
+    ledger: referencePorts.ledger,
+    audit: referencePorts.audit,
+    outbox: referencePorts.outbox,
+    conversationState: referencePorts.conversationState,
+    binding: createReferenceIdentityBinding(),
+    ids: createReferenceIdGenerator(),
+    llm: options.llm ?? createReferenceLlmCompletion('completed'),
+    delivery: options.delivery ?? createReferenceTextDelivery('delivered'),
+    memory: createReferenceMemoryAuthorization(),
+    killSwitch: createReferenceKillSwitch(),
+    scanner: fakeSensitiveDataScanner('allow'),
+    queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    expectedQueueConfig: referencePorts.queueConfig,
+    ownershipKey: referencePorts.ownershipKey,
+    policyVersion,
+    transportInstanceId: 'transport-ref-1',
+    bindingVersion: 'binding-v1',
+  });
+  const slice = Object.freeze({
+    orchestrator,
+    queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    llm: options.llm ?? createReferenceLlmCompletion('completed'),
+    delivery: options.delivery ?? createReferenceTextDelivery('delivered'),
+    killSwitch: createReferenceKillSwitch(),
+  }) as ReferenceTextSlice;
+  return { storageRoot, root, handle: ports.value, slice };
+};
+
 const startRuntime = async (fixture: RuntimeFixture) => {
   const started = await fixture.slice.orchestrator.start(ctx());
   expect(started.ok).toBe(true);
   if (!started.ok) throw new Error(JSON.stringify(started));
   return started.value;
+};
+
+const seedManyQueuedTurns = (storageRoot: string, count: number): void => {
+  const db = openSqliteDatabaseFile(`${storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`);
+  const insert = db.prepare(
+    `INSERT INTO turns (
+       turn_id, transport_instance_id, idempotency_key, state, turn_revision,
+       conversation_sequence, owner_id, conversation_id, correlation_id,
+       delivery_status, checkpoint_status, audit_start_status, audit_completion_status,
+       llm_outcome, error_code, observed_at, updated_at
+     ) VALUES (?, ?, ?, 'queued', 1, ?, ?, ?, ?, 'not_started', 'not_required', 'pending', 'not_started', NULL, NULL, ?, ?)`,
+  );
+  const now = '2026-08-05T12:00:00.000Z';
+  for (let index = 0; index < count; index += 1) {
+    const suffix = String(index);
+    insert.run(
+      `seed-bulk-${suffix}`,
+      'transport-ref-1',
+      `idempotency-bulk-${suffix}`,
+      index + 1,
+      'owner-1',
+      `conversation-bulk-${suffix}`,
+      `corr-bulk-${suffix}`,
+      now,
+      now,
+    );
+  }
+  db.close();
 };
 
 const seedQueuedTurn = async (
@@ -372,46 +489,27 @@ describe('Build 3.7D communication runtime', () => {
     fixture.root.close();
   });
 
-  it('serializes concurrent duplicate admission across two runtime handles', async () => {
-    const storageRoot = createTempStorageRoot();
-    const root = openGenuineRoot(storageRoot);
-    const firstPorts = createOfflineSqliteCommunicationPorts(root, {
-      scanner: fakeSensitiveDataScanner('allow'),
-      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
-    });
-    const secondPorts = createOfflineSqliteCommunicationPorts(root, {
-      scanner: fakeSensitiveDataScanner('allow'),
-      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
-    });
-    expect(firstPorts.ok && secondPorts.ok).toBe(true);
-    if (!firstPorts.ok || !secondPorts.ok) throw new Error('open');
-    const sliceA = createReferenceTextSlice({
-      ports: firstPorts.value,
-      scanner: fakeSensitiveDataScanner('allow'),
-    });
-    const sliceB = createReferenceTextSlice({
-      ports: secondPorts.value,
-      scanner: fakeSensitiveDataScanner('allow'),
-    });
-    await sliceA.orchestrator.start(ctx());
-    await sliceB.orchestrator.start(ctx());
+  it('serializes concurrent duplicate admission from one runtime handle', async () => {
+    const fixture = openRuntime();
+    await startRuntime(fixture);
     const obs = observation('conv-dup', 'msg-dup');
     const [a, b] = await Promise.all([
-      sliceA.orchestrator.submitObservation(obs, ctx()),
-      sliceB.orchestrator.submitObservation(obs, ctx()),
+      fixture.slice.orchestrator.submitObservation(obs, ctx()),
+      fixture.slice.orchestrator.submitObservation(obs, ctx()),
     ]);
     const accepted = [a, b].filter((result) => result.ok && 'accepted' in result.value).length;
     const duplicate = [a, b].filter((result) => result.ok && 'duplicate' in result.value).length;
     expect(accepted).toBe(1);
     expect(duplicate).toBe(1);
-    const db = openSqliteDatabaseFile(`${storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`);
+    const db = openSqliteDatabaseFile(
+      `${fixture.storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`,
+    );
     const turnCount = db.prepare(`SELECT COUNT(*) AS n FROM turns`).get() as { n: number };
     db.close();
     expect(turnCount.n).toBe(1);
-    await sliceA.orchestrator.close();
-    firstPorts.value.close();
-    secondPorts.value.close();
-    root.close();
+    await fixture.slice.orchestrator.close();
+    fixture.handle.close();
+    fixture.root.close();
   });
 
   it('serializes in-flight work per conversation while other conversations continue', async () => {
@@ -598,7 +696,7 @@ describe('Build 3.7D communication runtime', () => {
     expect(reopened.ok).toBe(true);
     if (!reopened.ok) throw new Error('reopen');
     const slice = createReferenceTextSlice({
-      ports: reopened.value,
+      ports: toReferencePorts(reopened.value),
       scanner: fakeSensitiveDataScanner('allow'),
     });
     const started = await slice.orchestrator.start(ctx());
@@ -649,7 +747,7 @@ describe('Build 3.7D communication runtime', () => {
     expect(reopened.ok).toBe(true);
     if (!reopened.ok) throw new Error('reopen');
     const slice = createReferenceTextSlice({
-      ports: reopened.value,
+      ports: toReferencePorts(reopened.value),
       scanner: fakeSensitiveDataScanner('allow'),
     });
     await slice.orchestrator.start(ctx());
@@ -830,7 +928,7 @@ describe('Build 3.7D communication runtime', () => {
     expect(firstPorts.ok).toBe(true);
     if (!firstPorts.ok) throw new Error('open');
     const firstSlice = createReferenceTextSlice({
-      ports: firstPorts.value,
+      ports: toReferencePorts(firstPorts.value),
       scanner: fakeSensitiveDataScanner('allow'),
     });
     await firstSlice.orchestrator.start(ctx());
@@ -849,7 +947,7 @@ describe('Build 3.7D communication runtime', () => {
     expect(reopenedPorts.ok).toBe(true);
     if (!reopenedPorts.ok) throw new Error('reopen');
     const reopenedSlice = createReferenceTextSlice({
-      ports: reopenedPorts.value,
+      ports: toReferencePorts(reopenedPorts.value),
       scanner: fakeSensitiveDataScanner('allow'),
     });
     await reopenedSlice.orchestrator.start(ctx());
@@ -863,5 +961,502 @@ describe('Build 3.7D communication runtime', () => {
     await reopenedSlice.orchestrator.close();
     reopenedPorts.value.close();
     root.close();
+  });
+
+  it('keeps delivered immutable and blocks the next turn when checkpoint fails after delivery', async () => {
+    const realConversationState = (handle: OfflineSqliteCommunicationPortsHandle) =>
+      handle.conversationState;
+    const storageRoot = createTempStorageRoot();
+    const root = openGenuineRoot(storageRoot);
+    const ports = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(ports.ok).toBe(true);
+    if (!ports.ok) throw new Error('open');
+    const real = realConversationState(ports.value);
+    const wrappedConversationState: ConversationStatePort = {
+      ...real,
+      checkpoint: () => Promise.resolve(ok({ kind: 'unavailable', reason: 'forced' } as const)),
+    };
+    const slice = createReferenceTextSlice({
+      ports: toReferencePorts(ports.value, { conversationState: wrappedConversationState }),
+      scanner: fakeSensitiveDataScanner('allow'),
+    });
+    await startRuntime({ storageRoot, root, handle: ports.value, slice });
+    await slice.orchestrator.submitObservation(
+      observation('conv-ckpt-fail', 'msg-ckpt-fail-1'),
+      ctx(),
+    );
+    await slice.orchestrator.whenIdle();
+    expect(slice.orchestrator.sideEffects).toMatchObject({
+      llmCalls: 1,
+      deliveryCalls: 1,
+      memoryCalls: 1,
+    });
+    const firstRow = readTurns(storageRoot)[0];
+    expect(firstRow?.state).toBe('completed');
+    expect(firstRow?.delivery_status).toBe('delivered');
+
+    const owner = must(parseOwnerId('owner-1'));
+    const conversation = must(parseConversationId('conversation-conv-ckpt-fail'));
+    const loaded = await ports.value.conversationState.load(
+      { ownerId: owner, conversationId: conversation },
+      ctx(),
+    );
+    expect(loaded.ok && loaded.value.kind === 'found').toBe(true);
+    if (!loaded.ok || loaded.value.kind !== 'found') throw new Error('load');
+    expect(loaded.value.snapshot.pauseState).toBe('degraded');
+    expect(loaded.value.snapshot.checkpoint.status).toBe('failed');
+
+    await slice.orchestrator.submitObservation(
+      observation('conv-ckpt-fail', 'msg-ckpt-fail-2'),
+      ctx(),
+    );
+    await slice.orchestrator.whenIdle();
+    expect(slice.orchestrator.sideEffects).toMatchObject({
+      llmCalls: 1,
+      deliveryCalls: 1,
+      memoryCalls: 1,
+    });
+    expect(readTurns(storageRoot)).toHaveLength(2);
+
+    const reconciled = await ports.value.conversationState.reconcileCheckpoint(
+      {
+        key: { ownerId: owner, conversationId: conversation },
+        expectedRevision: loaded.value.snapshot.revision,
+        correlationId: must(parseCorrelationId('corr-ckpt-fail-reconcile')),
+        idempotencyKey: 'reconcile-ckpt-fail',
+      },
+      ctx(),
+    );
+    expect(reconciled.ok && reconciled.value.kind === 'reconciled').toBe(true);
+    const afterReconcile = await ports.value.conversationState.load(
+      { ownerId: owner, conversationId: conversation },
+      ctx(),
+    );
+    expect(afterReconcile.ok && afterReconcile.value.kind === 'found').toBe(true);
+    if (!afterReconcile.ok || afterReconcile.value.kind !== 'found') throw new Error('reload');
+    expect(afterReconcile.value.snapshot.pauseState).toBe('degraded');
+
+    await slice.orchestrator.close();
+    ports.value.close();
+    root.close();
+  });
+
+  it('fails closed when checkpoint barrier write is unavailable after llm outcome unknown', async () => {
+    const storageRoot = createTempStorageRoot();
+    const root = openGenuineRoot(storageRoot);
+    const ports = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(ports.ok).toBe(true);
+    if (!ports.ok) throw new Error('open');
+    const real = ports.value.conversationState;
+    const wrappedConversationState: ConversationStatePort = {
+      ...real,
+      recordCheckpointBarrier: () =>
+        Promise.resolve(ok({ kind: 'unavailable', reason: 'forced barrier failure' } as const)),
+    };
+    const slice = createReferenceTextSlice({
+      ports: toReferencePorts(ports.value, { conversationState: wrappedConversationState }),
+      scanner: fakeSensitiveDataScanner('allow'),
+      llmScenario: 'outcome-unknown',
+    });
+    await startRuntime({ storageRoot, root, handle: ports.value, slice });
+    await slice.orchestrator.submitObservation(
+      observation('conv-barrier-fail', 'msg-barrier-fail'),
+      ctx(),
+    );
+    await slice.orchestrator.whenIdle();
+    expect(slice.orchestrator.diagnostics().lifecycle).toBe('failed');
+    const blocked = await slice.orchestrator.submitObservation(
+      observation('conv-barrier-fail', 'msg-barrier-fail-2'),
+      ctx(),
+    );
+    expect(blocked.ok).toBe(false);
+    await slice.orchestrator.close();
+    ports.value.close();
+    root.close();
+  });
+
+  it('recovers paginated unfinished turns with zero side effects', async () => {
+    const storageRoot = createTempStorageRoot();
+    const root = openGenuineRoot(storageRoot);
+    const firstPorts = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(firstPorts.ok).toBe(true);
+    if (!firstPorts.ok) throw new Error('open');
+    seedManyQueuedTurns(storageRoot, 101);
+    firstPorts.value.close();
+
+    const reopened = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) throw new Error('reopen');
+    const slice = createReferenceTextSlice({
+      ports: toReferencePorts(reopened.value),
+      scanner: fakeSensitiveDataScanner('allow'),
+    });
+    const started = await slice.orchestrator.start(ctx());
+    expect(started.ok).toBe(true);
+    if (!started.ok) throw new Error('start');
+    expect(started.value.recovered).toBe(101);
+    expect(slice.orchestrator.sideEffects).toMatchObject({
+      llmCalls: 0,
+      deliveryCalls: 0,
+      memoryCalls: 0,
+    });
+    const rows = readTurns(storageRoot);
+    expect(rows).toHaveLength(101);
+    expect(rows.every((row) => row.state === 'completed')).toBe(true);
+    await slice.orchestrator.close();
+    reopened.value.close();
+    root.close();
+  }, 60_000);
+
+  it('records a barrier during recovery for delivered turns with pending checkpoints', async () => {
+    const storageRoot = createTempStorageRoot();
+    const root = openGenuineRoot(storageRoot);
+    const firstPorts = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(firstPorts.ok).toBe(true);
+    if (!firstPorts.ok) throw new Error('open');
+    const seeded = await seedQueuedTurn(firstPorts.value, 'delivered-pending');
+    const corr = must(parseCorrelationId(seeded.correlationId));
+    const owner = must(parseOwnerId('owner-1'));
+    const conversation = must(parseConversationId('conversation-conv-seed-delivered-pending'));
+    const checkpointed = await firstPorts.value.conversationState.checkpoint(
+      {
+        key: { ownerId: owner, conversationId: conversation },
+        expectedRevision: must(parseConversationRevision(0)),
+        nextSnapshot: freezeConversationStateSnapshot({
+          conversationId: conversation,
+          ownerId: owner,
+          revision: must(parseConversationRevision(1)),
+          activeContext: Object.freeze([]),
+          modelDerivedSummary: null,
+          pauseState: 'active',
+          checkpoint: Object.freeze({
+            status: 'pending' as const,
+            revision: must(parseConversationRevision(1)),
+          }),
+        }),
+        correlationId: corr,
+        idempotencyKey: 'recovery-pending-checkpoint',
+      },
+      ctx(),
+    );
+    expect(checkpointed.ok).toBe(true);
+    const db = openSqliteDatabaseFile(`${storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`);
+    db.prepare(
+      `UPDATE turns
+          SET state = 'delivered',
+              delivery_status = 'delivered',
+              llm_outcome = 'completed'
+        WHERE turn_id = ?`,
+    ).run(seeded.turnId);
+    db.close();
+    firstPorts.value.close();
+
+    const reopened = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) throw new Error('reopen');
+    const slice = createReferenceTextSlice({
+      ports: toReferencePorts(reopened.value),
+      scanner: fakeSensitiveDataScanner('allow'),
+    });
+    await slice.orchestrator.start(ctx());
+    await slice.orchestrator.whenIdle();
+    const loaded = await reopened.value.conversationState.load(
+      { ownerId: owner, conversationId: conversation },
+      ctx(),
+    );
+    expect(loaded.ok && loaded.value.kind === 'found').toBe(true);
+    if (!loaded.ok || loaded.value.kind !== 'found') throw new Error('load');
+    expect(loaded.value.snapshot.pauseState).toBe('degraded');
+    expect(loaded.value.snapshot.checkpoint.status).toBe('failed');
+    expect(readTurns(storageRoot)[0]?.state).toBe('completed');
+    await slice.orchestrator.close();
+    reopened.value.close();
+    root.close();
+  });
+
+  it('leaves ingress disabled when recovery cannot record a durable barrier', async () => {
+    const storageRoot = createTempStorageRoot();
+    const root = openGenuineRoot(storageRoot);
+    const firstPorts = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(firstPorts.ok).toBe(true);
+    if (!firstPorts.ok) throw new Error('open');
+    const seeded = await seedQueuedTurn(firstPorts.value, 'recovery-barrier-fail');
+    const revisionRow = readTurns(storageRoot)[0];
+    if (!revisionRow) throw new Error('missing turn');
+    const toLlm = await firstPorts.value.ledger.transition(
+      {
+        turnId: must(parseTurnId(seeded.turnId)),
+        expectedRevision: revisionRow.turn_revision as never,
+        expectedState: 'queued',
+        targetState: 'llm_started',
+        correlationId: must(parseCorrelationId(seeded.correlationId)),
+      },
+      ctx(),
+    );
+    expect(toLlm.ok).toBe(true);
+    firstPorts.value.close();
+
+    const reopened = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) throw new Error('reopen');
+    const real = reopened.value.conversationState;
+    const wrappedConversationState: ConversationStatePort = {
+      ...real,
+      recordCheckpointBarrier: () =>
+        Promise.resolve(
+          ok({ kind: 'unavailable', reason: 'forced recovery barrier failure' } as const),
+        ),
+    };
+    const slice = createReferenceTextSlice({
+      ports: toReferencePorts(reopened.value, { conversationState: wrappedConversationState }),
+      scanner: fakeSensitiveDataScanner('allow'),
+    });
+    const started = await slice.orchestrator.start(ctx());
+    expect(started.ok).toBe(false);
+    expect(slice.orchestrator.diagnostics().lifecycle).toBe('failed');
+    const blocked = await slice.orchestrator.submitObservation(
+      observation('conv-recovery-fail', 'msg-recovery-fail'),
+      ctx(),
+    );
+    expect(blocked.ok).toBe(false);
+    await slice.orchestrator.close();
+    reopened.value.close();
+    root.close();
+  });
+
+  it('rejects a second orchestrator on the same ownershipKey until the first closes', async () => {
+    const storageRoot = createTempStorageRoot();
+    const root = openGenuineRoot(storageRoot);
+    const firstPorts = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    const secondPorts = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(firstPorts.ok && secondPorts.ok).toBe(true);
+    if (!firstPorts.ok || !secondPorts.ok) throw new Error('open');
+    expect(firstPorts.value.ownershipKey).toBe(secondPorts.value.ownershipKey);
+    const firstSlice = createReferenceTextSlice({
+      ports: toReferencePorts(firstPorts.value),
+      scanner: fakeSensitiveDataScanner('allow'),
+    });
+    const secondSlice = createReferenceTextSlice({
+      ports: toReferencePorts(secondPorts.value),
+      scanner: fakeSensitiveDataScanner('allow'),
+    });
+    const firstStarted = await firstSlice.orchestrator.start(ctx());
+    expect(firstStarted.ok).toBe(true);
+    const secondStarted = await secondSlice.orchestrator.start(ctx());
+    expect(secondStarted.ok).toBe(false);
+    await firstSlice.orchestrator.close();
+    firstPorts.value.close();
+    const thirdSlice = createReferenceTextSlice({
+      ports: toReferencePorts(secondPorts.value),
+      scanner: fakeSensitiveDataScanner('allow'),
+    });
+    const thirdStarted = await thirdSlice.orchestrator.start(ctx());
+    expect(thirdStarted.ok).toBe(true);
+    await thirdSlice.orchestrator.close();
+    secondPorts.value.close();
+    root.close();
+  });
+
+  it('finalizes post-start unknown LLM and delivery failures without retry', async () => {
+    const errLlm = openCustomRuntime({
+      llm: {
+        complete() {
+          return Promise.resolve({
+            ok: false as const,
+            error: communicationError('CONFIG_INVALID', 'forced llm err'),
+          });
+        },
+      },
+    });
+    await startRuntime(errLlm);
+    await errLlm.slice.orchestrator.submitObservation(
+      observation('conv-llm-err', 'msg-llm-err'),
+      ctx(),
+    );
+    await errLlm.slice.orchestrator.whenIdle();
+    expect(readTurns(errLlm.storageRoot)[0]?.llm_outcome).toBe('outcome-unknown');
+    expect(errLlm.slice.orchestrator.sideEffects.llmCalls).toBe(1);
+    await errLlm.slice.orchestrator.close();
+    errLlm.handle.close();
+    errLlm.root.close();
+
+    const rejectLlm = openCustomRuntime({
+      llm: {
+        complete() {
+          return Promise.reject(new Error('forced llm rejection'));
+        },
+      },
+    });
+    await startRuntime(rejectLlm);
+    await rejectLlm.slice.orchestrator.submitObservation(
+      observation('conv-llm-reject', 'msg-llm-reject'),
+      ctx(),
+    );
+    await rejectLlm.slice.orchestrator.whenIdle();
+    expect(readTurns(rejectLlm.storageRoot)[0]?.llm_outcome).toBe('outcome-unknown');
+    await rejectLlm.slice.orchestrator.close();
+    rejectLlm.handle.close();
+    rejectLlm.root.close();
+
+    const errDelivery = openCustomRuntime({
+      delivery: {
+        deliver() {
+          return Promise.resolve({
+            ok: false as const,
+            error: communicationError('CONFIG_INVALID', 'forced delivery err'),
+          });
+        },
+      },
+    });
+    await startRuntime(errDelivery);
+    await errDelivery.slice.orchestrator.submitObservation(
+      observation('conv-delivery-err', 'msg-delivery-err'),
+      ctx(),
+    );
+    await errDelivery.slice.orchestrator.whenIdle();
+    expect(readTurns(errDelivery.storageRoot)[0]?.delivery_status).toBe('outcome_unknown');
+    expect(errDelivery.slice.orchestrator.sideEffects.deliveryCalls).toBe(1);
+    await errDelivery.slice.orchestrator.close();
+    errDelivery.handle.close();
+    errDelivery.root.close();
+
+    const rejectDelivery = openCustomRuntime({
+      delivery: {
+        deliver() {
+          return Promise.reject(new Error('forced delivery rejection'));
+        },
+      },
+    });
+    await startRuntime(rejectDelivery);
+    await rejectDelivery.slice.orchestrator.submitObservation(
+      observation('conv-delivery-reject', 'msg-delivery-reject'),
+      ctx(),
+    );
+    await rejectDelivery.slice.orchestrator.whenIdle();
+    expect(readTurns(rejectDelivery.storageRoot)[0]?.delivery_status).toBe('outcome_unknown');
+    await rejectDelivery.slice.orchestrator.close();
+    rejectDelivery.handle.close();
+    rejectDelivery.root.close();
+
+    const waitAbort = openRuntime({ llmScenario: 'wait-for-abort' });
+    await startRuntime(waitAbort);
+    await waitAbort.slice.orchestrator.submitObservation(
+      observation('conv-wait-abort', 'msg-wait-abort'),
+      ctx(),
+    );
+    await waitUntil(() => readTurns(waitAbort.storageRoot)[0]?.state === 'llm_started');
+    waitAbort.slice.orchestrator.beginDrain();
+    await waitAbort.slice.orchestrator.whenIdle();
+    expect(readTurns(waitAbort.storageRoot)[0]?.llm_outcome).toBe('outcome-unknown');
+    expect(waitAbort.slice.orchestrator.sideEffects.llmCalls).toBe(1);
+    await waitAbort.slice.orchestrator.close();
+    waitAbort.handle.close();
+    waitAbort.root.close();
+  }, 20_000);
+
+  it('reads outbox delivery outcomes without triggering scrub side effects', async () => {
+    const fixture = openRuntime();
+    await startRuntime(fixture);
+    await fixture.slice.orchestrator.submitObservation(
+      observation('conv-outbox-scrub', 'msg-outbox-scrub'),
+      ctx(),
+    );
+    await fixture.slice.orchestrator.whenIdle();
+    const row = readTurns(fixture.storageRoot)[0];
+    if (!row?.correlation_id) throw new Error('corr');
+    const db = openSqliteDatabaseFile(
+      `${fixture.storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`,
+    );
+    const before = db
+      .prepare(`SELECT turn_id, created_at FROM outbox_entries WHERE turn_id = ?`)
+      .all(row.turn_id) as Array<{ turn_id: string; created_at: string }>;
+    const turnBefore = db
+      .prepare(`SELECT updated_at FROM turns WHERE turn_id = ?`)
+      .get(row.turn_id) as { updated_at: string } | undefined;
+    db.close();
+    expect(before.length).toBeGreaterThan(0);
+
+    const deliveredOutcome = await fixture.handle.outbox.readDeliveryOutcome(
+      {
+        turnId: must(parseTurnId(row.turn_id)),
+        correlationId: must(parseCorrelationId(row.correlation_id)),
+      },
+      ctx(),
+    );
+    expect(deliveredOutcome.ok && deliveredOutcome.value.kind === 'delivered').toBe(true);
+
+    const dbAfter = openSqliteDatabaseFile(
+      `${fixture.storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`,
+    );
+    const after = dbAfter
+      .prepare(`SELECT turn_id, created_at FROM outbox_entries WHERE turn_id = ?`)
+      .all(row.turn_id) as Array<{ turn_id: string; created_at: string }>;
+    const turnAfter = dbAfter
+      .prepare(`SELECT updated_at FROM turns WHERE turn_id = ?`)
+      .get(row.turn_id) as { updated_at: string } | undefined;
+    dbAfter.close();
+    expect(after).toEqual(before);
+    expect(turnAfter?.updated_at).toBe(turnBefore?.updated_at);
+
+    const missing = await fixture.handle.outbox.readDeliveryOutcome(
+      {
+        turnId: must(parseTurnId('turn-missing-outbox')),
+        correlationId: must(parseCorrelationId('corr-missing-outbox')),
+      },
+      ctx(),
+    );
+    expect(missing.ok && missing.value.kind === 'not-found').toBe(true);
+    await fixture.slice.orchestrator.close();
+    fixture.handle.close();
+    fixture.root.close();
+  });
+
+  it('rejects reference composition when queueConfig identity mismatches', () => {
+    const fixture = openRuntime();
+    const mismatched = Object.freeze({
+      maxDepthPerConversation: 8,
+      maxGlobalPending: 64,
+    });
+    expect(() =>
+      createReferenceTextSlice({
+        ports: {
+          ...toReferencePorts(fixture.handle),
+          queueConfig: mismatched,
+        },
+        scanner: fakeSensitiveDataScanner('allow'),
+      }),
+    ).toThrow(/REFERENCE_COMMUNICATION_QUEUE_CONFIG identity/);
+    fixture.handle.close();
+    fixture.root.close();
   });
 });

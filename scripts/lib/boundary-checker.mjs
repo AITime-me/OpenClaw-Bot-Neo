@@ -344,6 +344,7 @@ export const INTERNAL_MODULE_ALLOWLIST = {
     'core/communication/policy/text-output-policy.ts',
     'core/communication/domain/validated-text-output.persistence.internal.ts',
     'core/communication/application/process-text-turn.service.ts',
+    'core/communication/application/phases/delivery-finalization.ts',
   ],
   /**
    * Narrow persistence facades (Build 3.7C0). Exact offline SQLite communication factory only.

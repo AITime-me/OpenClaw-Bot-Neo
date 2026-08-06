@@ -3,12 +3,14 @@ import type { ConversationId } from '../domain/communication-identity.js';
 
 export type DispatcherJob = {
   readonly conversationId: ConversationId;
+  /** Trusted monotonic sequence from durable ledger accept. */
+  readonly conversationSequence: number;
   readonly run: () => Promise<void>;
 };
 
 /**
- * Per-conversation FIFO dispatcher: at most one active turn per conversation;
- * different conversations may run in parallel. Bounded by shared queueConfig.
+ * Per-conversation FIFO by trusted conversationSequence; at most one active turn per conversation;
+ * different conversations may run in parallel. Global pending counts queued+active.
  */
 export const createPerConversationTurnDispatcher = (queueConfig: CommunicationQueueConfig) => {
   const queues = new Map<string, DispatcherJob[]>();
@@ -17,10 +19,30 @@ export const createPerConversationTurnDispatcher = (queueConfig: CommunicationQu
   let draining = false;
   const waiters: Array<() => void> = [];
 
+  const queuedCount = (): number => {
+    let total = 0;
+    for (const queue of queues.values()) total += queue.length;
+    return total;
+  };
+
+  const globalPending = (): number => queuedCount() + globalActive;
+
   const notifyIdle = (): void => {
-    if (globalActive === 0 && [...queues.values()].every((q) => q.length === 0)) {
+    if (globalActive === 0 && queuedCount() === 0) {
       while (waiters.length > 0) waiters.shift()?.();
     }
+  };
+
+  const insertSorted = (queue: DispatcherJob[], job: DispatcherJob): void => {
+    let index = queue.length;
+    for (let i = 0; i < queue.length; i += 1) {
+      const existing = queue[i];
+      if (existing !== undefined && existing.conversationSequence > job.conversationSequence) {
+        index = i;
+        break;
+      }
+    }
+    queue.splice(index, 0, job);
   };
 
   const pump = (conversationKey: string): void => {
@@ -45,7 +67,6 @@ export const createPerConversationTurnDispatcher = (queueConfig: CommunicationQu
       globalActive = Math.max(0, globalActive - 1);
       active.set(conversationKey, false);
       pump(conversationKey);
-      // Attempt other conversations waiting on global capacity.
       for (const key of queues.keys()) {
         if (key !== conversationKey) pump(key);
       }
@@ -54,13 +75,17 @@ export const createPerConversationTurnDispatcher = (queueConfig: CommunicationQu
   };
 
   return {
-    enqueue(job: DispatcherJob): { ok: true } | { ok: false; reason: 'draining' | 'queue-full' } {
+    enqueue(
+      job: DispatcherJob,
+    ): { ok: true } | { ok: false; reason: 'draining' | 'queue-full' | 'global-queue-full' } {
       if (draining) return { ok: false, reason: 'draining' };
       const key = job.conversationId;
       const queue = queues.get(key) ?? [];
       if (queue.length >= queueConfig.maxDepthPerConversation)
         return { ok: false, reason: 'queue-full' };
-      queue.push(job);
+      if (globalPending() >= queueConfig.maxGlobalPending)
+        return { ok: false, reason: 'global-queue-full' };
+      insertSorted(queue, job);
       queues.set(key, queue);
       pump(key);
       return { ok: true };
@@ -69,8 +94,7 @@ export const createPerConversationTurnDispatcher = (queueConfig: CommunicationQu
       draining = true;
     },
     whenIdle(): Promise<void> {
-      if (globalActive === 0 && [...queues.values()].every((q) => q.length === 0))
-        return Promise.resolve();
+      if (globalActive === 0 && queuedCount() === 0) return Promise.resolve();
       return new Promise((resolve) => {
         waiters.push(resolve);
       });
@@ -78,6 +102,7 @@ export const createPerConversationTurnDispatcher = (queueConfig: CommunicationQu
     get diagnostics() {
       return Object.freeze({
         globalActive,
+        globalPending: globalPending(),
         conversationCount: queues.size,
         draining,
       });

@@ -5,6 +5,7 @@ import type { CommunicationTurnLedgerPort } from '../../core/communication/ports
 import type { CommunicationAuditPort } from '../../core/communication/ports/communication-audit.port.js';
 import type { CommunicationDeliveryOutboxPort } from '../../core/communication/ports/communication-delivery-outbox.port.js';
 import type { ConversationStatePort } from '../../core/communication/ports/conversation-state.port.js';
+import type { CommunicationQueueConfig } from '../../core/communication/domain/communication-turn.js';
 import {
   createCommunicationOrchestrator,
   type CommunicationOrchestrator,
@@ -28,6 +29,8 @@ export type ReferenceOfflinePorts = {
   readonly audit: CommunicationAuditPort;
   readonly outbox: CommunicationDeliveryOutboxPort;
   readonly conversationState: ConversationStatePort;
+  readonly ownershipKey: string;
+  readonly queueConfig: CommunicationQueueConfig;
 };
 
 export type ReferenceTextSliceOptions = {
@@ -49,13 +52,30 @@ export type ReferenceTextSlice = {
 };
 
 /**
+ * Verified offline reference composition (Build 3.7D corrective).
+ * Requires ports opened with the same frozen REFERENCE_COMMUNICATION_QUEUE_CONFIG object.
+ */
+export const createVerifiedOfflineReferenceComposition = (
+  options: ReferenceTextSliceOptions,
+): ReferenceTextSlice => createReferenceTextSlice(options);
+
+/**
  * Offline reference composition for Build 3.7D.
- * Passes the same frozen queueConfig to the dispatcher; caller must open SQLite with the same object.
+ * Fail-closed unless ports.queueConfig is the identical REFERENCE_COMMUNICATION_QUEUE_CONFIG object.
  */
 export const createReferenceTextSlice = (
   options: ReferenceTextSliceOptions,
 ): ReferenceTextSlice => {
   const queueConfig = REFERENCE_COMMUNICATION_QUEUE_CONFIG;
+  if (options.ports.queueConfig !== queueConfig) {
+    throw new TypeError(
+      'Reference composition requires ports opened with REFERENCE_COMMUNICATION_QUEUE_CONFIG identity.',
+    );
+  }
+  if (typeof options.ports.ownershipKey !== 'string' || options.ports.ownershipKey.length === 0) {
+    throw new TypeError('Reference composition requires ports.ownershipKey.');
+  }
+
   const llm = createReferenceLlmCompletion(options.llmScenario ?? 'completed');
   const delivery = createReferenceTextDelivery(options.deliveryScenario ?? 'delivered');
   const killSwitch = createReferenceKillSwitch();
@@ -80,6 +100,8 @@ export const createReferenceTextSlice = (
     killSwitch,
     scanner: options.scanner,
     queueConfig,
+    expectedQueueConfig: options.ports.queueConfig,
+    ownershipKey: options.ports.ownershipKey,
     policyVersion,
     transportInstanceId: options.transportInstanceId ?? 'transport-ref-1',
     bindingVersion: options.bindingVersion ?? 'binding-v1',

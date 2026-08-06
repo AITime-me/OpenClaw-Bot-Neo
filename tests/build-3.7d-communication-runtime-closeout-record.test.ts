@@ -4,8 +4,8 @@ import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const REPO_ROOT = process.cwd();
-const BUILD_BASE = 'f854e9777431eb78cdd7d4e1d44e42cb90815df4';
-const BUILD_SUBJECT = 'feat(communication): add Build 3.7D offline runtime';
+const BUILD_BASE = '529e51d1e389331e02b00ce9a893ffa5be0703b8';
+const BUILD_SUBJECT = 'fix(communication): close Build 3.7D runtime invariants';
 
 const CLOSEOUT_REL = 'docs/validation/build-3.7d-communication-runtime-closeout.md';
 const CLOSEOUT_PATH = join(REPO_ROOT, CLOSEOUT_REL);
@@ -40,6 +40,7 @@ const ALLOWED_EXACT = new Set([
   'docs/validation/build-3.7d0-communication-runtime-decisions.md',
   'tests/build-3.7d0-communication-runtime-decisions-record.test.ts',
   'tests/communication/communication-runtime.test.ts',
+  'tests/communication/communication-dispatcher-fifo.test.ts',
   'tests/communication/communication-boundaries.test.ts',
   'tests/communication/communication-public-api-isolation.test.ts',
   'tests/host-sqlite-communication-ports.test.ts',
