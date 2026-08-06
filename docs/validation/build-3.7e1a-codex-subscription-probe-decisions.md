@@ -26,9 +26,10 @@ IMPLEMENTATION_READY: TRUE
 END_BUILD_3_7E1A_MARKERS
 
 `IMPLEMENTATION_READY: TRUE` is justified only because Decisions 1–19 freeze a complete,
-fail-closed probe contract (env, pin, RPC, events, invocation boundary, outcomes, evidence limits,
-fake matrix, live procedure, schema/deps/exports, and future file map). Architecture-only status
-does **not** imply live probe run, production readiness, or OpenClaw verification.
+fail-closed probe contract (env, pin, RPC lifecycle, credential isolation, events, invocation
+boundary, outcomes, evidence limits, fake matrix, live procedure, schema/deps/exports, and future
+file map). Architecture-only status does **not** imply live probe run, production readiness, or
+OpenClaw verification.
 
 ## Decision 1 — Probe-only Codex app-server stdio route
 
@@ -42,23 +43,32 @@ per Codex app-server docs).
 - Implementation may proceed only as a later implementation package that preserves these
   boundaries.
 
-## Decision 2 — Codex-managed ChatGPT OAuth; Neo never reads credentials
+## Decision 2 — Codex-managed ChatGPT OAuth; credential isolation
 
 Authentication remains **Codex-managed ChatGPT OAuth**.
 
-- Neo must not read, parse, copy, log, or persist Codex/ChatGPT credential material.
-- Neo must not invent a parallel OAuth client for this probe route.
+Credential isolation (normative):
+
+- `cli_auth_credentials_store="file"` — credentials must be stored as files under the isolated
+  `CODEX_HOME` only;
+- isolated `CODEX_HOME` is required (Decision 3);
+- Neo must **not** read credential files (`auth.json` or successors), parse tokens, copy, log, or
+  persist credential material;
+- shared OS keyring / keychain credential stores are **not allowed** for the probe route;
+- Neo must not invent a parallel OAuth client for this probe route;
 - Neo must not call `account/login/*` RPCs during the automated probe path; pre-provisioned
-  ChatGPT auth under the isolated `CODEX_HOME` is a manual owner prerequisite.
+  ChatGPT auth under the isolated `CODEX_HOME` is a manual owner prerequisite;
 - Credential files under the isolated Codex home stay outside Neo SQLite and Neo audit sinks.
+
+Exact store rule token for tests: `cli_auth_credentials_store="file"`.
 
 ## Decision 3 — Isolated CODEX_HOME and pinned executable
 
 Probe execution requires an **isolated `CODEX_HOME`**.
 
 - Shared or developer-default Codex homes are forbidden for the Neo probe.
-- The Codex executable must be **pinned** (Decision 10).
-- Unpinned PATH resolution is forbidden for the probe route.
+- The Codex executable must be **pinned** and spawned only by absolute path (Decision 10).
+- Basename lookup and `PATH` resolution are forbidden for the probe route.
 
 ## Decision 4 — Strict env / config / event allowlists
 
@@ -115,12 +125,13 @@ Child spawn uses an **explicit env object** (do not inherit the parent environme
 |-----|------------|
 | `CODEX_HOME` | Absolute path to the isolated probe home; required; must not equal developer default `~/.codex`. |
 | `HOME` | Absolute path; may equal `CODEX_HOME` or a dedicated empty probe home; never a shared interactive home. |
-| `PATH` | Optional; only if the pinned executable is invoked by basename — preferred posture is absolute executable path with `PATH` omitted. |
 | `LANG` | Optional locale; if set, must be a non-empty ASCII locale string. |
 | `LC_ALL` | Optional; same constraint as `LANG`. |
 | `TZ` | Optional timezone name; if set, non-empty. |
 | `NO_COLOR` | Optional; if set, must be `"1"`. |
 | `TERM` | Optional; if set, must be `"dumb"`. |
+
+`PATH` is **not** allowlisted and must **not** be passed to the child process.
 
 No other keys are permitted.
 
@@ -139,16 +150,18 @@ Any denylist key in the constructed child env is a hard configuration error befo
 
 Neo may place only these non-credential config decisions for the probe (names normative for E1):
 
+- `cli_auth_credentials_store="file"` under isolated `CODEX_HOME`;
 - forced login / auth mode = ChatGPT OAuth (`chatgpt`); API-key auth mode forbidden;
 - approval policy default = `never` for the probe thread;
 - sandbox default = `readOnly` for the probe thread;
-- model id = owner-pinned probe model string from config (no silent model switching);
 - MCP servers = empty / disabled for the probe;
-- experimental API capabilities = off unless a later decision package enables a named subset.
+- web / shell / apps / hooks / other agentic capabilities disabled;
+- experimental API capabilities = off unless a later decision package enables a named subset;
+- no custom provider / base URL overrides.
 
 Neo must not write tokens, refresh material, or `auth.json` contents.
 
-## Decision 10 — Executable pin tuple and checks
+## Decision 10 — Executable pin tuple and absolute spawn contract
 
 Pin tuple (all required before spawn):
 
@@ -159,35 +172,70 @@ Pin tuple (all required before spawn):
 4. `argv` — exact argv vector beginning with `app-server` and including only allowlisted flags
    (`--listen stdio://` or the documented stdio default with **no** `ws://` / `unix://` listen).
 
-Mandatory checks:
+Mandatory spawn contract:
 
-- reject relative paths and PATH-only resolution when pin mode is absolute;
+- spawn **only** via pinned `absolutePath` (Node `spawn(absolutePath, argv, { shell: false, ... })`);
+- `shell: false` is mandatory;
+- basename / `PATH` resolution are **forbidden**;
+- `PATH` must not be present in the child env;
+- reject relative paths;
 - reject version mismatch vs configured expected version;
 - reject hash mismatch vs configured expected hash;
 - reject argv containing network listen endpoints, remote flags, or shell metacharacters;
-- re-hash immediately before spawn; mismatch aborts without spawn.
+- version, hash, and file identity checks run **immediately before spawn**; mismatch aborts without
+  spawn.
 
-## Decision 11 — Exact app-server RPC sequence
+Exact tokens for tests: `shell: false`, `absolutePath`, `PATH` not passed to child.
 
-Normative probe sequence (client → server unless noted):
+## Decision 11 — Exact capability-probe RPC lifecycle
 
-1. Spawn pinned Codex with stdio pipes only (stdin/stdout JSONL; stderr not treated as protocol).
-2. Request `initialize` once with Neo clientInfo (`name`, `title`, `version`) and capabilities that
-   **opt out** of high-churn deltas when available (`item/agentMessage/delta` may be opted out;
-   final `item/completed` / `turn/completed` remain required).
-3. Notification `initialized`.
-4. Request `thread/start` with:
-   - `ephemeral: true` (non-persistent Codex thread);
-   - `approvalPolicy: "never"`;
-   - `sandbox: "readOnly"`;
-   - pinned `model`;
-   - no `dynamicTools`, no MCP requirements, no `thread/resume` / `thread/fork`.
-5. On successful thread id: request `turn/start` with tools-free text input only
-   (`input: [{ type: "text", text: <probe prompt> }]`).
-6. Read notifications until terminal `turn/completed` **or** a fail-closed mapping event
-   (Decision 12–13).
-7. Tear down: close stdin, wait for child exit with timeout, force-kill on hang; do not call
-   `thread/resume` afterward.
+Normative capability-probe lifecycle (client → server unless noted). **Dispatch** means the write of
+`turn/start` that carries the fixed probe prompt.
+
+Exact ordered lifecycle:
+
+1. Spawn pinned Codex by `absolutePath` with `shell: false`, stdio pipes only (stdin/stdout JSONL;
+   stderr not treated as protocol).
+2. `initialize`
+3. `initialized`
+4. `config/read`
+5. `configRequirements/read`
+6. `account/read` with `{ refreshToken: false }`
+7. `account/rateLimits/read`
+8. bounded `model/list`
+9. `thread/start`
+10. `turn/start` (**dispatch** / provider invocation start)
+11. On post-dispatch failure requiring cancellation: `turn/interrupt`
+12. `thread/unsubscribe`
+13. bounded child close (close stdin → wait with timeout → force-kill on hang)
+
+### Fail-closed preflight checks (before dispatch)
+
+All must pass before `turn/start`:
+
+- `account.type` must be exactly `chatgpt` (auth mode mismatch → fail-closed;
+  `provider-unavailable` or `policy-rejected` as classified locally — never continue);
+- effective config from `config/read` / `configRequirements/read` must show **no** custom
+  provider / base URL, and **no** web, shell, apps, MCP, hooks, or other agentic capabilities;
+- quota / rate-limit evidence from `account/rateLimits/read` must allow the probe **before**
+  dispatch; known exhaustion → `quota-unavailable` without `turn/start`;
+- bounded `model/list` must yield **exactly one** visible default text-capable model; empty,
+  multiple, or unsupported discovery → fail-closed without dispatch; silent model reroute is
+  forbidden;
+- fixed probe prompt (exact):
+  `Return one JSON object with ok=true and no other fields.`
+- exact accepted output schema (exact JSON object): `{ "ok": true }`
+  — any other shape / extra fields / non-JSON → `invalid-response`.
+
+`thread/start` params remain:
+
+- `ephemeral: true`;
+- `approvalPolicy: "never"`;
+- `sandbox: "readOnly"`;
+- the single discovered default text-capable model id;
+- no `dynamicTools`, no MCP requirements, no `thread/resume` / `thread/fork`.
+
+`turn/start` input is tools-free text only with the fixed prompt above.
 
 Forbidden client RPCs for the probe path include: `account/login/*`, `thread/resume`,
 `thread/fork`, `thread/shellCommand`, `turn/steer`, `mcpServer/*`, any experimental tool-injection
@@ -198,11 +246,18 @@ method, and any listen/transport reconfiguration RPC.
 ### Allowlisted notifications / responses (consume)
 
 - `initialize` result;
+- `config/read` result;
+- `configRequirements/read` result;
+- `account/read` result;
+- `account/rateLimits/read` result;
+- bounded `model/list` result;
 - `thread/start` result;
 - `thread/started`;
 - `turn/start` result;
 - `turn/started`;
 - `turn/completed`;
+- `turn/interrupt` result (when issued);
+- `thread/unsubscribe` result;
 - `item/started` / `item/completed` for **agentMessage** / **userMessage** text items only;
 - `item/agentMessage/delta` only if not opted out (may be ignored for assembly if final item text
   is present);
@@ -210,29 +265,37 @@ method, and any listen/transport reconfiguration RPC.
 
 ### Forbidden events (fail-closed)
 
-Any of the following observed after provider invocation start maps per Decision 13:
+Any of the following observed after provider invocation start maps per Decision 13–14:
 
+- separate **web** events / browsing items;
+- separate **file** change / patch items;
+- separate **shell** / command-execution items;
+- separate **MCP** tool items;
 - server requests requiring client approval (`item/commandExecution/requestApproval`,
   `item/fileChange/requestApproval`, `item/permissions/requestApproval`, or successors);
-- command execution / file change / patch / MCP tool / shell items;
 - `account/*` auth challenge events requiring Neo to handle credentials;
 - unknown method names not on the allowlist.
 
 Unknown frames that parse as JSON-RPC but carry non-allowlisted methods are forbidden.
 
-## Decision 13 — Provider invocation start boundary
+## Decision 13 — Provider invocation start boundary (dispatch)
 
-**Provider invocation start** is the instant Neo writes the `turn/start` request that includes the
-probe prompt to the child stdin **after** successful pin checks, env construction, spawn,
-`initialize`/`initialized`, and successful `thread/start`.
+**Provider invocation start / dispatch** is the instant Neo writes the `turn/start` request that
+includes the fixed probe prompt to the child stdin **after** successful pin checks, env
+construction, spawn, and the full preflight lifecycle through successful `thread/start`
+(`initialize` → `initialized` → `config/read` → `configRequirements/read` →
+`account/read { refreshToken:false }` → `account/rateLimits/read` → bounded `model/list` →
+`thread/start`).
 
 Before that boundary:
 
 - abort / owner cancel → `cancelled-before-invocation`;
-- pin/env/spawn/initialize/`thread/start` failure without sending `turn/start` →
-  `provider-unavailable` (or `policy-rejected` for explicit local policy denial).
+- pin/env/spawn/initialize/preflight/`thread/start` failure without sending `turn/start` →
+  `provider-unavailable` or `policy-rejected` / `quota-unavailable` as classified — never dispatch.
 
 After that boundary, cancel/timeout/crash uncertainty follows Decision 14 (no silent retry).
+Post-dispatch failure paths must issue `turn/interrupt`, then `thread/unsubscribe`, then bounded
+child close.
 
 Neo must transition to ledger `llm_started` only at or after this boundary, never earlier.
 
@@ -242,16 +305,23 @@ Map to existing `LlmCompletionOutcome` values only:
 
 | Condition | Outcome |
 |-----------|---------|
-| Abort before provider invocation start | `cancelled-before-invocation` |
-| Clean deadline expiry before invocation start | `known-timeout` |
-| Abort or deadline after invocation start without a proven terminal `turn/completed` success or known failure classification | `outcome-unknown` |
-| Child non-zero exit / signal kill after invocation start | `outcome-unknown` |
-| Malformed stdout frame / non-JSON line on protocol stream after invocation start | `outcome-unknown` |
-| Allowlisted turn completed with usable agent text | `completed` |
-| Explicit provider/auth unavailable signaled before/at start without uncertain mid-turn state | `provider-unavailable` |
-| Explicit quota / rate-limit exhaustion known classification | `quota-unavailable` |
-| Forbidden tool/approval/command event after start | `policy-rejected` |
-| Allowlisted completion with structurally invalid / empty required text | `invalid-response` |
+| Malformed stdout frame / non-JSON line **before** dispatch | `provider-unavailable` (no dispatch) |
+| `initialize` / preflight timeout (including `config/*`, `account/*`, `model/list`) | `known-timeout` |
+| `thread/start` timeout | `known-timeout` |
+| Abort **before** dispatch | `cancelled-before-invocation` |
+| Abort / deadline / child crash **after** dispatch without proven terminal success or known failure | `outcome-unknown` |
+| Malformed frame **after** dispatch | `outcome-unknown` |
+| Post-dispatch failure → bounded `turn/interrupt` + `thread/unsubscribe` + bounded child close without proven success | `outcome-unknown` (unless a prior known failure was already classified) |
+| Allowlisted turn completed with exact `{ "ok": true }` | `completed` |
+| Auth mode mismatch (`account.type` ≠ `chatgpt`) before dispatch | `provider-unavailable` or `policy-rejected` |
+| Effective config violation (custom provider/base URL / web / shell / apps / MCP / hooks / agentic) | `policy-rejected` |
+| Explicit quota / rate-limit failure before dispatch | `quota-unavailable` |
+| Empty / multiple / unsupported model discovery; model reroute attempt | `policy-rejected` |
+| Forbidden separate web / file / shell / MCP event after dispatch | `policy-rejected` |
+| Completion text not exact `{ "ok": true }` | `invalid-response` |
+
+Bounded interrupt and close are mandatory cleanup after post-dispatch failure; cleanup itself does
+not upgrade `outcome-unknown` to a known success.
 
 No automatic retry. No API/paid fallback. No notice for `outcome-unknown`, `policy-rejected`, or
 `invalid-response` beyond existing communication policy rules.
@@ -280,20 +350,34 @@ not convert `PRODUCTION_READY` to true.
 Implementation package must ship an in-process **fake Codex app-server** (no network, no real
 Codex binary) covering at least:
 
-| Fake scenario | Expected `LlmCompletionResult` |
-|---------------|--------------------------------|
-| happy-path text completion | `completed` |
-| abort before `turn/start` | `cancelled-before-invocation` |
-| deadline before `turn/start` | `known-timeout` |
-| abort after `turn/start` mid-stream | `outcome-unknown` |
-| child crash after `turn/start` | `outcome-unknown` |
-| malformed frame after start | `outcome-unknown` |
-| forbidden approval/tool event | `policy-rejected` |
-| auth/provider unavailable before start | `provider-unavailable` |
-| quota unavailable | `quota-unavailable` |
-| empty/invalid final agent text | `invalid-response` |
-| denylisted env rejected before spawn | configuration error (no invocation) |
-| pin hash/version mismatch | configuration error (no invocation) |
+| Fake scenario | Expected `LlmCompletionResult` / behavior |
+|---------------|-------------------------------------------|
+| happy-path exact `{ "ok": true }` | `completed` |
+| auth mode mismatch (`account.type` ≠ `chatgpt`) | `provider-unavailable` or `policy-rejected`; no dispatch |
+| effective config violation (custom provider/base URL / web / shell / apps / MCP / hooks) | `policy-rejected`; no dispatch |
+| quota / rate-limit failure before dispatch | `quota-unavailable`; no dispatch |
+| empty model discovery | `policy-rejected`; no dispatch |
+| multiple model discovery | `policy-rejected`; no dispatch |
+| unsupported model discovery | `policy-rejected`; no dispatch |
+| model reroute attempt | `policy-rejected`; no dispatch |
+| abort before dispatch | `cancelled-before-invocation` |
+| initialize / preflight timeout | `known-timeout` |
+| thread-start timeout | `known-timeout` |
+| malformed frame before dispatch | `provider-unavailable` |
+| abort after dispatch mid-stream | `outcome-unknown` + `turn/interrupt` + `thread/unsubscribe` + bounded close |
+| timeout after dispatch | `outcome-unknown` + interrupt/unsubscribe/close |
+| child crash after dispatch | `outcome-unknown` + bounded close |
+| malformed frame after dispatch | `outcome-unknown` |
+| separate web event after dispatch | `policy-rejected` |
+| separate file event after dispatch | `policy-rejected` |
+| separate shell event after dispatch | `policy-rejected` |
+| separate MCP event after dispatch | `policy-rejected` |
+| non-exact output (not `{ "ok": true }`) | `invalid-response` |
+| interrupt / unsubscribe / close path after post-dispatch failure | cleanup observed; outcome remains classified |
+| denylisted env / `PATH` present rejected before spawn | configuration error (no spawn) |
+| basename / PATH resolution attempted | configuration error (no spawn) |
+| pin hash/version/file-identity mismatch immediately before spawn | configuration error (no spawn) |
+| `shell: true` or non-absolute spawn | configuration error (no spawn) |
 
 Real Codex binary tests remain owner-gated and outside default CI.
 
@@ -304,13 +388,17 @@ Not executed by Build 3.7E1A. Normative future procedure:
 1. Owner written approval for a single non-persistent probe.
 2. Confirm account prerequisites from Build 3.7E0 §17 (credits/API keys/top-up posture as required
    by owner policy for that run).
-3. Prepare isolated `CODEX_HOME` and ChatGPT OAuth offline (manual); Neo does not read credentials.
-4. Install pinned executable matching version+hash tuple.
-5. Run exactly one probe prompt via the E1 adapter entrypoint with Telegram absent and Neo SQLite
-   prompt/output persistence hooks asserted off.
+3. Prepare isolated `CODEX_HOME` with `cli_auth_credentials_store="file"` and ChatGPT OAuth offline
+   (manual); Neo does not read credential files; shared OS keyring forbidden.
+4. Install pinned executable matching version+hash tuple; spawn only by `absolutePath` with
+   `shell: false`.
+5. Run exactly one probe with the fixed prompt
+   `Return one JSON object with ok=true and no other fields.` via the E1 adapter entrypoint with
+   Telegram absent and Neo SQLite prompt/output persistence hooks asserted off; accept only
+   `{ "ok": true }`.
 6. Capture ephemeral exit status / outcome classification only; do not copy credential files.
-7. Mandatory cleanup: stop child, revoke/logout per owner plan, delete or seal probe home as owner
-   directs.
+7. Mandatory cleanup: `turn/interrupt` if needed, `thread/unsubscribe`, bounded child close,
+   revoke/logout per owner plan, delete or seal probe home as owner directs.
 8. Record whether live probe passed/failed in a later validation note — this architecture package
    remains `LIVE_PROBE: OWNER_APPROVAL_REQUIRED` and **live probe not run**.
 

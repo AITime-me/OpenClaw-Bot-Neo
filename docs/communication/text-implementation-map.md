@@ -185,10 +185,14 @@ tests/build-3.7e1a-codex-subscription-probe-decisions-record.test.ts
 ```
 
 Status: **architecture-only**. Probe-only Codex app-server stdio route; Codex-managed ChatGPT
-OAuth; Neo does not read credentials; isolated `CODEX_HOME`; pinned executable/version/hash;
-strict env/config/event allowlists; one owner-approved non-persistent probe; prompt/output not
-stored in Neo SQLite; API/paid fallback disabled; OpenClaw route out of scope; durable 3.7D
-integration blocked by encryption; implementation ready; live probe not run; production false.
+OAuth with `cli_auth_credentials_store="file"`; Neo does not read credentials; shared OS keyring
+forbidden; isolated `CODEX_HOME`; spawn only by pinned `absolutePath` with `shell: false` (no
+`PATH`/basename); exact lifecycle
+`initialize → initialized → config/read → configRequirements/read → account/read { refreshToken:false } → account/rateLimits/read → bounded model/list → thread/start → turn/start` with
+`turn/interrupt` / `thread/unsubscribe` / bounded close; fixed prompt and exact `{ "ok": true }`
+output; prompt/output not stored in Neo SQLite; API/paid fallback disabled; OpenClaw route out of
+scope; durable 3.7D integration blocked by encryption; implementation ready; live probe not run;
+production false.
 
 ### 3.7E1 — Codex app-server probe implementation (not started)
 

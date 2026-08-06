@@ -8,6 +8,7 @@ const BUILD_BASE = 'b443d7b8e6afc7d2ba5860e53f86f390a0f07f16';
 const BUILD_SUBJECTS = [
   'docs(communication): decide Build 3.7E1A Codex probe route',
   'docs(communication): complete Build 3.7E1A probe contract',
+  'docs(communication): finalize Build 3.7E1A probe lifecycle',
 ] as const;
 
 const CLOSEOUT_REL = 'docs/validation/build-3.7e1a-codex-subscription-probe-decisions.md';
@@ -70,10 +71,10 @@ const EXPECTED_MARKER_KEYS = new Set(EXPECTED_MARKERS.map(([key]) => key));
 
 const REQUIRED_CONTRACT_HEADINGS = [
   '## Decision 9 — Child process environment allowlist and denylist',
-  '## Decision 10 — Executable pin tuple and checks',
-  '## Decision 11 — Exact app-server RPC sequence',
+  '## Decision 10 — Executable pin tuple and absolute spawn contract',
+  '## Decision 11 — Exact capability-probe RPC lifecycle',
   '## Decision 12 — Event allowlist and forbidden events',
-  '## Decision 13 — Provider invocation start boundary',
+  '## Decision 13 — Provider invocation start boundary (dispatch)',
   '## Decision 14 — Timeout / abort / crash / malformed-frame outcome mapping',
   '## Decision 15 — API / fallback evidence and proof limits',
   '## Decision 16 — Fake test matrix',
@@ -82,26 +83,78 @@ const REQUIRED_CONTRACT_HEADINGS = [
   '## Decision 19 — Future implementation file map',
 ] as const;
 
+const REQUIRED_LIFECYCLE_RPCS = [
+  'initialize',
+  'initialized',
+  'config/read',
+  'configRequirements/read',
+  'account/read',
+  'refreshToken: false',
+  'account/rateLimits/read',
+  'model/list',
+  'thread/start',
+  'turn/start',
+  'turn/interrupt',
+  'thread/unsubscribe',
+] as const;
+
 const REQUIRED_CONTRACT_TOKENS = [
   'OPENAI_API_KEY',
   'CODEX_API_KEY',
   'absolutePath',
   'sha256',
-  'initialize',
-  'initialized',
-  'thread/start',
-  'turn/start',
+  'shell: false',
+  'cli_auth_credentials_store="file"',
+  'shared OS keyring',
+  'account.type',
+  'chatgpt',
+  'Return one JSON object with ok=true and no other fields.',
+  '{ "ok": true }',
   'ephemeral: true',
   'provider invocation start',
   'cancelled-before-invocation',
   'outcome-unknown',
   'malformed',
   'fake Codex app-server',
+  'auth mode mismatch',
+  'effective config violation',
+  'model reroute',
   'codex-app-server-protocol.ts',
   'codex-app-server-client.ts',
   'codex-app-server-config.ts',
   'fake/fake-codex-app-server.ts',
   'verify-communication-boundaries.mjs',
+  ...REQUIRED_LIFECYCLE_RPCS,
+] as const;
+
+const REQUIRED_OUTCOME_ROWS = [
+  'Malformed stdout frame / non-JSON line **before** dispatch',
+  '`initialize` / preflight timeout',
+  '`thread/start` timeout',
+  'Abort **before** dispatch',
+  'Abort / deadline / child crash **after** dispatch',
+  'Malformed frame **after** dispatch',
+  'bounded `turn/interrupt`',
+  'Auth mode mismatch',
+  'Effective config violation',
+  'Empty / multiple / unsupported model discovery',
+] as const;
+
+const REQUIRED_FAKE_SCENARIOS = [
+  'auth mode mismatch',
+  'effective config violation',
+  'quota / rate-limit failure before dispatch',
+  'empty model discovery',
+  'multiple model discovery',
+  'unsupported model discovery',
+  'model reroute attempt',
+  'separate web event after dispatch',
+  'separate file event after dispatch',
+  'separate shell event after dispatch',
+  'separate MCP event after dispatch',
+  'interrupt / unsubscribe / close path',
+  'basename / PATH resolution attempted',
+  '`shell: true` or non-absolute spawn',
 ] as const;
 
 function git(args: readonly string[]): string {
@@ -286,13 +339,64 @@ describe('Build 3.7E1A Codex subscription probe decisions record', () => {
     for (const token of REQUIRED_CONTRACT_TOKENS) {
       expect(record.includes(token), `missing contract token: ${token}`).toBe(true);
     }
-    expect(record).toMatch(/Child process environment allowlist/);
-    expect(record).toMatch(/Executable pin tuple/);
-    expect(record).toMatch(/Exact app-server RPC sequence/);
-    expect(record).toMatch(/Fake test matrix/);
-    expect(record).toMatch(/Manual owner-approved live probe procedure/);
-    expect(record).toMatch(/Future implementation file map/);
     expect(record.includes('codex-openclaw')).toBe(false);
+  });
+
+  it('freezes the exact capability-probe RPC lifecycle order', () => {
+    for (const rpc of REQUIRED_LIFECYCLE_RPCS) {
+      expect(record.includes(rpc), `missing lifecycle RPC: ${rpc}`).toBe(true);
+    }
+    const lifecycleBlock = record.slice(
+      record.indexOf('## Decision 11 — Exact capability-probe RPC lifecycle'),
+      record.indexOf('## Decision 12 — Event allowlist and forbidden events'),
+    );
+    const order = [
+      'initialize',
+      'initialized',
+      'config/read',
+      'configRequirements/read',
+      'account/read',
+      'account/rateLimits/read',
+      'model/list',
+      'thread/start',
+      'turn/start',
+      'turn/interrupt',
+      'thread/unsubscribe',
+      'bounded child close',
+    ];
+    let cursor = -1;
+    for (const step of order) {
+      const next = lifecycleBlock.indexOf(step, cursor + 1);
+      expect(next, `lifecycle order broken at ${step}`).toBeGreaterThan(cursor);
+      cursor = next;
+    }
+    expect(lifecycleBlock).toContain('account.type');
+    expect(lifecycleBlock).toContain('exactly one');
+    expect(lifecycleBlock).toContain('Return one JSON object with ok=true and no other fields.');
+    expect(lifecycleBlock).toContain('{ "ok": true }');
+    expect(lifecycleBlock).toMatch(/refreshToken:\s*false/);
+  });
+
+  it('freezes credential isolation and absolute executable spawn rules', () => {
+    expect(record).toContain('cli_auth_credentials_store="file"');
+    expect(record).toMatch(/Neo must \*\*not\*\* read credential files/);
+    expect(record).toMatch(/shared OS keyring/);
+    expect(record).toMatch(/not allowed/);
+    expect(record).toContain('shell: false');
+    expect(record).toMatch(/spawn \*\*only\*\* via pinned `absolutePath`/);
+    expect(record).toMatch(/basename \/ `PATH` resolution are \*\*forbidden\*\*/i);
+    expect(record).toMatch(/`PATH` is \*\*not\*\* allowlisted/);
+    expect(record).toMatch(/must \*\*not\*\* be passed to the child process/);
+    expect(record).toMatch(/immediately before spawn/);
+  });
+
+  it('freezes clarified outcomes and expanded fake matrix contracts', () => {
+    for (const row of REQUIRED_OUTCOME_ROWS) {
+      expect(record.includes(row), `missing outcome row: ${row}`).toBe(true);
+    }
+    for (const scenario of REQUIRED_FAKE_SCENARIOS) {
+      expect(record.includes(scenario), `missing fake scenario: ${scenario}`).toBe(true);
+    }
   });
 
   it('requires the exact architecture package file set of 7 paths', () => {
