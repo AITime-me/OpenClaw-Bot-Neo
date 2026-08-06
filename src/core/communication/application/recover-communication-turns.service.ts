@@ -351,6 +351,7 @@ const reconcileCompletionAudit = async (
         operationKind: 'text-turn',
         policyVersion: deps.policyVersion,
         idempotencyKey: recoveryIdempotency(`audit-completion-${String(candidate.turnId)}`),
+        auditStartIdempotencyKey: recoveryIdempotency(`audit-start-${String(candidate.turnId)}`),
         timestamp: ts.value,
         deliveryStatus,
         checkpointStatus: effectiveCheckpointStatus,

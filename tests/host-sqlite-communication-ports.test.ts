@@ -426,13 +426,14 @@ describe('offline SQLite communication ports', () => {
         operationKind: 'text-turn',
         policyVersion,
         idempotencyKey: must(parseCommunicationIdempotencyKey(hex64('auditc'))),
+        auditStartIdempotencyKey: must(parseCommunicationIdempotencyKey(hex64('audits'))),
         timestamp: must(parseISO8601('2026-08-05T12:00:00.000Z')),
         deliveryStatus: 'not_started',
         checkpointStatus: 'not_required',
         auditStartStatus: 'succeeded',
         auditCompletionStatus: 'succeeded',
         errorCode: null,
-        redactedMetadata: { k: 'v' },
+        redactedMetadata: { phase: 'completion' },
       },
       ctx(),
     );
@@ -447,7 +448,7 @@ describe('offline SQLite communication ports', () => {
         policyVersion,
         idempotencyKey: must(parseCommunicationIdempotencyKey(hex64('audits'))),
         timestamp: must(parseISO8601('2026-08-05T12:00:00.000Z')),
-        redactedMetadata: { k: 'v' },
+        redactedMetadata: { phase: 'start' },
       },
       ctx(),
     );
@@ -461,13 +462,14 @@ describe('offline SQLite communication ports', () => {
         operationKind: 'text-turn',
         policyVersion,
         idempotencyKey: must(parseCommunicationIdempotencyKey(hex64('auditc'))),
+        auditStartIdempotencyKey: must(parseCommunicationIdempotencyKey(hex64('audits'))),
         timestamp: must(parseISO8601('2026-08-05T12:00:00.000Z')),
         deliveryStatus: 'not_started',
         checkpointStatus: 'not_required',
         auditStartStatus: 'succeeded',
         auditCompletionStatus: 'succeeded',
         errorCode: null,
-        redactedMetadata: { k: 'v' },
+        redactedMetadata: { phase: 'completion' },
       },
       ctx(),
     );
@@ -718,7 +720,11 @@ describe('Build 3.7C corrective behavioral coverage', () => {
       operationKind: 'text-turn' as const,
       policyVersion,
       timestamp: must(parseISO8601('2026-08-05T12:00:00.000Z')),
-      redactedMetadata: { k: 'v' },
+      redactedMetadata: { phase: 'completion', note: 'v' },
+    };
+    const startMeta = {
+      ...baseMeta,
+      redactedMetadata: { phase: 'start' },
     };
 
     const turnAllow = must(parseTurnId('turn-tax-allow'));
@@ -733,7 +739,7 @@ describe('Build 3.7C corrective behavioral coverage', () => {
     );
     const startAllow = await allow.handle.audit.recordStart(
       {
-        ...baseMeta,
+        ...startMeta,
         turnId: turnAllow,
         idempotencyKey: must(parseCommunicationIdempotencyKey(hex64('taxstarts'))),
       },
@@ -745,6 +751,7 @@ describe('Build 3.7C corrective behavioral coverage', () => {
         ...baseMeta,
         turnId: turnAllow,
         idempotencyKey: must(parseCommunicationIdempotencyKey(hex64('taxcompl'))),
+        auditStartIdempotencyKey: must(parseCommunicationIdempotencyKey(hex64('taxstarts'))),
         deliveryStatus: 'not_started',
         checkpointStatus: 'not_required',
         auditStartStatus: 'succeeded',
@@ -767,9 +774,10 @@ describe('Build 3.7C corrective behavioral coverage', () => {
     );
     const startDeny = await deny.handle.audit.recordStart(
       {
-        ...baseMeta,
+        ...startMeta,
         turnId: turnDenyStart,
         idempotencyKey: must(parseCommunicationIdempotencyKey(hex64('taxdenyst'))),
+        redactedMetadata: { phase: 'start', secret: 'x' },
       },
       ctx(),
     );
@@ -805,7 +813,7 @@ describe('Build 3.7C corrective behavioral coverage', () => {
         'text-turn',
         '1.0.0',
         '2026-08-05T12:00:00.000Z',
-        '{"k":"v"}',
+        '{"phase":"start"}',
       );
     seedDb.close();
     const denyReopened = createOfflineSqliteCommunicationPorts(deny.root, {
@@ -819,6 +827,7 @@ describe('Build 3.7C corrective behavioral coverage', () => {
         ...baseMeta,
         turnId: turnDenyCompletion,
         idempotencyKey: must(parseCommunicationIdempotencyKey(hex64('taxdenycc'))),
+        auditStartIdempotencyKey: must(parseCommunicationIdempotencyKey(hex64('taxseedst'))),
         deliveryStatus: 'not_started',
         checkpointStatus: 'not_required',
         auditStartStatus: 'succeeded',
@@ -842,7 +851,7 @@ describe('Build 3.7C corrective behavioral coverage', () => {
     );
     const startUnavail = await unavailable.handle.audit.recordStart(
       {
-        ...baseMeta,
+        ...startMeta,
         turnId: turnUnavailStart,
         idempotencyKey: must(parseCommunicationIdempotencyKey(hex64('taxunavst'))),
       },
@@ -871,7 +880,7 @@ describe('Build 3.7C corrective behavioral coverage', () => {
         'text-turn',
         '1.0.0',
         '2026-08-05T12:00:00.000Z',
-        '{"k":"v"}',
+        '{"phase":"start"}',
       );
     unavailSeed.close();
     const unavailReopened = createOfflineSqliteCommunicationPorts(unavailable.root, {
@@ -885,6 +894,7 @@ describe('Build 3.7C corrective behavioral coverage', () => {
         ...baseMeta,
         turnId: turnUnavailCompletion,
         idempotencyKey: must(parseCommunicationIdempotencyKey(hex64('taxunavcc'))),
+        auditStartIdempotencyKey: must(parseCommunicationIdempotencyKey(hex64('taxunavseed'))),
         deliveryStatus: 'not_started',
         checkpointStatus: 'not_required',
         auditStartStatus: 'succeeded',

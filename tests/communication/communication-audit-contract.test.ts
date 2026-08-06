@@ -24,6 +24,7 @@ const completionKeys: readonly (keyof CommunicationAuditCompletionEvent)[] = [
   'operationKind',
   'policyVersion',
   'idempotencyKey',
+  'auditStartIdempotencyKey',
   'timestamp',
   'deliveryStatus',
   'checkpointStatus',

@@ -2115,6 +2115,227 @@ describe('Build 3.7D communication runtime', () => {
     markClosed();
   });
 
+  it('terminalizes ledger from already-recorded equivalent completion without a second row', async () => {
+    const storageRoot = createTempStorageRoot();
+    const root = openGenuineRoot(storageRoot);
+    const firstPorts = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(firstPorts.ok).toBe(true);
+    if (!firstPorts.ok) throw new Error('open');
+    const turnId = 'turn-audit-crash-window';
+    const corr = 'corr-audit-crash-window';
+    const conversationId = 'conversation-conv-audit-crash-window';
+    const db = openSqliteDatabaseFile(`${storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`);
+    const now = '2026-08-05T12:00:00.000Z';
+    db.prepare(
+      `INSERT INTO turns (
+         turn_id, transport_instance_id, idempotency_key, state, turn_revision,
+         conversation_sequence, owner_id, conversation_id, correlation_id,
+         delivery_status, checkpoint_status, audit_start_status, audit_completion_status,
+         llm_outcome, error_code, observed_at, updated_at
+       ) VALUES (?, 'transport-ref-1', ?, 'delivered', 4, 1, 'owner-1', ?,
+         ?, 'delivered', 'succeeded', 'succeeded', 'pending', 'completed', NULL, ?, ?)`,
+    ).run(turnId, 'g'.repeat(64), conversationId, corr, now, now);
+    db.prepare(
+      `INSERT INTO audit_start (
+         idempotency_key, turn_id, correlation_id, owner_id, conversation_id,
+         operation_kind, policy_version, timestamp, metadata_json
+       ) VALUES (?, ?, ?, 'owner-1', ?, 'text-turn', '1.0.0', ?, ?)`,
+    ).run(
+      auditIdempotencyKey(`audit-start-${turnId}`),
+      turnId,
+      corr,
+      conversationId,
+      now,
+      '{"phase":"start"}',
+    );
+    db.prepare(
+      `INSERT INTO audit_completion (
+         idempotency_key, turn_id, correlation_id, owner_id, conversation_id,
+         operation_kind, policy_version, timestamp, delivery_status, checkpoint_status,
+         audit_start_status, audit_completion_status, error_code, metadata_json
+       ) VALUES (?, ?, ?, 'owner-1', ?, 'text-turn', '1.0.0', ?, 'delivered', 'succeeded',
+         'succeeded', 'succeeded', NULL, ?)`,
+    ).run(
+      auditIdempotencyKey(`audit-completion-${turnId}`),
+      turnId,
+      corr,
+      conversationId,
+      now,
+      '{"checkpointStatus":"succeeded","deliveryStatus":"delivered","phase":"completion"}',
+    );
+    db.close();
+    const owner = must(parseOwnerId('owner-1'));
+    const conversation = must(parseConversationId(conversationId));
+    const snap = await firstPorts.value.conversationState.checkpoint(
+      {
+        key: { ownerId: owner, conversationId: conversation },
+        expectedRevision: must(parseConversationRevision(0)),
+        nextSnapshot: freezeConversationStateSnapshot({
+          conversationId: conversation,
+          ownerId: owner,
+          revision: must(parseConversationRevision(1)),
+          activeContext: Object.freeze([]),
+          modelDerivedSummary: null,
+          pauseState: 'active',
+          checkpoint: Object.freeze({
+            status: 'succeeded' as const,
+            revision: must(parseConversationRevision(1)),
+          }),
+        }),
+        correlationId: must(parseCorrelationId(corr)),
+        idempotencyKey: 'seed-crash-window-checkpoint',
+      },
+      ctx(),
+    );
+    expect(snap.ok).toBe(true);
+    expect(readTurns(storageRoot)[0]?.state).toBe('delivered');
+    expect(readTurns(storageRoot)[0]?.audit_completion_status).toBe('pending');
+    expect(countAuditRows(storageRoot).completions).toBe(1);
+    firstPorts.value.close();
+
+    const reopened = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) throw new Error('reopen');
+    const slice = createReferenceTextSlice({
+      ports: toReferencePorts(reopened.value),
+      scanner: fakeSensitiveDataScanner('allow'),
+    });
+    const markClosed = trackFixtureClose(async () => {
+      await slice.orchestrator.close();
+      reopened.value.close();
+      root.close();
+    });
+    const started = await slice.orchestrator.start(ctx());
+    expect(started.ok).toBe(true);
+    const recovered = readTurns(storageRoot)[0];
+    expect(recovered?.state).toBe('completed');
+    expect(recovered?.audit_completion_status).toBe('succeeded');
+    const audits = countAuditRows(storageRoot);
+    expect(audits.starts).toBe(1);
+    expect(audits.completions).toBe(1);
+    expect(audits.completionKinds).toEqual(['text-turn']);
+    await slice.orchestrator.close();
+    reopened.value.close();
+    root.close();
+    markClosed();
+  });
+
+  const expectIncompatibleAuditStartFailsClosed = async (options: {
+    readonly turnId: string;
+    readonly corr: string;
+    readonly conversationId: string;
+    readonly startKey: string;
+    readonly startOperationKind: string;
+    readonly startCorrelationId: string;
+  }): Promise<void> => {
+    const storageRoot = createTempStorageRoot();
+    const root = openGenuineRoot(storageRoot);
+    const firstPorts = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(firstPorts.ok).toBe(true);
+    if (!firstPorts.ok) throw new Error('open');
+    const db = openSqliteDatabaseFile(`${storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`);
+    const now = '2026-08-05T12:00:00.000Z';
+    db.prepare(
+      `INSERT INTO turns (
+         turn_id, transport_instance_id, idempotency_key, state, turn_revision,
+         conversation_sequence, owner_id, conversation_id, correlation_id,
+         delivery_status, checkpoint_status, audit_start_status, audit_completion_status,
+         llm_outcome, error_code, observed_at, updated_at
+       ) VALUES (?, 'transport-ref-1', ?, 'delivered', 4, 1, 'owner-1', ?,
+         ?, 'delivered', 'pending', 'succeeded', 'pending', 'completed', NULL, ?, ?)`,
+    ).run(options.turnId, 'h'.repeat(64), options.conversationId, options.corr, now, now);
+    db.prepare(
+      `INSERT INTO audit_start (
+         idempotency_key, turn_id, correlation_id, owner_id, conversation_id,
+         operation_kind, policy_version, timestamp, metadata_json
+       ) VALUES (?, ?, ?, 'owner-1', ?, ?, '1.0.0', ?, ?)`,
+    ).run(
+      options.startKey,
+      options.turnId,
+      options.startCorrelationId,
+      options.conversationId,
+      options.startOperationKind,
+      now,
+      '{"phase":"start"}',
+    );
+    db.close();
+    firstPorts.value.close();
+
+    const reopened = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) throw new Error('reopen');
+    const slice = createReferenceTextSlice({
+      ports: toReferencePorts(reopened.value),
+      scanner: fakeSensitiveDataScanner('allow'),
+    });
+    const markClosed = trackFixtureClose(async () => {
+      await slice.orchestrator.close();
+      reopened.value.close();
+      root.close();
+    });
+    const started = await slice.orchestrator.start(ctx());
+    expect(started.ok).toBe(false);
+    expect(slice.orchestrator.diagnostics().lifecycle).toBe('failed');
+    expect(countAuditRows(storageRoot).completions).toBe(0);
+    expect(readTurns(storageRoot)[0]?.state).toBe('delivered');
+    const denied = await slice.orchestrator.submitObservation(
+      observation(`conv-${options.turnId}`, `msg-${options.turnId}`),
+      ctx(),
+    );
+    expect(denied.ok).toBe(false);
+    await slice.orchestrator.close();
+    reopened.value.close();
+    root.close();
+    markClosed();
+  };
+
+  it('fails closed when audit start uses the wrong idempotency key', async () => {
+    await expectIncompatibleAuditStartFailsClosed({
+      turnId: 'turn-bad-start-key',
+      corr: 'corr-bad-start-key',
+      conversationId: 'conversation-conv-bad-start-key',
+      startKey: '1'.repeat(64),
+      startOperationKind: 'text-turn',
+      startCorrelationId: 'corr-bad-start-key',
+    });
+  });
+
+  it('fails closed when audit start has the wrong operationKind', async () => {
+    const turnId = 'turn-bad-start-kind';
+    await expectIncompatibleAuditStartFailsClosed({
+      turnId,
+      corr: 'corr-bad-start-kind',
+      conversationId: 'conversation-conv-bad-start-kind',
+      startKey: auditIdempotencyKey(`audit-start-${turnId}`),
+      startOperationKind: 'checkpoint-reconciliation',
+      startCorrelationId: 'corr-bad-start-kind',
+    });
+  });
+
+  it('fails closed when audit start has the wrong correlationId', async () => {
+    const turnId = 'turn-bad-start-corr';
+    await expectIncompatibleAuditStartFailsClosed({
+      turnId,
+      corr: 'corr-bad-start-corr',
+      conversationId: 'conversation-conv-bad-start-corr',
+      startKey: auditIdempotencyKey(`audit-start-${turnId}`),
+      startOperationKind: 'text-turn',
+      startCorrelationId: 'corr-wrong-start',
+    });
+  });
+
   it('terminalizes synchronous LLM throw after durable start and records degraded barrier', async () => {
     const fixture = openCustomRuntime({
       llm: {

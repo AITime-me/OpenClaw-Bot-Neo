@@ -22,7 +22,6 @@ import {
 
 type Prepared = {
   readonly selectStartByKey: SqliteStatement;
-  readonly selectStartByTurn: SqliteStatement;
   readonly insertStart: SqliteStatement;
   readonly selectCompletionByKey: SqliteStatement;
   readonly insertCompletion: SqliteStatement;
@@ -55,6 +54,8 @@ type AuditCompletionRow = {
   readonly metadata_json: string;
 };
 
+const CANONICAL_AUDIT_START_METADATA = Object.freeze({ phase: 'start' });
+
 const closedError = (): CommunicationError =>
   communicationError('AUDIT_START_FAILED', 'Communication audit port is closed.');
 
@@ -64,9 +65,6 @@ const prepare = (db: SqliteDatabase): Prepared =>
       `SELECT idempotency_key, turn_id, correlation_id, owner_id, conversation_id,
               operation_kind, policy_version, metadata_json
          FROM audit_start WHERE idempotency_key = ? LIMIT 1`,
-    ),
-    selectStartByTurn: db.prepare(
-      `SELECT idempotency_key FROM audit_start WHERE turn_id = ? LIMIT 1`,
     ),
     insertStart: db.prepare(
       `INSERT INTO audit_start (
@@ -88,6 +86,20 @@ const prepare = (db: SqliteDatabase): Prepared =>
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
   });
+
+const startRowMatchesExpected = (
+  existing: AuditStartRow,
+  event: CommunicationAuditCompletionEvent,
+  expectedStartMetadataJson: string,
+): boolean =>
+  existing.idempotency_key === String(event.auditStartIdempotencyKey) &&
+  existing.turn_id === String(event.turnId) &&
+  existing.correlation_id === String(event.correlationId) &&
+  existing.owner_id === String(event.ownerId) &&
+  existing.conversation_id === String(event.conversationId) &&
+  existing.operation_kind === 'text-turn' &&
+  existing.policy_version === String(event.policyVersion) &&
+  existing.metadata_json === expectedStartMetadataJson;
 
 const startSemanticallyEquivalent = (
   existing: AuditStartRow,
@@ -235,14 +247,26 @@ export const createSqliteCommunicationAuditPort = (
       const encoded = encodeAuditMetadata(event.redactedMetadata);
       if (!encoded.ok) return ok({ kind: 'rejected', reason: 'Audit metadata encoding rejected.' });
 
+      const expectedStartMetadata = encodeAuditMetadata(CANONICAL_AUDIT_START_METADATA);
+      if (!expectedStartMetadata.ok)
+        return ok({
+          kind: 'rejected',
+          reason: 'Canonical audit start metadata encoding rejected.',
+        });
+
       try {
         const outcome = runImmediate(db, (): CommunicationAuditRecordOutcome => {
-          const start = statements.selectStartByTurn.get(event.turnId) as
-            { idempotency_key: string } | undefined;
+          const start = statements.selectStartByKey.get(event.auditStartIdempotencyKey) as
+            AuditStartRow | undefined;
           if (start === undefined)
             return {
               kind: 'rejected',
-              reason: 'Completion requires a durable audit start for the turn.',
+              reason: 'Completion requires the expected durable audit start key.',
+            };
+          if (!startRowMatchesExpected(start, event, expectedStartMetadata.json))
+            return {
+              kind: 'rejected',
+              reason: 'Completion audit start is missing or semantically incompatible.',
             };
 
           const existing = statements.selectCompletionByKey.get(event.idempotencyKey) as

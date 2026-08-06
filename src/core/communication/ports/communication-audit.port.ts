@@ -36,6 +36,8 @@ export interface CommunicationAuditCompletionEvent {
   readonly operationKind: CommunicationAuditOperationKind;
   readonly policyVersion: PolicyVersion;
   readonly idempotencyKey: CommunicationIdempotencyKey;
+  /** Expected original audit-start idempotency key; completion must not rely on turn_id-only lookup. */
+  readonly auditStartIdempotencyKey: CommunicationIdempotencyKey;
   readonly timestamp: ISO8601;
   readonly deliveryStatus: DeliveryStatus;
   readonly checkpointStatus: CheckpointStatus;

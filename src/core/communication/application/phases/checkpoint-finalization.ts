@@ -220,6 +220,7 @@ const recordCompletionAuditAndLedger = async (
         operationKind: 'text-turn',
         policyVersion: input.policyVersion,
         idempotencyKey: mustIdempotency(`audit-completion-${String(input.turnId)}`),
+        auditStartIdempotencyKey: mustIdempotency(`audit-start-${String(input.turnId)}`),
         timestamp: ts.value,
         deliveryStatus: input.deliveryStatus,
         checkpointStatus,
