@@ -1,5 +1,6 @@
 /**
- * Race a port invocation against abort/deadline. First terminal event latches.
+ * Race a deferred port invocation against abort/deadline. First terminal event latches.
+ * The invocation is started via thunk so synchronous throws are treated as rejected.
  * Late resolve/reject are absorbed so they cannot mutate durable facts afterward.
  */
 export type InvocationRace<T> =
@@ -8,9 +9,16 @@ export type InvocationRace<T> =
   | { readonly kind: 'rejected'; readonly error: unknown };
 
 export const raceInvocationWithAbort = <T>(
-  invocation: Promise<T>,
+  start: () => Promise<T>,
   signal: AbortSignal | null,
 ): Promise<InvocationRace<T>> => {
+  let invocation: Promise<T>;
+  try {
+    invocation = start();
+  } catch (error) {
+    return Promise.resolve({ kind: 'rejected', error });
+  }
+
   if (signal?.aborted) {
     void invocation.then(
       () => undefined,

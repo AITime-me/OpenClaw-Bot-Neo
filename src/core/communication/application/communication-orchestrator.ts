@@ -36,6 +36,7 @@ import {
   type CommunicationRuntimeOwnershipHandle,
 } from './communication-runtime-ownership.js';
 import { createConversationAdmissionSerializer } from './conversation-admission-serializer.js';
+import { requireTransitionSuccess } from './phases/phase-outcomes.js';
 
 export type CommunicationOrchestratorDeps = {
   readonly ledger: CommunicationTurnLedgerPort;
@@ -148,6 +149,8 @@ export const createCommunicationOrchestrator = (
         ledger: deps.ledger,
         outbox: deps.outbox,
         conversationState: deps.conversationState,
+        audit: deps.audit,
+        policyVersion: deps.policyVersion,
       },
       operationContext,
       sideEffects,
@@ -311,18 +314,24 @@ export const createCommunicationOrchestrator = (
       const conversationSequence = Number(accepted.value.conversationSequence);
       if (accepted.value.kind === 'accepted') revision = Number(accepted.value.turnRevision);
 
-      const queued = await deps.ledger.transition(
-        {
-          turnId: turnId.value,
-          expectedRevision: revision as never,
-          expectedState: 'accepted',
-          targetState: 'queued',
-          correlationId: correlationId.value,
-        },
-        operationContext,
+      const queued = requireTransitionSuccess(
+        await deps.ledger.transition(
+          {
+            turnId: turnId.value,
+            expectedRevision: revision as never,
+            expectedState: 'accepted',
+            targetState: 'queued',
+            correlationId: correlationId.value,
+          },
+          operationContext,
+        ),
+        revision,
       );
-      if (!queued.ok) return queued;
-      if (queued.value.kind === 'transitioned') revision = Number(queued.value.turnRevision);
+      if (!queued.ok) {
+        failRuntime();
+        return queued;
+      }
+      revision = queued.value;
 
       const jobGeneration = generation;
       const turnAbort = new AbortController();

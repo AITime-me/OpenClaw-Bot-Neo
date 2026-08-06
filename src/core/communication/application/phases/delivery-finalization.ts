@@ -17,7 +17,11 @@ import { bindTransition } from '../process-text-turn.types.js';
 import { finalizeDeliveryOutcomeUnknown } from './unknown-terminalization.js';
 import { finalizeCheckpointAfterDelivery } from './checkpoint-finalization.js';
 import { raceInvocationWithAbort } from './invocation-abort-latch.js';
-import { requireFactualSuccess, requireOutboxRecordSuccess } from './phase-outcomes.js';
+import {
+  requireFactualSuccess,
+  requireOutboxPutSuccess,
+  requireOutboxRecordSuccess,
+} from './phase-outcomes.js';
 
 const hex64 = (seed: string): string => createHash('sha256').update(seed).digest('hex');
 
@@ -58,23 +62,20 @@ export const finalizeDeliveryAfterValidatedOutput = async (
   if (!expiresAt.ok)
     return { ok: false, error: communicationError('CONFIG_INVALID', 'expiresAt invalid.') };
 
-  const put = await deps.outbox.put(
-    {
-      output,
-      principal: input.principal,
-      turnId: input.turnId,
-      correlationId: input.correlationId,
-      outputDigest: view.payloadDigest,
-      expiresAt: expiresAt.value,
-    },
-    operationContext,
+  const put = requireOutboxPutSuccess(
+    await deps.outbox.put(
+      {
+        output,
+        principal: input.principal,
+        turnId: input.turnId,
+        correlationId: input.correlationId,
+        outputDigest: view.payloadDigest,
+        expiresAt: expiresAt.value,
+      },
+      operationContext,
+    ),
   );
   if (!put.ok) return put;
-  if (put.value.kind === 'rejected' || put.value.kind === 'unavailable')
-    return {
-      ok: false,
-      error: communicationError('OUTBOX_UNAVAILABLE', put.value.reason),
-    };
 
   const toDelivery = await t(revision, 'output_validated', 'delivery_started');
   if (!toDelivery.ok) return toDelivery;
@@ -100,16 +101,17 @@ export const finalizeDeliveryAfterValidatedOutput = async (
 
   deps.noteDeliveryCall?.();
   const raced = await raceInvocationWithAbort(
-    deps.delivery.deliver(
-      {
-        output,
-        principal: input.principal,
-        turnId: input.turnId,
-        correlationId: input.correlationId,
-        abortSignal: input.abortSignal,
-      },
-      operationContext,
-    ),
+    () =>
+      deps.delivery.deliver(
+        {
+          output,
+          principal: input.principal,
+          turnId: input.turnId,
+          correlationId: input.correlationId,
+          abortSignal: input.abortSignal,
+        },
+        operationContext,
+      ),
     input.abortSignal,
   );
 

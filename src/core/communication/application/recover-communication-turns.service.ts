@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { OperationContext } from '../../domain/operation-context.js';
-import type { CorrelationId } from '../../domain/identity.js';
+import type { CorrelationId, PolicyVersion } from '../../domain/identity.js';
+import { parseISO8601 } from '../../domain/identity.js';
 import { ok, type Result } from '../../domain/result.js';
 import { communicationError, type CommunicationError } from '../domain/communication-errors.js';
 import {
@@ -12,10 +13,12 @@ import type { CommunicationTurnState } from '../domain/communication-turn.js';
 import type { CommunicationTurnLedgerPort } from '../ports/communication-turn-ledger.port.js';
 import type { CommunicationDeliveryOutboxPort } from '../ports/communication-delivery-outbox.port.js';
 import type { ConversationStatePort } from '../ports/conversation-state.port.js';
+import type { CommunicationAuditPort } from '../ports/communication-audit.port.js';
 import type { CommunicationRecoveryCandidate } from '../domain/communication-recovery.js';
 import { recordDurableCheckpointBarrier } from './phases/unknown-terminalization.js';
 import type { ConversationCheckpointBarrierReason } from '../ports/conversation-state.port.js';
 import {
+  requireAuditSuccess,
   requireFactualSuccess,
   requireOutboxRecordSuccess,
   requireTransitionSuccess,
@@ -31,6 +34,8 @@ export type RecoverCommunicationTurnsDeps = {
   readonly ledger: CommunicationTurnLedgerPort;
   readonly outbox: CommunicationDeliveryOutboxPort;
   readonly conversationState: ConversationStatePort;
+  readonly audit: CommunicationAuditPort;
+  readonly policyVersion: PolicyVersion;
 };
 
 const PAGE_LIMIT = 100;
@@ -160,9 +165,8 @@ const requireBarrier = async (
 };
 
 /**
- * Unfinished checkpoint is decided primarily by ledger checkpointStatus.
- * Also requires barrier when snapshot is missing or belongs to a previous turn
- * (snapshot succeeded while this turn never recorded succeeded).
+ * After any delivery-like state, a missing conversation snapshot always requires a barrier
+ * (including when ledger checkpointStatus is already succeeded).
  */
 const needsCheckpointBarrier = async (
   conversationState: ConversationStatePort,
@@ -176,7 +180,7 @@ const needsCheckpointBarrier = async (
   if (ledgerStatus === 'pending' || ledgerStatus === 'failed') return ok(true);
 
   if (candidate.ownerId === null || candidate.conversationId === null) {
-    return ok(ledgerStatus !== 'succeeded');
+    return ok(true);
   }
 
   const loaded = await conversationState.load(
@@ -194,14 +198,12 @@ const needsCheckpointBarrier = async (
       error: communicationError('CONVERSATION_STATE_UNAVAILABLE', loaded.value.reason),
     };
   if (loaded.value.kind === 'not-found') {
-    // Missing snapshot after delivery: unfinished unless this turn proved succeeded.
-    return ok(ledgerStatus !== 'succeeded');
+    return ok(true);
   }
 
   const snapStatus = loaded.value.snapshot.checkpoint.status;
   if (snapStatus === 'pending' || snapStatus === 'failed') return ok(true);
 
-  // Snapshot succeeded while ledger never recorded succeeded for this turn → previous turn.
   if (ledgerStatus !== 'succeeded') return ok(true);
 
   return ok(false);
@@ -213,6 +215,195 @@ const barrierReasonFor = (
   if (state === 'delivery_outcome_unknown') return 'delivery-outcome-unknown';
   if (state === 'delivered') return 'recovery-context-unavailable-after-delivery';
   return 'checkpoint-failed';
+};
+
+/**
+ * Idempotent completion-audit reconciliation. Without a proven terminal audit ingress stays closed.
+ */
+const reconcileCompletionAudit = async (
+  deps: RecoverCommunicationTurnsDeps,
+  candidate: CommunicationRecoveryCandidate,
+  correlationId: CorrelationId,
+  revisionIn: number,
+  deliveryLike: 'delivered' | 'delivery_failed' | 'delivery_outcome_unknown',
+  operationContext: OperationContext,
+): Promise<Result<number, CommunicationError>> => {
+  const completion = candidate.record.auditStatus.completion;
+  if (completion === 'succeeded' || completion === 'failed') return ok(revisionIn);
+
+  if (candidate.ownerId === null || candidate.conversationId === null)
+    return {
+      ok: false,
+      error: communicationError(
+        'RECOVERY_CONTEXT_UNAVAILABLE',
+        'Completion audit reconciliation requires owner/conversation context.',
+      ),
+    };
+
+  const deliveryStatus =
+    deliveryLike === 'delivered'
+      ? 'delivered'
+      : deliveryLike === 'delivery_failed'
+        ? 'failed'
+        : 'outcome_unknown';
+  const checkpointStatus =
+    candidate.record.checkpointStatus === 'succeeded' ? 'succeeded' : 'failed';
+  const auditCompletionStatus =
+    deliveryStatus === 'delivered' && checkpointStatus === 'succeeded' ? 'succeeded' : 'failed';
+
+  const ts = parseISO8601(new Date().toISOString());
+  if (!ts.ok)
+    return {
+      ok: false,
+      error: communicationError(
+        'AUDIT_COMPLETION_FAILED',
+        'Recovery completion audit timestamp invalid.',
+      ),
+    };
+
+  const startEnsured = requireAuditSuccess(
+    await deps.audit.recordStart(
+      {
+        turnId: candidate.turnId,
+        correlationId,
+        ownerId: candidate.ownerId,
+        conversationId: candidate.conversationId,
+        operationKind: 'checkpoint-reconciliation',
+        policyVersion: deps.policyVersion,
+        idempotencyKey: recoveryIdempotency(`audit-start-${String(candidate.turnId)}`),
+        timestamp: ts.value,
+        redactedMetadata: {
+          phase: 'recovery-start',
+          deliveryStatus,
+        },
+      },
+      operationContext,
+    ),
+  );
+  if (!startEnsured.ok) return startEnsured;
+
+  const audited = requireAuditSuccess(
+    await deps.audit.recordCompletion(
+      {
+        turnId: candidate.turnId,
+        correlationId,
+        ownerId: candidate.ownerId,
+        conversationId: candidate.conversationId,
+        operationKind: 'checkpoint-reconciliation',
+        policyVersion: deps.policyVersion,
+        idempotencyKey: recoveryIdempotency(`audit-completion-${String(candidate.turnId)}`),
+        timestamp: ts.value,
+        deliveryStatus,
+        checkpointStatus,
+        auditStartStatus: 'succeeded',
+        auditCompletionStatus,
+        errorCode:
+          checkpointStatus === 'failed'
+            ? 'CONVERSATION_CHECKPOINT_FAILED'
+            : deliveryStatus === 'delivered'
+              ? null
+              : 'DELIVERY_FAILED',
+        redactedMetadata: {
+          phase: 'recovery-completion',
+          checkpointStatus,
+          deliveryStatus,
+        },
+      },
+      operationContext,
+    ),
+  );
+  if (!audited.ok) return audited;
+
+  return requireFactualSuccess(
+    await deps.ledger.recordFactualOutcome(
+      {
+        turnId: candidate.turnId,
+        correlationId,
+        expectedRevision: revisionIn as never,
+        llmOutcome: candidate.llmOutcome,
+        deliveryStatus,
+        checkpointStatus,
+        auditStatus: {
+          start: 'succeeded',
+          completion: auditCompletionStatus,
+        },
+        errorCode:
+          checkpointStatus === 'failed'
+            ? 'CONVERSATION_CHECKPOINT_FAILED'
+            : deliveryStatus === 'delivered'
+              ? null
+              : 'DELIVERY_FAILED',
+      },
+      operationContext,
+    ),
+    revisionIn,
+  );
+};
+
+const completeDeliveryLike = async (
+  deps: RecoverCommunicationTurnsDeps,
+  candidate: CommunicationRecoveryCandidate,
+  state: 'delivered' | 'delivery_failed' | 'delivery_outcome_unknown',
+  revisionIn: number,
+  correlationId: CorrelationId,
+  operationContext: OperationContext,
+): Promise<Result<void, CommunicationError>> => {
+  let revision = revisionIn;
+
+  const needs = await needsCheckpointBarrier(
+    deps.conversationState,
+    {
+      ...candidate,
+      record: {
+        ...candidate.record,
+        state,
+        turnRevision: revision as never,
+      },
+    },
+    state,
+    operationContext,
+  );
+  if (!needs.ok) return needs;
+  if (needs.value) {
+    const barrier = await requireBarrier(
+      deps.conversationState,
+      candidate,
+      correlationId,
+      barrierReasonFor(state),
+      operationContext,
+    );
+    if (!barrier.ok) return barrier;
+  }
+
+  const audited = await reconcileCompletionAudit(
+    deps,
+    {
+      ...candidate,
+      record: {
+        ...candidate.record,
+        state,
+        turnRevision: revision as never,
+      },
+    },
+    correlationId,
+    revision,
+    state,
+    operationContext,
+  );
+  if (!audited.ok) return audited;
+  revision = audited.value;
+
+  const completed = await transitionTo(
+    deps.ledger,
+    candidate.turnId,
+    revision,
+    state,
+    'completed',
+    correlationId,
+    operationContext,
+  );
+  if (!completed.ok) return completed;
+  return ok(undefined);
 };
 
 const pageFingerprint = (candidates: readonly CommunicationRecoveryCandidate[]): string =>
@@ -416,8 +607,8 @@ const recoverOne = async (
     if (!moved.ok) return moved;
     revision = moved.value;
 
-    const needs = await needsCheckpointBarrier(
-      deps.conversationState,
+    return completeDeliveryLike(
+      deps,
       {
         ...candidate,
         record: {
@@ -428,31 +619,10 @@ const recoverOne = async (
         },
       },
       deliveryLike,
-      operationContext,
-    );
-    if (!needs.ok) return needs;
-    if (needs.value) {
-      const barrier = await requireBarrier(
-        deps.conversationState,
-        candidate,
-        corr.value,
-        barrierReasonFor(deliveryLike),
-        operationContext,
-      );
-      if (!barrier.ok) return barrier;
-    }
-
-    const completed = await transitionTo(
-      deps.ledger,
-      candidate.turnId,
       revision,
-      target,
-      'completed',
       corr.value,
       operationContext,
     );
-    if (!completed.ok) return completed;
-    return ok(undefined);
   }
 
   if (state === 'llm_started' && candidate.llmOutcome === null) {
@@ -510,36 +680,23 @@ const recoverOne = async (
   if (
     state === 'delivered' ||
     state === 'delivery_failed' ||
-    state === 'delivery_outcome_unknown' ||
-    state === 'authentication_rejected'
+    state === 'delivery_outcome_unknown'
   ) {
     const corr = recoveryCorrelation(candidate.turnId, candidate.correlationId);
     if (!corr.ok) return corr;
+    return completeDeliveryLike(
+      deps,
+      candidate,
+      state,
+      Number(candidate.record.turnRevision),
+      corr.value,
+      operationContext,
+    );
+  }
 
-    if (
-      state === 'delivered' ||
-      state === 'delivery_failed' ||
-      state === 'delivery_outcome_unknown'
-    ) {
-      const needs = await needsCheckpointBarrier(
-        deps.conversationState,
-        candidate,
-        state,
-        operationContext,
-      );
-      if (!needs.ok) return needs;
-      if (needs.value) {
-        const barrier = await requireBarrier(
-          deps.conversationState,
-          candidate,
-          corr.value,
-          barrierReasonFor(state),
-          operationContext,
-        );
-        if (!barrier.ok) return barrier;
-      }
-    }
-
+  if (state === 'authentication_rejected') {
+    const corr = recoveryCorrelation(candidate.turnId, candidate.correlationId);
+    if (!corr.ok) return corr;
     const completed = await transitionTo(
       deps.ledger,
       candidate.turnId,

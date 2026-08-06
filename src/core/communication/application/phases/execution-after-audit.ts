@@ -113,18 +113,19 @@ export const executeAfterAuditStart = async (
 
   deps.noteLlmCall?.();
   const raced = await raceInvocationWithAbort(
-    deps.llm.complete(
-      {
-        prompt: assembled.prompt,
-        turnId: input.turnId,
-        correlationId: input.correlationId,
-        conversationId: input.conversationId,
-        ownerId: input.ownerId,
-        deadlineMs: input.deadlineMs,
-        abortSignal: input.abortSignal,
-      },
-      operationContext,
-    ),
+    () =>
+      deps.llm.complete(
+        {
+          prompt: assembled.prompt,
+          turnId: input.turnId,
+          correlationId: input.correlationId,
+          conversationId: input.conversationId,
+          ownerId: input.ownerId,
+          deadlineMs: input.deadlineMs,
+          abortSignal: input.abortSignal,
+        },
+        operationContext,
+      ),
     input.abortSignal,
   );
 

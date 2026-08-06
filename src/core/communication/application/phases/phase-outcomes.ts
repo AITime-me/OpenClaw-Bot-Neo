@@ -5,7 +5,10 @@ import type {
   RecordFactualOutcomeResult,
 } from '../../ports/communication-turn-ledger.port.js';
 import type { CommunicationAuditRecordOutcome } from '../../ports/communication-audit.port.js';
-import type { CommunicationDeliveryOutboxRecordOutcomeResult } from '../../ports/communication-delivery-outbox.port.js';
+import type {
+  CommunicationDeliveryOutboxPutOutcome,
+  CommunicationDeliveryOutboxRecordOutcomeResult,
+} from '../../ports/communication-delivery-outbox.port.js';
 
 const failUnproven = (
   code: CommunicationError['code'],
@@ -102,6 +105,26 @@ export const requireOutboxRecordSuccess = (
     case 'already-recorded':
       return ok(undefined);
     case 'unavailable':
+      return failUnproven('OUTBOX_UNAVAILABLE', outcome.value.kind, outcome.value.reason);
+    default: {
+      const _exhaustive: never = outcome.value;
+      return failUnproven('OUTBOX_UNAVAILABLE', String(_exhaustive));
+    }
+  }
+};
+
+/** Continue only after exact durable outbox put success. */
+export const requireOutboxPutSuccess = (
+  outcome: Result<CommunicationDeliveryOutboxPutOutcome, CommunicationError>,
+): Result<void, CommunicationError> => {
+  if (!outcome.ok) return outcome;
+  switch (outcome.value.kind) {
+    case 'stored':
+    case 'already-stored':
+      return ok(undefined);
+    case 'unavailable':
+    case 'rejected':
+    case 'encryption-required':
       return failUnproven('OUTBOX_UNAVAILABLE', outcome.value.kind, outcome.value.reason);
     default: {
       const _exhaustive: never = outcome.value;

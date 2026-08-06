@@ -63,30 +63,36 @@ const REPO_ROOT = '/opt/openclaw-bot-neo-comm';
 const SERVICE_UID = 1001;
 const tempFixtures: Array<{ readonly native: string; readonly storageRoot: string }> = [];
 const openFixtures: Array<{
-  close: () => void;
+  closed: boolean;
+  close: () => Promise<void>;
 }> = [];
 
-afterEach(() => {
+afterEach(async () => {
   resetCommunicationRuntimeOwnershipForTests();
   while (openFixtures.length > 0) {
     const fixture = openFixtures.pop();
     if (fixture === undefined) continue;
-    try {
-      fixture.close();
-    } catch {
-      // best-effort
-    }
+    if (fixture.closed) continue;
+    fixture.closed = true;
+    await fixture.close();
   }
   while (tempFixtures.length > 0) {
     const fixture = tempFixtures.pop();
     if (fixture === undefined) continue;
-    try {
-      rmSync(fixture.native, { recursive: true, force: true });
-    } catch {
-      // best-effort
-    }
+    rmSync(fixture.native, { recursive: true, force: true });
   }
 });
+
+const trackFixtureClose = (close: () => Promise<void>): (() => void) => {
+  const tracked = {
+    closed: false,
+    close,
+  };
+  openFixtures.push(tracked);
+  return () => {
+    tracked.closed = true;
+  };
+};
 
 const dirIdentity = (
   partial: Partial<PosixPathIdentity> & Pick<PosixPathIdentity, 'ino'>,
@@ -112,10 +118,6 @@ const createTempStorageRoot = (): string => {
   const storageRoot = match?.[1] !== undefined ? `/${match[1]}` : forward;
   tempFixtures.push({ native, storageRoot });
   return storageRoot;
-};
-
-const trackFixtureClose = (close: () => void): void => {
-  openFixtures.push({ close });
 };
 
 const storagePlatform = (): 'win32' | 'posix' => 'posix';
@@ -247,6 +249,7 @@ type RuntimeFixture = {
   readonly root: OpenedPosixStorageRoot;
   readonly handle: OfflineSqliteCommunicationPortsHandle;
   readonly slice: ReferenceTextSlice;
+  readonly markClosed?: () => void;
 };
 
 const toReferencePorts = (
@@ -294,16 +297,12 @@ const openRuntime = (options?: {
   });
   expect(slice.queueConfig).toBe(REFERENCE_COMMUNICATION_QUEUE_CONFIG);
   const fixture = { storageRoot, root, handle: ports.value, slice };
-  trackFixtureClose(() => {
-    try {
-      void slice.orchestrator.close();
-    } catch {
-      // ignore
-    }
+  const markClosed = trackFixtureClose(async () => {
+    await slice.orchestrator.close();
     ports.value.close();
     root.close();
   });
-  return fixture;
+  return Object.assign(fixture, { markClosed });
 };
 
 const openCustomRuntime = (options: {
@@ -353,16 +352,19 @@ const openCustomRuntime = (options: {
     killSwitch: createReferenceKillSwitch(),
   }) as ReferenceTextSlice;
   const fixture = { storageRoot, root, handle: ports.value, slice };
-  trackFixtureClose(() => {
-    try {
-      void orchestrator.close();
-    } catch {
-      // ignore
-    }
+  const markClosed = trackFixtureClose(async () => {
+    await orchestrator.close();
     ports.value.close();
     root.close();
   });
-  return fixture;
+  return Object.assign(fixture, { markClosed });
+};
+
+const releaseFixture = async (fixture: RuntimeFixture & { markClosed?: () => void }) => {
+  await fixture.slice.orchestrator.close();
+  fixture.handle.close();
+  fixture.root.close();
+  fixture.markClosed?.();
 };
 
 const startRuntime = async (fixture: RuntimeFixture) => {
@@ -1532,8 +1534,8 @@ describe('Build 3.7D communication runtime', () => {
       ports: toReferencePorts(reopened.value),
       scanner: fakeSensitiveDataScanner('allow'),
     });
-    trackFixtureClose(() => {
-      void slice.orchestrator.close();
+    const markClosed = trackFixtureClose(async () => {
+      await slice.orchestrator.close();
       reopened.value.close();
       root.close();
     });
@@ -1550,6 +1552,10 @@ describe('Build 3.7D communication runtime', () => {
     expect(loaded.value.snapshot.pauseState).toBe('degraded');
     expect(loaded.value.snapshot.checkpoint.status).toBe('failed');
     expect(readTurns(storageRoot)[0]?.state).toBe('completed');
+    await slice.orchestrator.close();
+    reopened.value.close();
+    root.close();
+    markClosed();
   });
 
   it('fails closed when recovery page fingerprint does not change', async () => {
@@ -1605,6 +1611,8 @@ describe('Build 3.7D communication runtime', () => {
         ledger: ledger as never,
         outbox: ports.value.outbox,
         conversationState: ports.value.conversationState,
+        audit: ports.value.audit,
+        policyVersion: must(parsePolicyVersion('1.0.0')),
       },
       ctx(),
     );
@@ -1695,5 +1703,428 @@ describe('Build 3.7D communication runtime', () => {
       3,
     );
     expect(rewrite.ok).toBe(false);
+  });
+
+  it('requires barrier when checkpoint succeeded but conversation snapshot is missing', async () => {
+    const storageRoot = createTempStorageRoot();
+    const root = openGenuineRoot(storageRoot);
+    const firstPorts = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(firstPorts.ok).toBe(true);
+    if (!firstPorts.ok) throw new Error('open');
+    const db = openSqliteDatabaseFile(`${storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`);
+    const now = '2026-08-05T12:00:00.000Z';
+    db.prepare(
+      `INSERT INTO turns (
+         turn_id, transport_instance_id, idempotency_key, state, turn_revision,
+         conversation_sequence, owner_id, conversation_id, correlation_id,
+         delivery_status, checkpoint_status, audit_start_status, audit_completion_status,
+         llm_outcome, error_code, observed_at, updated_at
+       ) VALUES (?, 'transport-ref-1', ?, 'delivered', 4, 1, 'owner-1', 'conversation-conv-missing-snap',
+         'corr-missing-snap', 'delivered', 'succeeded', 'succeeded', 'pending', 'completed', NULL, ?, ?)`,
+    ).run('turn-missing-snap', 'b'.repeat(64), now, now);
+    db.close();
+    firstPorts.value.close();
+
+    const reopened = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) throw new Error('reopen');
+    const slice = createReferenceTextSlice({
+      ports: toReferencePorts(reopened.value),
+      scanner: fakeSensitiveDataScanner('allow'),
+    });
+    const markClosed = trackFixtureClose(async () => {
+      await slice.orchestrator.close();
+      reopened.value.close();
+      root.close();
+    });
+    const started = await slice.orchestrator.start(ctx());
+    expect(started.ok).toBe(true);
+    const owner = must(parseOwnerId('owner-1'));
+    const conversation = must(parseConversationId('conversation-conv-missing-snap'));
+    const loaded = await reopened.value.conversationState.load(
+      { ownerId: owner, conversationId: conversation },
+      ctx(),
+    );
+    expect(loaded.ok && loaded.value.kind === 'found').toBe(true);
+    if (!loaded.ok || loaded.value.kind !== 'found') throw new Error('load');
+    expect(loaded.value.snapshot.pauseState).toBe('degraded');
+    expect(readTurns(storageRoot)[0]?.state).toBe('completed');
+    await slice.orchestrator.close();
+    reopened.value.close();
+    root.close();
+    markClosed();
+  });
+
+  it('keeps ingress closed when completion audit stays pending after restart', async () => {
+    const storageRoot = createTempStorageRoot();
+    const root = openGenuineRoot(storageRoot);
+    const firstPorts = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(firstPorts.ok).toBe(true);
+    if (!firstPorts.ok) throw new Error('open');
+    const db = openSqliteDatabaseFile(`${storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`);
+    const now = '2026-08-05T12:00:00.000Z';
+    db.prepare(
+      `INSERT INTO turns (
+         turn_id, transport_instance_id, idempotency_key, state, turn_revision,
+         conversation_sequence, owner_id, conversation_id, correlation_id,
+         delivery_status, checkpoint_status, audit_start_status, audit_completion_status,
+         llm_outcome, error_code, observed_at, updated_at
+       ) VALUES (?, 'transport-ref-1', ?, 'delivered', 4, 1, 'owner-1', 'conversation-conv-audit-pending',
+         'corr-audit-pending', 'delivered', 'succeeded', 'succeeded', 'pending', 'completed', NULL, ?, ?)`,
+    ).run('turn-audit-pending', 'c'.repeat(64), now, now);
+    db.close();
+    firstPorts.value.close();
+
+    const reopened = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) throw new Error('reopen');
+    const audit = {
+      ...reopened.value.audit,
+      recordCompletion: () =>
+        Promise.resolve(ok({ kind: 'unavailable' as const, reason: 'audit-pending-denied' })),
+    };
+    const slice = createReferenceTextSlice({
+      ports: Object.freeze({
+        ...toReferencePorts(reopened.value),
+        audit: audit as never,
+      }),
+      scanner: fakeSensitiveDataScanner('allow'),
+    });
+    const markClosed = trackFixtureClose(async () => {
+      await slice.orchestrator.close();
+      reopened.value.close();
+      root.close();
+    });
+    const started = await slice.orchestrator.start(ctx());
+    expect(started.ok).toBe(false);
+    expect(slice.orchestrator.diagnostics().lifecycle).toBe('failed');
+    expect(readTurns(storageRoot)[0]?.state).toBe('delivered');
+    const denied = await slice.orchestrator.submitObservation(
+      observation('conv-audit-pending', 'msg-audit-pending'),
+      ctx(),
+    );
+    expect(denied.ok).toBe(false);
+    await slice.orchestrator.close();
+    reopened.value.close();
+    root.close();
+    markClosed();
+  });
+
+  it('reconciles completion audit successfully and idempotently on recovery', async () => {
+    const storageRoot = createTempStorageRoot();
+    const root = openGenuineRoot(storageRoot);
+    const firstPorts = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(firstPorts.ok).toBe(true);
+    if (!firstPorts.ok) throw new Error('open');
+    const db = openSqliteDatabaseFile(`${storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`);
+    const now = '2026-08-05T12:00:00.000Z';
+    db.prepare(
+      `INSERT INTO turns (
+         turn_id, transport_instance_id, idempotency_key, state, turn_revision,
+         conversation_sequence, owner_id, conversation_id, correlation_id,
+         delivery_status, checkpoint_status, audit_start_status, audit_completion_status,
+         llm_outcome, error_code, observed_at, updated_at
+       ) VALUES (?, 'transport-ref-1', ?, 'delivered', 4, 1, 'owner-1', 'conversation-conv-audit-ok',
+         'corr-audit-ok', 'delivered', 'succeeded', 'succeeded', 'pending', 'completed', NULL, ?, ?)`,
+    ).run('turn-audit-ok', 'd'.repeat(64), now, now);
+    const owner = must(parseOwnerId('owner-1'));
+    const conversation = must(parseConversationId('conversation-conv-audit-ok'));
+    const corr = must(parseCorrelationId('corr-audit-ok'));
+    db.close();
+    const snap = await firstPorts.value.conversationState.checkpoint(
+      {
+        key: { ownerId: owner, conversationId: conversation },
+        expectedRevision: must(parseConversationRevision(0)),
+        nextSnapshot: freezeConversationStateSnapshot({
+          conversationId: conversation,
+          ownerId: owner,
+          revision: must(parseConversationRevision(1)),
+          activeContext: Object.freeze([]),
+          modelDerivedSummary: null,
+          pauseState: 'active',
+          checkpoint: Object.freeze({
+            status: 'succeeded' as const,
+            revision: must(parseConversationRevision(1)),
+          }),
+        }),
+        correlationId: corr,
+        idempotencyKey: 'seed-audit-ok-checkpoint',
+      },
+      ctx(),
+    );
+    expect(snap.ok).toBe(true);
+    firstPorts.value.close();
+
+    const reopened = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) throw new Error('reopen');
+    const slice = createReferenceTextSlice({
+      ports: toReferencePorts(reopened.value),
+      scanner: fakeSensitiveDataScanner('allow'),
+    });
+    const markClosed = trackFixtureClose(async () => {
+      await slice.orchestrator.close();
+      reopened.value.close();
+      root.close();
+    });
+    const started = await slice.orchestrator.start(ctx());
+    expect(started.ok).toBe(true);
+    const verifyDb = openSqliteDatabaseFile(
+      `${storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`,
+    );
+    const row = verifyDb
+      .prepare(`SELECT state, audit_completion_status FROM turns WHERE turn_id = ?`)
+      .get('turn-audit-ok') as { state: string; audit_completion_status: string };
+    verifyDb.close();
+    expect(row.state).toBe('completed');
+    expect(row.audit_completion_status).toBe('succeeded');
+    await slice.orchestrator.close();
+    reopened.value.close();
+    root.close();
+    markClosed();
+  });
+
+  it('terminalizes synchronous LLM throw after durable start without retry', async () => {
+    const fixture = openCustomRuntime({
+      llm: {
+        complete() {
+          throw new Error('sync-llm-throw');
+        },
+      },
+    });
+    await startRuntime(fixture);
+    await fixture.slice.orchestrator.submitObservation(
+      observation('conv-sync-llm', 'msg-sync-llm'),
+      ctx(),
+    );
+    await fixture.slice.orchestrator.whenIdle();
+    const row = readTurns(fixture.storageRoot)[0];
+    expect(row?.llm_outcome).toBe('outcome-unknown');
+    expect(row?.state).toBe('completed');
+    expect(fixture.slice.orchestrator.sideEffects.llmCalls).toBe(1);
+    await releaseFixture(fixture);
+  });
+
+  it('terminalizes synchronous delivery throw after durable start without resend', async () => {
+    const fixture = openCustomRuntime({
+      delivery: {
+        deliver() {
+          throw new Error('sync-delivery-throw');
+        },
+      },
+    });
+    await startRuntime(fixture);
+    await fixture.slice.orchestrator.submitObservation(
+      observation('conv-sync-delivery', 'msg-sync-delivery'),
+      ctx(),
+    );
+    await fixture.slice.orchestrator.whenIdle();
+    const row = readTurns(fixture.storageRoot)[0];
+    expect(row?.delivery_status).toBe('outcome_unknown');
+    expect(row?.state).toBe('completed');
+    expect(fixture.slice.orchestrator.sideEffects.deliveryCalls).toBe(1);
+    await releaseFixture(fixture);
+  });
+
+  it('latches delivery abort/deadline and ignores late resolve or reject', async () => {
+    let resolveLate: ((value: unknown) => void) | undefined;
+    let rejectLate: ((reason?: unknown) => void) | undefined;
+    const deferred = new Promise((resolve, reject) => {
+      resolveLate = resolve;
+      rejectLate = reject;
+    });
+    const fixture = openCustomRuntime({
+      delivery: {
+        deliver() {
+          return deferred as never;
+        },
+      },
+    });
+    await startRuntime(fixture);
+    await fixture.slice.orchestrator.submitObservation(
+      observation('conv-delivery-late', 'msg-delivery-late'),
+      ctx(),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const closed = fixture.slice.orchestrator.close();
+    await expect(closed).resolves.toMatchObject({ ok: true });
+    expect(readTurns(fixture.storageRoot)[0]?.delivery_status).toBe('outcome_unknown');
+    resolveLate?.({ ok: true, value: { kind: 'delivered' } });
+    rejectLate?.(new Error('late-reject'));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(readTurns(fixture.storageRoot)[0]?.delivery_status).toBe('outcome_unknown');
+    fixture.markClosed?.();
+    fixture.handle.close();
+    fixture.root.close();
+  });
+
+  it('fails runtime when accepted→queued transition is not an exact success', async () => {
+    const storageRoot = createTempStorageRoot();
+    const root = openGenuineRoot(storageRoot);
+    const ports = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(ports.ok).toBe(true);
+    if (!ports.ok) throw new Error('open');
+    const ledger = {
+      ...ports.value.ledger,
+      transition: async (
+        command: { readonly expectedState: string; readonly targetState: string },
+        operationContext: unknown,
+      ) => {
+        if (command.expectedState === 'accepted' && command.targetState === 'queued') {
+          return ok({ kind: 'stale-revision' as const });
+        }
+        return ports.value.ledger.transition(command as never, operationContext as never);
+      },
+    };
+    const policyVersion = must(parsePolicyVersion('1.0.0'));
+    const orchestrator = createCommunicationOrchestrator({
+      ledger,
+      audit: ports.value.audit,
+      outbox: ports.value.outbox,
+      conversationState: ports.value.conversationState,
+      binding: createReferenceIdentityBinding(),
+      ids: createReferenceIdGenerator(),
+      llm: createReferenceLlmCompletion('completed'),
+      delivery: createReferenceTextDelivery('delivered'),
+      memory: createReferenceMemoryAuthorization(),
+      killSwitch: createReferenceKillSwitch(),
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+      expectedQueueConfig: ports.value.queueConfig,
+      ownershipKey: ports.value.ownershipKey,
+      policyVersion,
+      transportInstanceId: 'transport-ref-1',
+      bindingVersion: 'binding-v1',
+    });
+    const markClosed = trackFixtureClose(async () => {
+      await orchestrator.close();
+      ports.value.close();
+      root.close();
+    });
+    const started = await orchestrator.start(ctx());
+    expect(started.ok).toBe(true);
+    const submitted = await orchestrator.submitObservation(
+      observation('conv-queued-fail', 'msg-queued-fail'),
+      ctx(),
+    );
+    expect(submitted.ok).toBe(false);
+    expect(orchestrator.diagnostics().lifecycle).toBe('failed');
+    await orchestrator.close();
+    ports.value.close();
+    root.close();
+    markClosed();
+  });
+
+  it('rejects outbox put encryption-required and unavailable without unproven success', async () => {
+    const { requireOutboxPutSuccess } =
+      await import('../../src/core/communication/application/phases/phase-outcomes.js');
+    expect(
+      requireOutboxPutSuccess(ok({ kind: 'encryption-required', reason: 'sealed' } as const)).ok,
+    ).toBe(false);
+    expect(requireOutboxPutSuccess(ok({ kind: 'unavailable', reason: 'down' } as const)).ok).toBe(
+      false,
+    );
+    expect(requireOutboxPutSuccess(ok({ kind: 'rejected', reason: 'bad' } as const)).ok).toBe(
+      false,
+    );
+    expect(requireOutboxPutSuccess(ok({ kind: 'stored' } as const)).ok).toBe(true);
+    expect(requireOutboxPutSuccess(ok({ kind: 'already-stored' } as const)).ok).toBe(true);
+
+    const fixture = openRuntime();
+    await startRuntime(fixture);
+    const failingOutbox = {
+      ...fixture.handle.outbox,
+      put: () =>
+        Promise.resolve(
+          ok({ kind: 'encryption-required' as const, reason: 'encryption-required' }),
+        ),
+    };
+    const policyVersion = must(parsePolicyVersion('1.0.0'));
+    const orchestrator = createCommunicationOrchestrator({
+      ledger: fixture.handle.ledger,
+      audit: fixture.handle.audit,
+      outbox: failingOutbox,
+      conversationState: fixture.handle.conversationState,
+      binding: createReferenceIdentityBinding(),
+      ids: createReferenceIdGenerator(),
+      llm: createReferenceLlmCompletion('completed'),
+      delivery: createReferenceTextDelivery('delivered'),
+      memory: createReferenceMemoryAuthorization(),
+      killSwitch: createReferenceKillSwitch(),
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+      expectedQueueConfig: fixture.handle.queueConfig,
+      ownershipKey: `${fixture.handle.ownershipKey}-outbox-fail`,
+      policyVersion,
+      transportInstanceId: 'transport-ref-1',
+      bindingVersion: 'binding-v1',
+    });
+    const started = await orchestrator.start(ctx());
+    expect(started.ok).toBe(true);
+    await orchestrator.submitObservation(observation('conv-outbox-enc', 'msg-outbox-enc'), ctx());
+    await orchestrator.whenIdle();
+    expect(orchestrator.diagnostics().lifecycle).toBe('failed');
+    await orchestrator.close();
+    await releaseFixture(fixture);
+  });
+
+  it('awaits orchestrator close before removing SQLite files in async fixture cleanup', async () => {
+    const order: string[] = [];
+    const storageRoot = createTempStorageRoot();
+    const nativeEntry = tempFixtures[tempFixtures.length - 1];
+    if (nativeEntry === undefined) throw new Error('temp native missing');
+    const root = openGenuineRoot(storageRoot);
+    const ports = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(ports.ok).toBe(true);
+    if (!ports.ok) throw new Error('open');
+    const slice = createReferenceTextSlice({
+      ports: toReferencePorts(ports.value),
+      scanner: fakeSensitiveDataScanner('allow'),
+    });
+    const dbPath = join(nativeEntry.native, SQLITE_COMMUNICATION_DATABASE_FILENAME);
+    await slice.orchestrator.start(ctx());
+    expect(existsSync(dbPath)).toBe(true);
+    order.push('before-orchestrator-close');
+    await slice.orchestrator.close();
+    order.push('after-orchestrator-close');
+    expect(existsSync(dbPath)).toBe(true);
+    ports.value.close();
+    root.close();
+    order.push('after-handles-close');
+    expect(existsSync(dbPath)).toBe(true);
+    rmSync(nativeEntry.native, { recursive: true, force: true });
+    order.push('after-temp-rm');
+    expect(existsSync(dbPath)).toBe(false);
+    expect(order).toEqual([
+      'before-orchestrator-close',
+      'after-orchestrator-close',
+      'after-handles-close',
+      'after-temp-rm',
+    ]);
+    tempFixtures.pop();
   });
 });
