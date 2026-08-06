@@ -6,6 +6,28 @@ export const FIXED_PROBE_PROMPT =
 export const EXACT_OK_TRUE_OUTPUT = Object.freeze({ ok: true as const });
 
 export const CLI_AUTH_CREDENTIALS_STORE = 'file' as const;
+export const FORCED_LOGIN_METHOD = 'chatgpt' as const;
+export const APPROVED_MODEL_PROVIDER = 'openai' as const;
+
+/** Exact config keys Neo accepts from config/read; any other key fails closed. */
+export const ALLOWED_CONFIG_KEYS = Object.freeze([
+  'cli_auth_credentials_store',
+  'forced_login_method',
+  'model_provider',
+  'model',
+  'approval_policy',
+  'sandbox',
+  'web',
+  'shell',
+  'hooks',
+  'apps',
+  'mcp_servers',
+  'mcpServers',
+  'search',
+] as const);
+
+/** Exact requirements keys Neo accepts; any other key fails closed. */
+export const ALLOWED_REQUIREMENTS_KEYS = Object.freeze(['network', 'featureRequirements'] as const);
 
 export const CLIENT_REQUEST_METHODS = Object.freeze([
   'initialize',
@@ -53,6 +75,9 @@ export const FORBIDDEN_ITEM_TYPES = Object.freeze([
 ] as const);
 
 export type JsonRpcId = number | string;
+
+/** Strict wire ID equality — numeric `1` and string `"1"` are distinct. */
+export const jsonRpcIdsEqual = (left: JsonRpcId, right: JsonRpcId): boolean => left === right;
 
 export type JsonRpcRequest = {
   readonly method: string;
@@ -315,42 +340,96 @@ export const decodeModelListResult = (result: unknown): ModelDecode => {
   return { kind: 'ok', modelId: only };
 };
 
-export const hasEffectiveConfigViolation = (
+export type ConfigPreflightDecode =
+  | { readonly kind: 'ok' }
+  | { readonly kind: 'policy-rejected'; readonly reason: string }
+  | { readonly kind: 'malformed'; readonly reason: string };
+
+const isDisabledFlag = (value: unknown): boolean => value === false;
+
+const appsAllDisabled = (apps: unknown): boolean => {
+  if (!isPlainObject(apps)) return false;
+  for (const value of Object.values(apps)) {
+    if (!isPlainObject(value) || value.enabled !== false) return false;
+  }
+  return true;
+};
+
+const mcpEmpty = (value: unknown): boolean => {
+  if (value === undefined) return true;
+  if (!isPlainObject(value)) return false;
+  return Object.keys(value).length === 0;
+};
+
+/**
+ * Fail-closed preflight for official config/requirements.
+ * Requires cli_auth_credentials_store=file, forced ChatGPT login, approved OpenAI provider,
+ * agentic surfaces off, and rejects unknown keys.
+ */
+export const decodeConfigPreflight = (
   config: Record<string, unknown>,
   requirements: Record<string, unknown> | null,
-): boolean => {
+): ConfigPreflightDecode => {
+  for (const key of Object.keys(config)) {
+    if (!(ALLOWED_CONFIG_KEYS as readonly string[]).includes(key))
+      return { kind: 'policy-rejected', reason: `unknown-config-key:${key}` };
+  }
+  if (config.cli_auth_credentials_store !== CLI_AUTH_CREDENTIALS_STORE)
+    return { kind: 'policy-rejected', reason: 'cli_auth_credentials_store' };
+  if (config.forced_login_method !== FORCED_LOGIN_METHOD)
+    return { kind: 'policy-rejected', reason: 'forced_login_method' };
+  if (config.model_provider !== APPROVED_MODEL_PROVIDER)
+    return { kind: 'policy-rejected', reason: 'model_provider' };
+  if (!isDisabledFlag(config.web)) return { kind: 'policy-rejected', reason: 'web' };
+  if (!isDisabledFlag(config.shell)) return { kind: 'policy-rejected', reason: 'shell' };
+  if (!isDisabledFlag(config.hooks)) return { kind: 'policy-rejected', reason: 'hooks' };
+  if (!isDisabledFlag(config.search)) return { kind: 'policy-rejected', reason: 'search' };
+  if (!appsAllDisabled(config.apps)) return { kind: 'policy-rejected', reason: 'apps' };
+  if (!mcpEmpty(config.mcp_servers) || !mcpEmpty(config.mcpServers))
+    return { kind: 'policy-rejected', reason: 'mcp' };
+
   const serialized = JSON.stringify({ config, requirements }).toLowerCase();
-  if (serialized.includes('base_url') || serialized.includes('baseurl')) return true;
-  if (serialized.includes('customprovider') || serialized.includes('custom_provider')) return true;
-  if (serialized.includes('openai_api_key') || serialized.includes('codex_api_key')) return true;
-  const features = ['web', 'shell', 'hooks', 'mcp', 'mcpservers'];
-  for (const feature of features) {
-    if (serialized.includes(`"${feature}":true`)) return true;
-  }
-  if (isPlainObject(config.mcp_servers) && Object.keys(config.mcp_servers).length > 0) return true;
-  if (isPlainObject(config.mcpServers) && Object.keys(config.mcpServers).length > 0) return true;
-  if (config.web === true || config.shell === true || config.hooks === true) return true;
-  if (isPlainObject(config.apps)) {
-    for (const value of Object.values(config.apps)) {
-      if (isPlainObject(value) && value.enabled === true) return true;
-    }
-  }
+  if (serialized.includes('base_url') || serialized.includes('baseurl'))
+    return { kind: 'policy-rejected', reason: 'base-url' };
+  if (serialized.includes('customprovider') || serialized.includes('custom_provider'))
+    return { kind: 'policy-rejected', reason: 'custom-provider' };
+  if (serialized.includes('openai_api_key') || serialized.includes('codex_api_key'))
+    return { kind: 'policy-rejected', reason: 'api-key' };
+
   if (requirements !== null) {
-    if (isPlainObject(requirements.network) && requirements.network.enabled === true) return true;
+    for (const key of Object.keys(requirements)) {
+      if (!(ALLOWED_REQUIREMENTS_KEYS as readonly string[]).includes(key))
+        return { kind: 'policy-rejected', reason: `unknown-requirements-key:${key}` };
+    }
+    if (isPlainObject(requirements.network) && requirements.network.enabled === true)
+      return { kind: 'policy-rejected', reason: 'network' };
     if (
       isPlainObject(requirements.featureRequirements) &&
       requirements.featureRequirements.unified_exec === true
     )
-      return true;
+      return { kind: 'policy-rejected', reason: 'unified_exec' };
   }
-  return false;
+  return { kind: 'ok' };
 };
+
+/** @deprecated Use decodeConfigPreflight — retained name for call-site clarity in reviews. */
+export const hasEffectiveConfigViolation = (
+  config: Record<string, unknown>,
+  requirements: Record<string, unknown> | null,
+): boolean => decodeConfigPreflight(config, requirements).kind !== 'ok';
 
 export const extractThreadId = (result: unknown): string | null => {
   if (!isPlainObject(result)) return null;
   const thread = result.thread;
   if (!isPlainObject(thread)) return null;
   return typeof thread.id === 'string' && thread.id.length > 0 ? thread.id : null;
+};
+
+export const extractThreadModelProvider = (result: unknown): string | null => {
+  if (!isPlainObject(result)) return null;
+  const thread = result.thread;
+  if (!isPlainObject(thread)) return null;
+  return typeof thread.modelProvider === 'string' ? thread.modelProvider : null;
 };
 
 export const extractTurnId = (result: unknown): string | null => {

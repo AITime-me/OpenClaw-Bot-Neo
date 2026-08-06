@@ -227,9 +227,12 @@ All must pass before `turn/start`:
     `policy-rejected` (no dispatch);
   - `result.account.type === "chatgpt"` required to continue;
 - effective config from official `result.config` (`config/read`) and `result.requirements`
-  (`configRequirements/read`; may be `null`) must show **no** custom provider / base URL, and
-  **no** web, shell, apps, MCP, hooks, or other agentic capabilities; missing/malformed nested
-  fields → fail-closed `provider-unavailable`;
+  (`configRequirements/read`; may be `null`) must show `cli_auth_credentials_store="file"`,
+  `forced_login_method="chatgpt"`, approved built-in `model_provider="openai"`, **no** custom
+  provider / base URL, and **no** web, search, shell, apps, MCP, hooks, or other agentic
+  capabilities; unknown config/requirements keys → fail-closed `policy-rejected`; missing/malformed
+  nested fields → fail-closed `provider-unavailable`;
+- `thread.modelProvider` after `thread/start` must equal `openai`;
 - quota / rate-limit evidence from official nested `result.rateLimits` /
   `result.rateLimitsByLimitId` (`account/rateLimits/read`) with `rateLimitReachedType` must allow
   the probe **before** dispatch; known exhaustion → `quota-unavailable` without `turn/start`;
@@ -262,12 +265,22 @@ Official nested decode tokens for tests:
 - `ephemeral: true`;
 - `approvalPolicy: "never"`;
 - `sandbox: "readOnly"`;
-- restricted `sandboxPolicy` read-only access whose `readableRoots` are limited to the isolated
-  probe contour (repository / shared developer roots forbidden; unknown filesystem policy →
-  fail-closed);
-- dedicated empty probe `cwd` under isolated `CODEX_HOME` (not the repository root);
+- dedicated empty probe `cwd` under isolated `CODEX_HOME` (not the repository root) — the same
+  isolated probe cwd used as the child process spawn `cwd`;
 - the single discovered default text-capable model id;
-- no `dynamicTools`, no MCP requirements, no `thread/resume` / `thread/fork`.
+- `thread.modelProvider` must equal approved built-in provider `openai` (fail-closed otherwise);
+- no `dynamicTools`, no MCP requirements, no `thread/resume` / `thread/fork`;
+- **no** `sandboxPolicy` on `thread/start`.
+
+`turn/start` carries the tools-free fixed prompt and the restricted `sandboxPolicy` (official wire
+shape) whose `readableRoots` are **only** that empty probe cwd. `CODEX_HOME`, credential paths,
+repository, and shared developer homes must not appear in readable roots; path overlap is checked
+in both directions.
+
+Exact provider / version-command tokens for tests: `thread.modelProvider`, `openai`,
+`forced_login_method="chatgpt"`, `model_provider="openai"`, `cli_auth_credentials_store="file"`,
+fixed version argv `--version` via `readPinnedExecutableVersion` (`shell: false`) against the same
+pinned `absolutePath` (do not trust an expected version env string as evidence).
 
 `turn/start` input is tools-free text only with the fixed prompt above.
 
@@ -455,8 +468,9 @@ Not executed by Build 3.7E1A. Normative future procedure:
    by owner policy for that run).
 3. Prepare isolated `CODEX_HOME` with `cli_auth_credentials_store="file"` and ChatGPT OAuth offline
    (manual); Neo does not read credential files; shared OS keyring forbidden.
-4. Install pinned executable matching version+hash tuple; spawn only by `absolutePath` with
-   `shell: false`.
+4. Install pinned executable matching version+hash+size tuple; spawn only by `absolutePath` with
+   `shell: false`; read version from that same absolute executable with fixed argv `--version`
+   (`shell: false`) — do not trust an expected version string alone as evidence.
 5. Run exactly one probe with the fixed prompt
    `Return one JSON object with ok=true and no other fields.` via the E1 adapter entrypoint with
    Telegram absent and Neo SQLite prompt/output persistence hooks asserted off; accept only

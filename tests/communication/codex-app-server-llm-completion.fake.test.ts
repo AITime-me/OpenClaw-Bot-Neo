@@ -60,7 +60,18 @@ describe('codex-app-server llm completion fake', () => {
       transport: fake.transport,
       cwd,
       readableRoots: [cwd],
-      timeouts: { turnTimeoutMs: 500, preflightTimeoutMs: 500 },
+      timeouts: {
+        turnTimeoutMs: 500,
+        preflightTimeoutMs: 500,
+        threadStartTimeoutMs: 500,
+        exitWaitMs: 20,
+        termGraceMs: 20,
+        closeBudgetMs: 80,
+        unsubscribeBudgetMs: 40,
+        interruptBudgetMs: 40,
+        totalActiveCleanupBudgetMs: 200,
+        reapBudgetMs: 20,
+      },
     });
     const result = await llm.complete(request(), operationContext());
     expect(result.ok).toBe(true);

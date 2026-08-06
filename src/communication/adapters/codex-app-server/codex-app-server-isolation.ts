@@ -30,22 +30,26 @@ export const canonicalizeAbsolutePath = (value: string): string | null => {
   return real ?? resolved;
 };
 
-const pathEquals = (left: string, right: string): boolean => {
+export const pathEquals = (left: string, right: string): boolean => {
   if (process.platform === 'win32') return left.toLowerCase() === right.toLowerCase();
   return left === right;
 };
 
-const isUnderOrEqual = (child: string, parent: string): boolean => {
+export const isUnderOrEqual = (child: string, parent: string): boolean => {
   if (pathEquals(child, parent)) return true;
   const prefix = parent.endsWith(sep) ? parent : `${parent}${sep}`;
   if (process.platform === 'win32') return child.toLowerCase().startsWith(prefix.toLowerCase());
   return child.startsWith(prefix);
 };
 
+/** True when either path equals or nests under the other. */
+export const pathsOverlapBidirectional = (left: string, right: string): boolean =>
+  isUnderOrEqual(left, right) || isUnderOrEqual(right, left);
+
 /**
  * Build and validate an isolated probe contour. Homes/temp/cwd must be canonical,
  * under the isolated CODEX_HOME tree, and must not collide with developer/shared homes
- * or the repository root.
+ * or the repository root (bidirectional overlap).
  */
 export const buildIsolatedProbeContour = (input: {
   readonly codexHome: string;
@@ -74,23 +78,24 @@ export const buildIsolatedProbeContour = (input: {
   const developerCodex = developerHome !== null ? resolve(developerHome, '.codex') : null;
   const systemTemp = canonicalizeAbsolutePath(tmpdir());
 
-  const bannedExact = [developerHome, developerCodex, systemTemp, repositoryRoot].filter(
+  const exactBanned = [developerHome, developerCodex, systemTemp].filter(
     (value): value is string => value !== null,
   );
 
   const paths = { codexHome, home, tempDir, probeCwd };
   for (const [label, pathValue] of Object.entries(paths)) {
-    for (const banned of bannedExact) {
+    for (const banned of exactBanned) {
       if (pathEquals(pathValue, banned))
         return {
           ok: false,
-          reason: `${label} collides with developer/shared/repository path`,
+          reason: `${label} collides with developer/shared path`,
         };
     }
-    if (isUnderOrEqual(pathValue, repositoryRoot))
+    // Repository overlap is checked in both directions (nesting either way is forbidden).
+    if (pathsOverlapBidirectional(pathValue, repositoryRoot))
       return {
         ok: false,
-        reason: `${label} must not nest under repository root`,
+        reason: `${label} overlaps repository root`,
       };
   }
 
@@ -100,6 +105,8 @@ export const buildIsolatedProbeContour = (input: {
     return { ok: false, reason: 'tempDir must nest under isolated CODEX_HOME' };
   if (!isUnderOrEqual(probeCwd, codexHome))
     return { ok: false, reason: 'probeCwd must nest under isolated CODEX_HOME' };
+  if (pathEquals(probeCwd, codexHome))
+    return { ok: false, reason: 'probeCwd must be a dedicated empty directory, not CODEX_HOME' };
 
   for (const dir of [codexHome, home, tempDir, probeCwd]) {
     if (!existsSync(dir)) {
@@ -117,7 +124,54 @@ export const buildIsolatedProbeContour = (input: {
   };
 };
 
-export const readableRootsForProbe = (paths: IsolationPaths): readonly string[] => [
-  paths.codexHome,
-  paths.probeCwd,
-];
+/** Model-readable roots: only the dedicated empty probe cwd (never CODEX_HOME/credentials/repo). */
+export const readableRootsForProbe = (paths: IsolationPaths): readonly string[] => [paths.probeCwd];
+
+export const validateModelReadableRoots = (
+  roots: readonly string[],
+  paths: IsolationPaths,
+): IsolationResult => {
+  if (roots.length !== 1)
+    return { ok: false, reason: 'model-readable roots must be exactly the probe cwd' };
+  const only = roots[0];
+  if (only === undefined || !pathEquals(only, paths.probeCwd))
+    return { ok: false, reason: 'model-readable roots must equal isolated probe cwd' };
+
+  const developerHome = canonicalizeAbsolutePath(homedir());
+  const developerCodex = developerHome !== null ? resolve(developerHome, '.codex') : null;
+  const credentialsDir = resolve(paths.codexHome, 'auth');
+  const credentialsFile = resolve(paths.codexHome, 'auth.json');
+
+  const mustNotEqualOrCover = [
+    paths.codexHome,
+    paths.home,
+    paths.tempDir,
+    credentialsDir,
+    credentialsFile,
+    paths.repositoryRoot,
+    developerHome,
+    developerCodex,
+  ].filter((value): value is string => value !== null);
+
+  for (const banned of mustNotEqualOrCover) {
+    if (pathEquals(only, banned))
+      return {
+        ok: false,
+        reason: 'readable root must not equal CODEX_HOME/credentials/repository/shared path',
+      };
+    if (isUnderOrEqual(banned, only) && !pathEquals(banned, only))
+      return {
+        ok: false,
+        reason: 'readable root must not cover CODEX_HOME/credentials/repository/shared path',
+      };
+  }
+
+  if (pathsOverlapBidirectional(only, paths.repositoryRoot))
+    return { ok: false, reason: 'readable root overlaps repository' };
+  if (developerHome !== null && pathEquals(only, developerHome))
+    return { ok: false, reason: 'readable root must not equal shared developer home' };
+  if (developerCodex !== null && pathEquals(only, developerCodex))
+    return { ok: false, reason: 'readable root must not equal shared Codex home' };
+
+  return { ok: true, paths };
+};

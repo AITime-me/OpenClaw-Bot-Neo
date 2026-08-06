@@ -11,7 +11,12 @@ import {
   runCapabilityProbeOnTransport,
   type CodexAppServerTransport,
 } from './codex-app-server-client.js';
-import { buildIsolatedProbeContour, readableRootsForProbe } from './codex-app-server-isolation.js';
+import {
+  buildIsolatedProbeContour,
+  readableRootsForProbe,
+  validateModelReadableRoots,
+  type IsolationPaths,
+} from './codex-app-server-isolation.js';
 import type { CodexOwnerSpawnCapability } from './codex-app-server-owner-capability.js';
 
 export type CapabilityProbeOptions = {
@@ -55,6 +60,7 @@ export const runCodexAppServerCapabilityProbe = async (
   let transport = options.transport;
   let probeCwd: string;
   let readableRoots: readonly string[];
+  let isolationPaths: IsolationPaths | undefined;
 
   if (transport === undefined) {
     if (options.config === undefined)
@@ -67,8 +73,11 @@ export const runCodexAppServerCapabilityProbe = async (
       );
     const isolated = buildIsolatedProbeContour(isolationInputFromConfig(options.config));
     if (!isolated.ok) return err(communicationError('CONFIG_INVALID', isolated.reason));
+    isolationPaths = isolated.paths;
     probeCwd = isolated.paths.probeCwd;
     readableRoots = readableRootsForProbe(isolated.paths);
+    const rootsOk = validateModelReadableRoots(readableRoots, isolated.paths);
+    if (!rootsOk.ok) return err(communicationError('CONFIG_INVALID', rootsOk.reason));
     const created = createChildProcessTransport({
       pin: options.config.pin,
       envInput: childEnvFromIsolation({
@@ -88,8 +97,11 @@ export const runCodexAppServerCapabilityProbe = async (
   } else if (options.config !== undefined) {
     const isolated = buildIsolatedProbeContour(isolationInputFromConfig(options.config));
     if (!isolated.ok) return err(communicationError('CONFIG_INVALID', isolated.reason));
+    isolationPaths = isolated.paths;
     probeCwd = isolated.paths.probeCwd;
     readableRoots = readableRootsForProbe(isolated.paths);
+    const rootsOk = validateModelReadableRoots(readableRoots, isolated.paths);
+    if (!rootsOk.ok) return err(communicationError('CONFIG_INVALID', rootsOk.reason));
   } else {
     probeCwd = '/tmp/neo-fake-probe-cwd';
     readableRoots = [probeCwd];
@@ -100,6 +112,7 @@ export const runCodexAppServerCapabilityProbe = async (
     abortSignal: options.abortSignal ?? null,
     probeCwd,
     readableRoots,
+    ...(isolationPaths !== undefined ? { isolationPaths } : {}),
     ...(options.config?.timeouts !== undefined ? { timeouts: options.config.timeouts } : {}),
   });
   if (result.kind === 'config-error')

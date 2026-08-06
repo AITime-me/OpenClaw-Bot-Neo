@@ -1,16 +1,16 @@
 /**
  * One-shot owner-approved live-spawn capability.
  * Created only by the manual owner probe script after exact confirmation.
- * Generic LLM/probe factories cannot spawn a live Codex child without this token.
+ * Authority and consumed state live in module-private WeakSet maps — clone/spread/reset cannot forge reuse.
  */
 
-const CAPABILITY_BRAND = Symbol('CodexOwnerSpawnCapability');
+import { randomBytes } from 'node:crypto';
+
+const issuedAuthority = new WeakSet();
+const consumedAuthority = new WeakSet();
 
 export type CodexOwnerSpawnCapability = {
-  readonly [CAPABILITY_BRAND]: true;
-  readonly issuedAtMs: number;
   readonly nonce: string;
-  consumed: boolean;
 };
 
 export const OWNER_PROBE_CONFIRMATION_VALUE =
@@ -23,28 +23,25 @@ export const issueOwnerSpawnCapability = (input: {
   | { readonly ok: false; readonly reason: string } => {
   if (input.confirmation !== OWNER_PROBE_CONFIRMATION_VALUE)
     return { ok: false, reason: 'owner confirmation missing or incorrect' };
-  return {
-    ok: true,
-    capability: {
-      [CAPABILITY_BRAND]: true,
-      issuedAtMs: Date.now(),
-      nonce: `owner-probe-${String(Date.now())}-${Math.random().toString(16).slice(2)}`,
-      consumed: false,
-    },
-  };
+  const capability = Object.freeze({
+    nonce: `owner-probe-${randomBytes(16).toString('hex')}`,
+  });
+  issuedAuthority.add(capability);
+  return { ok: true, capability };
 };
 
 export const isOwnerSpawnCapability = (value: unknown): value is CodexOwnerSpawnCapability => {
   if (value === null || typeof value !== 'object') return false;
-  return (value as { [CAPABILITY_BRAND]?: unknown })[CAPABILITY_BRAND] === true;
+  return issuedAuthority.has(value);
 };
 
 export const consumeOwnerSpawnCapability = (
   capability: CodexOwnerSpawnCapability,
 ): { readonly ok: true } | { readonly ok: false; readonly reason: string } => {
-  if (!isOwnerSpawnCapability(capability))
+  if (!issuedAuthority.has(capability))
     return { ok: false, reason: 'invalid owner spawn capability' };
-  if (capability.consumed) return { ok: false, reason: 'owner spawn capability already consumed' };
-  capability.consumed = true;
+  if (consumedAuthority.has(capability))
+    return { ok: false, reason: 'owner spawn capability already consumed' };
+  consumedAuthority.add(capability);
   return { ok: true };
 };

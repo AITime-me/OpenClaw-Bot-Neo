@@ -8,8 +8,7 @@
  * Plus pin/home env vars for live spawn.
  *
  * Does not run automatically. Does not read credential file contents into Neo logs.
- * LIVE_PROBE_STATUS remains NOT_RUN unless a real pinned binary is provided and exits
- * with a classified outcome (this Build still does not execute a live model call in CI).
+ * Confirmation always invokes the runner; status is EXECUTED_PASS / EXECUTED_FAIL after entry.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';

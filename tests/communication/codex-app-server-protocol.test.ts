@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  APPROVED_MODEL_PROVIDER,
   FIXED_PROBE_PROMPT,
   decodeAccountReadResult,
+  decodeConfigPreflight,
   decodeConfigReadResult,
   decodeModelListResult,
   decodeRateLimitsReadResult,
   isExactOkTrueOutput,
+  jsonRpcIdsEqual,
   parseJsonlFrame,
   serializeRequest,
 } from '../../src/communication/adapters/codex-app-server/codex-app-server-protocol.js';
@@ -29,6 +32,12 @@ describe('codex-app-server protocol', () => {
     const both = parseJsonlFrame('{"id":1,"result":{},"error":{"message":"x"}}');
     expect(both.kind).toBe('malformed');
     expect(parseJsonlFrame('not-json').kind).toBe('malformed');
+  });
+
+  it('distinguishes numeric and string response ids', () => {
+    expect(jsonRpcIdsEqual(1, 1)).toBe(true);
+    expect(jsonRpcIdsEqual('1', '1')).toBe(true);
+    expect(jsonRpcIdsEqual(1, '1')).toBe(false);
   });
 
   it('decodes official nested account/config/quota/model shapes', () => {
@@ -66,6 +75,33 @@ describe('codex-app-server protocol', () => {
     ).toEqual({ kind: 'ok', modelId: 'm' });
     expect(decodeModelListResult({ models: [{ id: 'm', textCapable: true }] }).kind).toBe(
       'malformed',
+    );
+  });
+
+  it('requires full config allowlist and approved provider', () => {
+    const okConfig = {
+      cli_auth_credentials_store: 'file',
+      forced_login_method: 'chatgpt',
+      model_provider: APPROVED_MODEL_PROVIDER,
+      model: 'gpt-probe',
+      approval_policy: 'never',
+      sandbox: 'readOnly',
+      web: false,
+      shell: false,
+      hooks: false,
+      search: false,
+      apps: { _default: { enabled: false } },
+      mcpServers: {},
+    };
+    expect(decodeConfigPreflight(okConfig, null).kind).toBe('ok');
+    expect(
+      decodeConfigPreflight({ ...okConfig, experimentalAgenticSurface: true }, null).kind,
+    ).toBe('policy-rejected');
+    expect(
+      decodeConfigPreflight({ ...okConfig, cli_auth_credentials_store: 'keyring' }, null).kind,
+    ).toBe('policy-rejected');
+    expect(decodeConfigPreflight({ ...okConfig, model_provider: 'azure' }, null).kind).toBe(
+      'policy-rejected',
     );
   });
 

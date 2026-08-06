@@ -11,10 +11,12 @@ export type FakeCodexAppServerScenario =
   | 'account-null'
   | 'non-chatgpt-auth'
   | 'effective-config-violation'
+  | 'unknown-config-key'
   | 'quota-exhausted'
   | 'empty-models'
   | 'multiple-models'
   | 'unsupported-models'
+  | 'wrong-model-provider'
   | 'model-rerouted'
   | 'abort-before-dispatch'
   | 'initialize-timeout'
@@ -46,12 +48,19 @@ export type FakeCodexAppServerScenario =
   | 'turn-interrupted'
   | 'wrong-turn-id'
   | 'wrong-thread-id'
+  | 'wrong-event-order'
   | 'stdin-write-fail'
-  | 'unknown-response-id';
+  | 'delayed-stdin-write'
+  | 'unknown-response-id'
+  | 'typed-id-mismatch'
+  | 'protocol-failure-cleanup';
 
 type FakeController = {
   readonly scenario: FakeCodexAppServerScenario;
   readonly rpcTrace: string[];
+  readonly interruptParams: unknown[];
+  readonly turnStartParams: unknown[];
+  readonly threadStartParams: unknown[];
   triggerAbort(): void;
   forceExit(code?: number): void;
 };
@@ -69,10 +78,16 @@ const happyAccount = {
 
 const happyConfig = {
   config: {
+    cli_auth_credentials_store: 'file',
+    forced_login_method: 'chatgpt',
+    model_provider: 'openai',
     model: 'gpt-probe',
+    approval_policy: 'never',
+    sandbox: 'readOnly',
     mcpServers: {},
     web: false,
     shell: false,
+    search: false,
     apps: { _default: { enabled: false } },
     hooks: false,
   },
@@ -121,7 +136,11 @@ export const createFakeCodexAppServerTransport = (
   const abort = new AbortController();
   let threadId: string | null = null;
   const rpcTrace: string[] = [];
+  const interruptParams: unknown[] = [];
+  const turnStartParams: unknown[] = [];
+  const threadStartParams: unknown[] = [];
   const stderrBuf = '';
+  let delayedWrite: Promise<void> | null = null;
 
   const emitLine = (line: string): void => {
     queueMicrotask(() => {
@@ -168,6 +187,10 @@ export const createFakeCodexAppServerTransport = (
       respond(999, { serverInfo: { name: 'fake' } });
       return;
     }
+    if (scenario === 'typed-id-mismatch' && method === 'initialize') {
+      respond(String(id), { serverInfo: { name: 'fake' } });
+      return;
+    }
     if (scenario === 'late-response' && method === 'config/read') {
       respond(1, { serverInfo: { name: 'late-initialize' } });
       respond(id, happyConfig);
@@ -196,6 +219,10 @@ export const createFakeCodexAppServerTransport = (
       forceExit(1);
       return;
     }
+    if (scenario === 'protocol-failure-cleanup' && method === 'initialize') {
+      respond(id, { serverInfo: { name: 'fake' } });
+      return;
+    }
 
     switch (method) {
       case 'initialize':
@@ -204,7 +231,21 @@ export const createFakeCodexAppServerTransport = (
       case 'config/read':
         if (scenario === 'effective-config-violation') {
           respond(id, {
-            config: { web: true, mcpServers: { x: {} }, apps: { demo: { enabled: true } } },
+            config: {
+              ...happyConfig.config,
+              web: true,
+              mcpServers: { x: {} },
+              apps: { demo: { enabled: true } },
+            },
+          });
+          return;
+        }
+        if (scenario === 'unknown-config-key') {
+          respond(id, {
+            config: {
+              ...happyConfig.config,
+              experimentalAgenticSurface: true,
+            },
           });
           return;
         }
@@ -280,22 +321,21 @@ export const createFakeCodexAppServerTransport = (
         respond(id, happyModels);
         return;
       case 'thread/start':
+        threadStartParams.push(params);
         threadId = 'thr_fake_1';
         respond(id, {
-          thread: { id: threadId, ephemeral: true, preview: '', createdAt: 1 },
+          thread: {
+            id: threadId,
+            ephemeral: true,
+            preview: '',
+            createdAt: 1,
+            modelProvider: scenario === 'wrong-model-provider' ? 'azure' : 'openai',
+          },
         });
         notify('thread/started', { thread: { id: threadId } });
-        if (scenario === 'cleanup-thread-no-dispatch') {
-          queueMicrotask(() => {
-            abort.abort();
-          });
-          return;
-        }
-        if (scenario === 'server-request-after-dispatch') {
-          // continue to turn/start
-        }
         return;
       case 'turn/start': {
+        turnStartParams.push(params);
         const input = (params as { input?: Array<{ text?: string }> }).input;
         const text = input?.[0]?.text ?? '';
         if (text !== FIXED_PROBE_PROMPT) {
@@ -303,9 +343,29 @@ export const createFakeCodexAppServerTransport = (
           return;
         }
         respond(id, { turn: { id: 'turn_1', status: 'inProgress', items: [] } });
+        if (scenario === 'wrong-event-order') {
+          notify('item/completed', {
+            item: { type: 'agentMessage', id: 'i1', text: '{"ok":true}' },
+            threadId,
+            turnId: 'turn_1',
+          });
+          notify('turn/completed', {
+            turn: { id: 'turn_1', status: 'completed', items: [] },
+            threadId,
+          });
+          return;
+        }
         notify('turn/started', {
           turn: { id: 'turn_1', status: 'inProgress', items: [] },
+          threadId,
         });
+        if (scenario === 'delayed-stdin-write') {
+          return;
+        }
+        if (scenario === 'protocol-failure-cleanup') {
+          emitLine('{broken-after-dispatch');
+          return;
+        }
         if (scenario === 'server-request-after-dispatch') {
           emitLine(
             JSON.stringify({
@@ -343,20 +403,34 @@ export const createFakeCodexAppServerTransport = (
           return;
         }
         if (scenario === 'forbidden-item-command') {
-          notify('item/started', { item: { type: 'commandExecution', id: 'i1' } });
+          notify('item/started', {
+            item: { type: 'commandExecution', id: 'i1' },
+            threadId,
+            turnId: 'turn_1',
+          });
           return;
         }
         if (scenario === 'forbidden-item-file') {
-          notify('item/completed', { item: { type: 'fileChange', id: 'i1', changes: [] } });
+          notify('item/completed', {
+            item: { type: 'fileChange', id: 'i1', changes: [] },
+            threadId,
+            turnId: 'turn_1',
+          });
           return;
         }
         if (scenario === 'forbidden-item-web') {
-          notify('item/completed', { item: { type: 'webSearch', id: 'i1', query: 'x' } });
+          notify('item/completed', {
+            item: { type: 'webSearch', id: 'i1', query: 'x' },
+            threadId,
+            turnId: 'turn_1',
+          });
           return;
         }
         if (scenario === 'forbidden-item-mcp') {
           notify('item/completed', {
             item: { type: 'mcpToolCall', id: 'i1', server: 's', tool: 't', status: 'completed' },
+            threadId,
+            turnId: 'turn_1',
           });
           return;
         }
@@ -375,6 +449,8 @@ export const createFakeCodexAppServerTransport = (
         if (scenario === 'invalid-output') {
           notify('item/completed', {
             item: { type: 'agentMessage', id: 'i1', text: '{"ok":false}' },
+            threadId,
+            turnId: 'turn_1',
           });
           notify('turn/completed', {
             turn: { id: 'turn_1', status: 'completed', items: [] },
@@ -385,6 +461,8 @@ export const createFakeCodexAppServerTransport = (
         if (scenario === 'turn-failed') {
           notify('item/completed', {
             item: { type: 'agentMessage', id: 'i1', text: '{"ok":true}' },
+            threadId,
+            turnId: 'turn_1',
           });
           notify('turn/completed', {
             turn: {
@@ -407,6 +485,8 @@ export const createFakeCodexAppServerTransport = (
         if (scenario === 'wrong-turn-id') {
           notify('item/completed', {
             item: { type: 'agentMessage', id: 'i1', text: '{"ok":true}' },
+            threadId,
+            turnId: 'turn_1',
           });
           notify('turn/completed', {
             turn: { id: 'turn_OTHER', status: 'completed', items: [] },
@@ -417,6 +497,8 @@ export const createFakeCodexAppServerTransport = (
         if (scenario === 'wrong-thread-id') {
           notify('item/completed', {
             item: { type: 'agentMessage', id: 'i1', text: '{"ok":true}' },
+            threadId,
+            turnId: 'turn_1',
           });
           notify('turn/completed', {
             turn: { id: 'turn_1', status: 'completed', items: [] },
@@ -426,6 +508,8 @@ export const createFakeCodexAppServerTransport = (
         }
         notify('item/completed', {
           item: { type: 'agentMessage', id: 'i1', text: '{"ok":true}' },
+          threadId,
+          turnId: 'turn_1',
         });
         notify('turn/completed', {
           turn: { id: 'turn_1', status: 'completed', items: [] },
@@ -434,6 +518,7 @@ export const createFakeCodexAppServerTransport = (
         return;
       }
       case 'turn/interrupt':
+        interruptParams.push(params);
         respond(id, {});
         return;
       case 'thread/unsubscribe':
@@ -448,22 +533,41 @@ export const createFakeCodexAppServerTransport = (
     writeLine(line) {
       if (scenario === 'stdin-write-fail')
         return Promise.reject(new Error('stdin-write-failed:test'));
+      if (scenario === 'cleanup-thread-no-dispatch' && line.includes('"method":"turn/start"')) {
+        queueMicrotask(() => {
+          abort.abort();
+        });
+        return Promise.reject(new Error('aborted'));
+      }
       if (exited || stdinClosed) return Promise.reject(new Error('stdin-closed'));
-      const frame = parseJsonlFrame(line);
-      if (frame.kind === 'notification') return Promise.resolve();
-      if (frame.kind === 'success' || frame.kind === 'failure') return Promise.resolve();
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(line);
-      } catch {
-        return Promise.resolve();
+
+      const run = (): void => {
+        const frame = parseJsonlFrame(line);
+        if (frame.kind === 'notification') return;
+        if (frame.kind === 'success' || frame.kind === 'failure') return;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(line);
+        } catch {
+          return;
+        }
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+        const record = parsed as Record<string, unknown>;
+        if (typeof record.method === 'string' && 'id' in record) {
+          handleRequest(record.method, record.id as JsonRpcId, record.params);
+        }
+      };
+
+      if (scenario === 'delayed-stdin-write' && line.includes('"turn/start"')) {
+        delayedWrite = new Promise((resolve) => {
+          setTimeout(() => {
+            run();
+            resolve();
+          }, 80);
+        });
+        return delayedWrite;
       }
-      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
-        return Promise.resolve();
-      const record = parsed as Record<string, unknown>;
-      if (typeof record.method === 'string' && 'id' in record) {
-        handleRequest(record.method, record.id as JsonRpcId, record.params);
-      }
+      run();
       return Promise.resolve();
     },
     onLine(handler) {
@@ -495,6 +599,9 @@ export const createFakeCodexAppServerTransport = (
     controller: {
       scenario,
       rpcTrace,
+      interruptParams,
+      turnStartParams,
+      threadStartParams,
       triggerAbort: () => {
         abort.abort();
       },

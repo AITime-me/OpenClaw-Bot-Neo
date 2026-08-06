@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import type { CodexAppServerChildEnvInput } from './codex-app-server-child-env.js';
@@ -39,6 +40,9 @@ const FORBIDDEN_ARGV_PATTERNS = [
   /--api-key\b/i,
 ] as const;
 
+/** Fixed version-command argv against the same pinned absolute executable (`shell: false`). */
+export const PINNED_VERSION_ARGV = Object.freeze(['--version'] as const);
+
 export const assertPinnedAbsolutePath = (absolutePath: string): PinVerificationResult => {
   if (!isAbsolute(absolutePath))
     return { ok: false, reason: 'executable absolutePath must be absolute' };
@@ -56,6 +60,38 @@ export const hashFileSha256 = (absolutePath: string): string => {
 export const readExecutableSizeBytes = (absolutePath: string): number => {
   const st = statSync(absolutePath);
   return st.size;
+};
+
+/**
+ * Read version from the pinned absolute executable with the fixed `--version` argv.
+ * Does not trust caller-supplied expected version strings as evidence.
+ */
+export const readPinnedExecutableVersion = (absolutePath: string): string => {
+  const pathCheck = assertPinnedAbsolutePath(absolutePath);
+  if (!pathCheck.ok) throw new Error(pathCheck.reason);
+  const result = spawnSync(absolutePath, [...PINNED_VERSION_ARGV], {
+    encoding: 'utf8',
+    shell: false,
+    timeout: 5_000,
+    env: {
+      ...(process.platform === 'win32'
+        ? {
+            SystemRoot: process.env.SystemRoot,
+            SYSTEMROOT: process.env.SYSTEMROOT,
+            PATH: process.env.PATH,
+          }
+        : {}),
+    },
+  });
+  if (result.error) throw new Error(`version-command-failed:${result.error.message}`);
+  if (result.status !== 0) throw new Error(`version-command-exit:${String(result.status)}`);
+  const out = typeof result.stdout === 'string' ? result.stdout : '';
+  const errText = typeof result.stderr === 'string' ? result.stderr : '';
+  const text = `${out}${errText}`.trim();
+  if (text.length === 0) throw new Error('version-command-empty');
+  const firstLine = text.split(/\r?\n/, 1)[0]?.trim() ?? '';
+  if (firstLine.length === 0) throw new Error('version-command-empty');
+  return firstLine;
 };
 
 /** Exact stdio launch argv only: `app-server` or `app-server --listen stdio://`. */
@@ -110,7 +146,15 @@ export const verifyPinImmediatelyBeforeSpawn = (
   const actualHash = hashFileSha256(pin.absolutePath);
   if (actualHash.toLowerCase() !== pin.sha256.toLowerCase())
     return { ok: false, reason: 'executable sha256 mismatch immediately before spawn' };
-  const actualVersion = options.readVersion(pin.absolutePath);
+  let actualVersion: string;
+  try {
+    actualVersion = options.readVersion(pin.absolutePath);
+  } catch (error) {
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : 'version-command-failed',
+    };
+  }
   if (actualVersion !== pin.version)
     return { ok: false, reason: 'executable version mismatch immediately before spawn' };
   return { ok: true };

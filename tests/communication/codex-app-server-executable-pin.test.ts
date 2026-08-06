@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   assertPinnedAbsolutePath,
@@ -10,11 +11,18 @@ import {
   createSpawnSpec,
   hashFileSha256,
   readExecutableSizeBytes,
+  readPinnedExecutableVersion,
   verifyPinImmediatelyBeforeSpawn,
 } from '../../src/communication/adapters/codex-app-server/codex-app-server-executable-pin.js';
-import { buildIsolatedProbeContour } from '../../src/communication/adapters/codex-app-server/codex-app-server-isolation.js';
 import {
+  buildIsolatedProbeContour,
+  readableRootsForProbe,
+  validateModelReadableRoots,
+} from '../../src/communication/adapters/codex-app-server/codex-app-server-isolation.js';
+import {
+  consumeOwnerSpawnCapability,
   issueOwnerSpawnCapability,
+  isOwnerSpawnCapability,
   OWNER_PROBE_CONFIRMATION_VALUE,
 } from '../../src/communication/adapters/codex-app-server/codex-app-server-owner-capability.js';
 import { createChildProcessTransport } from '../../src/communication/adapters/codex-app-server/codex-app-server-client.js';
@@ -88,10 +96,26 @@ describe('codex-app-server executable pin', () => {
     };
     expect(verifyPinImmediatelyBeforeSpawn(pin, { readVersion: () => '1.2.3' }).ok).toBe(false);
   });
+
+  it('detects version mismatch from a real fake executable via fixed --version command', () => {
+    const absolutePath = process.execPath;
+    const actual = readPinnedExecutableVersion(absolutePath);
+    expect(actual.length).toBeGreaterThan(0);
+    const pin = {
+      absolutePath,
+      version: `${actual}-mismatch`,
+      sha256: hashFileSha256(absolutePath),
+      sizeBytes: readExecutableSizeBytes(absolutePath),
+      argv: ['app-server'] as const,
+    };
+    expect(
+      verifyPinImmediatelyBeforeSpawn(pin, { readVersion: readPinnedExecutableVersion }).ok,
+    ).toBe(false);
+  });
 });
 
 describe('codex-app-server isolation', () => {
-  it('rejects repository cwd and shared developer homes', () => {
+  it('rejects repository cwd and shared developer homes; readable roots are probe cwd only', () => {
     const badRepo = buildIsolatedProbeContour({
       codexHome: repoRoot,
       repositoryRoot: repoRoot,
@@ -104,6 +128,12 @@ describe('codex-app-server isolation', () => {
       repositoryRoot: repoRoot,
     });
     expect(okContour.ok).toBe(true);
+    if (!okContour.ok) return;
+    const roots = readableRootsForProbe(okContour.paths);
+    expect(roots).toEqual([okContour.paths.probeCwd]);
+    expect(roots).not.toContain(okContour.paths.codexHome);
+    expect(validateModelReadableRoots(roots, okContour.paths).ok).toBe(true);
+    expect(validateModelReadableRoots([okContour.paths.codexHome], okContour.paths).ok).toBe(false);
   });
 });
 
@@ -139,11 +169,16 @@ describe('codex-app-server owner gate', () => {
     expect(result.ok).toBe(false);
   });
 
-  it('positive confirmation issues capability; negative refuses', () => {
+  it('rejects capability clone/spread/reset and reuse', () => {
+    const issued = issueOwnerSpawnCapability({ confirmation: OWNER_PROBE_CONFIRMATION_VALUE });
+    expect(issued.ok).toBe(true);
+    if (!issued.ok) return;
+    expect(isOwnerSpawnCapability(issued.capability)).toBe(true);
+    expect(isOwnerSpawnCapability({ ...issued.capability })).toBe(false);
+    expect(isOwnerSpawnCapability(Object.assign({}, issued.capability))).toBe(false);
+    expect(consumeOwnerSpawnCapability(issued.capability).ok).toBe(true);
+    expect(consumeOwnerSpawnCapability(issued.capability).ok).toBe(false);
     expect(issueOwnerSpawnCapability({ confirmation: 'nope' }).ok).toBe(false);
-    expect(issueOwnerSpawnCapability({ confirmation: OWNER_PROBE_CONFIRMATION_VALUE }).ok).toBe(
-      true,
-    );
   });
 
   it('manual script negative path creates no process', () => {
@@ -157,7 +192,7 @@ describe('codex-app-server owner gate', () => {
     expect(result.stderr).toContain('REFUSED');
   });
 
-  it('manual script positive path invokes runner without live Codex when pin absent', () => {
+  it('manual script positive path invokes runner and reports EXECUTED_FAIL without pin', () => {
     const script = join(repoRoot, 'scripts/manual/codex-app-server-owner-probe.mjs');
     const result = spawnSync(process.execPath, [script], {
       env: {
@@ -167,8 +202,23 @@ describe('codex-app-server owner gate', () => {
       encoding: 'utf8',
       shell: false,
     });
-    expect(result.status).toBe(0);
-    expect(`${result.stderr}${result.stdout}`).toContain('LIVE_PROBE_STATUS: NOT_RUN');
+    expect(result.status).toBe(1);
+    const output = `${result.stderr}${result.stdout}`;
+    expect(output).toContain('LIVE_PROBE_STATUS: EXECUTED_FAIL');
+    expect(output).not.toContain('LIVE_PROBE_STATUS: NOT_RUN');
+    expect(output).toContain('Owner confirmation accepted');
+  });
+
+  it('runner derives repository root from script location and ignores env override', () => {
+    const runner = join(repoRoot, 'scripts/manual/codex-app-server-owner-probe-runner.mjs');
+    const source = readFileSync(runner, 'utf8');
+    expect(source).toContain("resolve(dirname(fileURLToPath(import.meta.url)), '../..')");
+    expect(source).not.toContain('CODEX_PROBE_REPO_ROOT');
+    expect(source).toContain('readPinnedExecutableVersion');
+    expect(source).toContain('EXECUTED_PASS');
+    expect(source).toContain('EXECUTED_FAIL');
+    void dirname;
+    void fileURLToPath;
   });
 
   it('createChildProcessTransport requires genuine owner capability', () => {
@@ -197,7 +247,7 @@ describe('codex-app-server owner gate', () => {
       },
       cwd: isolated.paths.probeCwd,
       readVersion: () => '1',
-      ownerCapability: { issuedAtMs: 1, nonce: 'x', consumed: false } as never,
+      ownerCapability: { nonce: 'forged' },
     });
     expect(denied.ok).toBe(false);
   });

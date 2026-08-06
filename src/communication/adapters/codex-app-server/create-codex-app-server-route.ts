@@ -7,7 +7,11 @@ import {
   type CapabilityProbeOptions,
 } from './codex-app-server-capability-probe.js';
 import type { CodexAppServerTransport } from './codex-app-server-client.js';
-import { buildIsolatedProbeContour, readableRootsForProbe } from './codex-app-server-isolation.js';
+import {
+  buildIsolatedProbeContour,
+  readableRootsForProbe,
+  validateModelReadableRoots,
+} from './codex-app-server-isolation.js';
 import type { CodexOwnerSpawnCapability } from './codex-app-server-owner-capability.js';
 
 export type CodexAppServerRoute = {
@@ -19,6 +23,7 @@ export type CodexAppServerRoute = {
 /**
  * Package-private probe-only route factory. Not wired to durable 3.7D, channel adapters, or production.
  * Live spawn is impossible without an owner capability passed to runCapabilityProbe / llm deps.
+ * Does not import or expose issueOwnerSpawnCapability.
  */
 export const createCodexAppServerRoute = (
   config: CodexAppServerRouteConfig,
@@ -34,11 +39,16 @@ export const createCodexAppServerRoute = (
     ...(config.tempDir !== undefined ? { tempDir: config.tempDir } : {}),
     ...(config.probeCwd !== undefined ? { probeCwd: config.probeCwd } : {}),
   });
+  const readableRoots =
+    isolated.ok &&
+    validateModelReadableRoots(readableRootsForProbe(isolated.paths), isolated.paths).ok
+      ? readableRootsForProbe(isolated.paths)
+      : undefined;
 
   const llm = createCodexAppServerLlmCompletion({
     ...(options?.transport !== undefined ? { transport: options.transport } : {}),
     ...(config.timeouts !== undefined ? { timeouts: config.timeouts } : {}),
-    ...(isolated.ok
+    ...(isolated.ok && readableRoots !== undefined
       ? {
           pin: config.pin,
           envInput: childEnvFromIsolation({
@@ -50,7 +60,7 @@ export const createCodexAppServerRoute = (
             ...(config.tz !== undefined ? { tz: config.tz } : {}),
           }),
           cwd: isolated.paths.probeCwd,
-          readableRoots: readableRootsForProbe(isolated.paths),
+          readableRoots,
           readVersion: config.readVersion,
         }
       : {}),

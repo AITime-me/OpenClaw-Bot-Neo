@@ -15,9 +15,11 @@ import {
   type CodexOwnerSpawnCapability,
 } from './codex-app-server-owner-capability.js';
 import {
+  APPROVED_MODEL_PROVIDER,
   FIXED_PROBE_PROMPT,
   buildProbeSandboxPolicy,
   decodeAccountReadResult,
+  decodeConfigPreflight,
   decodeConfigReadResult,
   decodeConfigRequirementsResult,
   decodeModelListResult,
@@ -26,19 +28,25 @@ import {
   extractAgentMessageText,
   extractItemType,
   extractThreadId,
+  extractThreadModelProvider,
   extractTurnId,
-  hasEffectiveConfigViolation,
   isAllowedItemType,
   isAllowedServerNotification,
   isExactOkTrueOutput,
   isForbiddenItemType,
   isForbiddenNotificationMethod,
+  jsonRpcIdsEqual,
   parseJsonlFrame,
   serializeNotification,
   serializeRequest,
   type JsonRpcId,
   type ParsedFrame,
 } from './codex-app-server-protocol.js';
+import {
+  pathEquals,
+  validateModelReadableRoots,
+  type IsolationPaths,
+} from './codex-app-server-isolation.js';
 
 export type CodexAppServerTransport = {
   writeLine(line: string): Promise<void>;
@@ -59,7 +67,11 @@ type CleanupState =
   | 'child-already-crashed-exited';
 
 type ProbeInternalResult =
-  | { readonly kind: 'result'; readonly value: LlmCompletionResult }
+  | {
+      readonly kind: 'result';
+      readonly value: LlmCompletionResult;
+      readonly cleanupTrace: readonly string[];
+    }
   | { readonly kind: 'config-error'; readonly reason: string };
 
 const STDERR_CAP = 4_096;
@@ -187,7 +199,7 @@ export const createChildProcessTransport = (
 };
 
 type Pending = {
-  readonly id: string;
+  readonly id: JsonRpcId;
   readonly resolve: (frame: ParsedFrame) => void;
   readonly reject: (error: Error) => void;
   readonly timer: NodeJS.Timeout;
@@ -199,6 +211,33 @@ export type RunCapabilityProbeInput = {
   readonly abortSignal?: AbortSignal | null;
   readonly probeCwd: string;
   readonly readableRoots: readonly string[];
+  readonly isolationPaths?: IsolationPaths;
+};
+
+const notificationThreadId = (params: unknown): string | null => {
+  if (params === null || typeof params !== 'object' || Array.isArray(params)) return null;
+  const record = params as Record<string, unknown>;
+  if (typeof record.threadId === 'string') return record.threadId;
+  if (
+    record.thread !== null &&
+    typeof record.thread === 'object' &&
+    !Array.isArray(record.thread)
+  ) {
+    const id = (record.thread as Record<string, unknown>).id;
+    return typeof id === 'string' ? id : null;
+  }
+  return null;
+};
+
+const notificationTurnId = (params: unknown): string | null => {
+  if (params === null || typeof params !== 'object' || Array.isArray(params)) return null;
+  const record = params as Record<string, unknown>;
+  if (typeof record.turnId === 'string') return record.turnId;
+  if (record.turn !== null && typeof record.turn === 'object' && !Array.isArray(record.turn)) {
+    const id = (record.turn as Record<string, unknown>).id;
+    return typeof id === 'string' ? id : null;
+  }
+  return null;
 };
 
 export const runCapabilityProbeOnTransport = async (
@@ -209,15 +248,26 @@ export const runCapabilityProbeOnTransport = async (
   const timeouts = validated.timeouts;
   const transport = input.transport;
 
+  if (input.isolationPaths !== undefined) {
+    const rootsCheck = validateModelReadableRoots(input.readableRoots, input.isolationPaths);
+    if (!rootsCheck.ok) return { kind: 'config-error', reason: rootsCheck.reason };
+    if (!pathEquals(input.probeCwd, input.isolationPaths.probeCwd))
+      return { kind: 'config-error', reason: 'probe cwd must match isolated contour' };
+  }
+  if (input.readableRoots.length !== 1 || input.readableRoots[0] !== input.probeCwd)
+    return { kind: 'config-error', reason: 'readable roots must be exactly probe cwd' };
+
   let nextId = 1;
   let threadId: string | null = null;
   let turnId: string | null = null;
-  const dispatchState = { dispatched: false, turnStartWritten: false };
+  const dispatchState = { dispatched: false };
   let classified: LlmCompletionResult | null = null;
-  let pending: Pending | null = null;
+  let outcomeLatched = false;
+  const pendingRef: { current: Pending | null } = { current: null };
   const notifications: ParsedFrame[] = [];
   let notifyWaiters: Array<() => void> = [];
   const protocolFailure: { current: Error | null } = { current: null };
+  const cleanupTrace: string[] = [];
 
   const wake = (): void => {
     const waiters = notifyWaiters;
@@ -228,19 +278,20 @@ export const runCapabilityProbeOnTransport = async (
   const failProtocol = (reason: string): void => {
     if (protocolFailure.current !== null) return;
     protocolFailure.current = new Error(`protocol:${reason}`);
-    if (pending !== null) {
-      clearTimeout(pending.timer);
-      pending.reject(protocolFailure.current);
-      pending = null;
+    if (pendingRef.current !== null) {
+      clearTimeout(pendingRef.current.timer);
+      pendingRef.current.reject(protocolFailure.current);
+      pendingRef.current = null;
     }
     wake();
   };
 
   const onAbort = (): void => {
-    if (pending !== null) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error('aborted'));
-      pending = null;
+    if (pendingRef.current !== null) {
+      clearTimeout(pendingRef.current.timer);
+      const waiter = pendingRef.current;
+      pendingRef.current = null;
+      waiter.reject(new Error('aborted'));
     }
     wake();
   };
@@ -261,22 +312,20 @@ export const runCapabilityProbeOnTransport = async (
       return;
     }
     if (frame.kind === 'success' || frame.kind === 'failure') {
-      const key = String(frame.value.id);
-      if (pending === null) {
+      if (pendingRef.current === null) {
         failProtocol('late-or-unknown-response');
         return;
       }
-      if (pending.id !== key) {
+      if (!jsonRpcIdsEqual(pendingRef.current.id, frame.value.id)) {
         failProtocol('duplicate-or-mismatched-response-id');
         return;
       }
-      clearTimeout(pending.timer);
-      const waiter = pending;
-      pending = null;
+      clearTimeout(pendingRef.current.timer);
+      const waiter = pendingRef.current;
+      pendingRef.current = null;
       waiter.resolve(frame);
       return;
     }
-    // Remaining frames are notifications (malformed/server-request handled above).
     if (isForbiddenNotificationMethod(frame.value.method)) {
       failProtocol(`forbidden-notification:${frame.value.method}`);
     } else if (
@@ -291,43 +340,104 @@ export const runCapabilityProbeOnTransport = async (
 
   transport.onExit(() => {
     wake();
-    if (pending !== null) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error('child-exited'));
-      pending = null;
+    if (pendingRef.current !== null) {
+      clearTimeout(pendingRef.current.timer);
+      pendingRef.current.reject(new Error('child-exited'));
+      pendingRef.current = null;
     }
   });
 
+  const clearPendingIfMatch = (expectedId: JsonRpcId): void => {
+    const current: Pending | null = pendingRef.current;
+    if (current === null) return;
+    if (!jsonRpcIdsEqual(current.id, expectedId)) return;
+    clearTimeout(current.timer);
+    pendingRef.current = null;
+  };
+
+  const writeLineAbortAware = async (line: string): Promise<void> => {
+    if (input.abortSignal?.aborted) throw new Error('aborted');
+    const abortFlag = { aborted: false };
+    const onWriteAbort = (): void => {
+      abortFlag.aborted = true;
+    };
+    input.abortSignal?.addEventListener('abort', onWriteAbort, { once: true });
+    try {
+      await transport.writeLine(line);
+    } finally {
+      input.abortSignal?.removeEventListener('abort', onWriteAbort);
+    }
+    if (abortFlag.aborted) throw new Error('aborted');
+  };
+
+  /** Normal request path — blocked once protocolFailure is latched. */
   const request = async (
     method: string,
     params: unknown,
     timeoutMs: number,
-    options?: { readonly markDispatchWrite?: boolean },
   ): Promise<ParsedFrame> => {
     if (protocolFailure.current !== null) throw protocolFailure.current;
-    if (pending !== null) throw new Error('protocol:overlapping-request');
+    if (pendingRef.current !== null) throw new Error('protocol:overlapping-request');
+    if (input.abortSignal?.aborted) throw new Error('aborted');
     const id: JsonRpcId = nextId;
     nextId += 1;
-    const idKey = String(id);
-    return await new Promise<ParsedFrame>((resolve, reject) => {
+    const line = serializeRequest({ method, id, params });
+    const response = new Promise<ParsedFrame>((resolve, reject) => {
       const timer = setTimeout(() => {
-        if (pending?.id === idKey) pending = null;
+        if (pendingRef.current !== null && jsonRpcIdsEqual(pendingRef.current.id, id))
+          pendingRef.current = null;
         reject(new Error('timeout'));
       }, timeoutMs);
-      pending = { id: idKey, resolve, reject, timer };
-      void (async () => {
-        try {
-          await transport.writeLine(serializeRequest({ method, id, params }));
-          if (options?.markDispatchWrite === true) {
-            dispatchState.turnStartWritten = true;
-            dispatchState.dispatched = true;
-          }
-        } catch (error) {
+      pendingRef.current = { id, resolve, reject, timer };
+    });
+    try {
+      await writeLineAbortAware(line);
+    } catch (error) {
+      clearPendingIfMatch(id);
+      throw error;
+    }
+    return await response;
+  };
+
+  /**
+   * Bounded best-effort cleanup RPC transport that still works after latched protocolFailure.
+   * Does not clear protocolFailure; impossible after child exit.
+   */
+  const cleanupRequest = async (
+    method: string,
+    params: unknown,
+    timeoutMs: number,
+  ): Promise<void> => {
+    if (transport.isExited()) return;
+    if (pendingRef.current !== null) {
+      clearTimeout(pendingRef.current.timer);
+      pendingRef.current = null;
+    }
+    const id: JsonRpcId = nextId;
+    nextId += 1;
+    try {
+      await transport.writeLine(serializeRequest({ method, id, params }));
+    } catch {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        if (pendingRef.current !== null && jsonRpcIdsEqual(pendingRef.current.id, id))
+          pendingRef.current = null;
+        resolve();
+      }, timeoutMs);
+      pendingRef.current = {
+        id,
+        resolve: () => {
           clearTimeout(timer);
-          pending = null;
-          reject(error instanceof Error ? error : new Error('stdin-write-failed'));
-        }
-      })();
+          resolve();
+        },
+        reject: () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        timer,
+      };
     });
   };
 
@@ -392,8 +502,6 @@ export const runCapabilityProbeOnTransport = async (
     await transport.awaitReaped(timeouts.reapBudgetMs);
   };
 
-  const cleanupTrace: string[] = [];
-
   const stateDependentCleanup = async (): Promise<void> => {
     const state = cleanupState();
     if (state === 'child-already-crashed-exited') {
@@ -408,54 +516,127 @@ export const runCapabilityProbeOnTransport = async (
       return;
     }
     if (state === 'thread-created-turn-not-dispatched') {
-      try {
+      if (threadId !== null) {
         cleanupTrace.push('thread/unsubscribe');
-        await request('thread/unsubscribe', { threadId }, timeouts.unsubscribeBudgetMs);
-      } catch {
-        /* best-effort */
+        await cleanupRequest('thread/unsubscribe', { threadId }, timeouts.unsubscribeBudgetMs);
       }
       cleanupTrace.push('close');
       await boundedClose();
       return;
     }
     const started = Date.now();
-    try {
-      if (Date.now() - started < timeouts.totalActiveCleanupBudgetMs) {
-        cleanupTrace.push('turn/interrupt');
-        await request(
-          'turn/interrupt',
-          { threadId, turnId },
-          Math.min(timeouts.interruptBudgetMs, timeouts.totalActiveCleanupBudgetMs),
-        );
-      }
-    } catch {
-      /* best-effort */
+    if (
+      threadId !== null &&
+      turnId !== null &&
+      Date.now() - started < timeouts.totalActiveCleanupBudgetMs
+    ) {
+      cleanupTrace.push('turn/interrupt');
+      await cleanupRequest(
+        'turn/interrupt',
+        { threadId, turnId },
+        Math.min(timeouts.interruptBudgetMs, timeouts.totalActiveCleanupBudgetMs),
+      );
     }
-    try {
-      if (Date.now() - started < timeouts.totalActiveCleanupBudgetMs) {
-        cleanupTrace.push('thread/unsubscribe');
-        await request(
-          'thread/unsubscribe',
-          { threadId },
-          Math.min(timeouts.unsubscribeBudgetMs, timeouts.totalActiveCleanupBudgetMs),
-        );
-      }
-    } catch {
-      /* best-effort */
+    if (threadId !== null && Date.now() - started < timeouts.totalActiveCleanupBudgetMs) {
+      cleanupTrace.push('thread/unsubscribe');
+      await cleanupRequest(
+        'thread/unsubscribe',
+        { threadId },
+        Math.min(timeouts.unsubscribeBudgetMs, timeouts.totalActiveCleanupBudgetMs),
+      );
     }
     cleanupTrace.push('close');
     await boundedClose();
   };
 
   const finish = async (result: LlmCompletionResult): Promise<ProbeInternalResult> => {
-    if (classified === null) classified = result;
+    if (!outcomeLatched) {
+      classified = result;
+      outcomeLatched = true;
+    }
     await stateDependentCleanup();
     input.abortSignal?.removeEventListener('abort', onAbort);
-    return { kind: 'result', value: classified };
+    return {
+      kind: 'result',
+      value: classified ?? result,
+      cleanupTrace: [...cleanupTrace],
+    };
   };
 
-  // Expose cleanup trace for tests via transport stderr buffer marker (not logged).
-  void cleanupTrace;
+  const dispatchTurnStart = async (): Promise<ParsedFrame> => {
+    if (threadId === null) throw new Error('protocol:missing-thread');
+    if (protocolFailure.current !== null) throw protocolFailure.current;
+    if (pendingRef.current !== null) throw new Error('protocol:overlapping-request');
+    const id: JsonRpcId = nextId;
+    nextId += 1;
+    const params = {
+      threadId,
+      input: [{ type: 'text', text: FIXED_PROBE_PROMPT }],
+      sandboxPolicy: buildProbeSandboxPolicy({ readableRoots: input.readableRoots }),
+    };
+    const line = serializeRequest({ method: 'turn/start', id, params });
+    const deadline = Date.now() + timeouts.turnTimeoutMs;
+
+    type WriteOutcome = 'proven' | 'failed' | 'aborted';
+    const writeState: { outcome: WriteOutcome | null } = { outcome: null };
+
+    // Register waiter before write so microtask responses cannot race as late/unknown.
+    const response = new Promise<ParsedFrame>((resolve, reject) => {
+      const timer = setTimeout(
+        () => {
+          if (pendingRef.current !== null && jsonRpcIdsEqual(pendingRef.current.id, id))
+            pendingRef.current = null;
+          reject(new Error('timeout'));
+        },
+        Math.max(1, deadline - Date.now()),
+      );
+      pendingRef.current = { id, resolve, reject, timer };
+    });
+    // Prevent unhandled rejection if abort rejects before await.
+    void response.catch(() => undefined);
+
+    const writePromise = transport.writeLine(line).then(
+      () => {
+        writeState.outcome = 'proven';
+        // Proven full-frame write → irreversibly post-dispatch.
+        dispatchState.dispatched = true;
+      },
+      (error: unknown) => {
+        writeState.outcome = input.abortSignal?.aborted ? 'aborted' : 'failed';
+        throw error instanceof Error ? error : new Error('stdin-write-failed');
+      },
+    );
+
+    while (writeState.outcome === null) {
+      if (input.abortSignal?.aborted || Date.now() >= deadline) {
+        try {
+          await writePromise;
+        } catch {
+          /* settled below */
+        }
+        break;
+      }
+      await Promise.race([writePromise.catch(() => undefined), sleep(5)]);
+    }
+    if (writeState.outcome === null) {
+      try {
+        await writePromise;
+      } catch {
+        /* settled */
+      }
+    }
+
+    if (writeState.outcome !== 'proven') {
+      clearPendingIfMatch(id);
+      if (writeState.outcome === 'aborted' || Boolean(input.abortSignal?.aborted))
+        throw new Error('aborted');
+      if (writeState.outcome === 'failed') throw new Error('stdin-write-failed');
+      throw new Error('timeout');
+    }
+
+    if (outcomeLatched) throw new Error('outcome-latched');
+    return await response;
+  };
 
   try {
     if (aborted()) return await finish(known('cancelled-before-invocation'));
@@ -470,7 +651,7 @@ export const runCapabilityProbeOnTransport = async (
     if (init.kind !== 'success') return await finish(known('provider-unavailable'));
     if (aborted()) return await finish(known('cancelled-before-invocation'));
 
-    await transport.writeLine(serializeNotification({ method: 'initialized', params: {} }));
+    await writeLineAbortAware(serializeNotification({ method: 'initialized', params: {} }));
 
     const configRead = await request('config/read', {}, timeouts.preflightTimeoutMs);
     if (configRead.kind !== 'success') return await finish(known('provider-unavailable'));
@@ -482,8 +663,9 @@ export const runCapabilityProbeOnTransport = async (
     const reqDecoded = decodeConfigRequirementsResult(configReq.value.result);
     if (reqDecoded.kind === 'malformed') return await finish(known('provider-unavailable'));
 
-    if (hasEffectiveConfigViolation(configDecoded.config, reqDecoded.requirements))
-      return await finish(known('policy-rejected'));
+    const preflight = decodeConfigPreflight(configDecoded.config, reqDecoded.requirements);
+    if (preflight.kind === 'malformed') return await finish(known('provider-unavailable'));
+    if (preflight.kind === 'policy-rejected') return await finish(known('policy-rejected'));
     if (aborted()) return await finish(known('cancelled-before-invocation'));
 
     const account = await request(
@@ -523,7 +705,6 @@ export const runCapabilityProbeOnTransport = async (
         ephemeral: true,
         approvalPolicy: 'never',
         sandbox: 'readOnly',
-        sandboxPolicy: buildProbeSandboxPolicy({ readableRoots: input.readableRoots }),
         cwd: input.probeCwd,
         model: modelDecoded.modelId,
       },
@@ -532,27 +713,43 @@ export const runCapabilityProbeOnTransport = async (
     if (thread.kind !== 'success') return await finish(known('provider-unavailable'));
     threadId = extractThreadId(thread.value.result);
     if (threadId === null) return await finish(known('provider-unavailable'));
+    const modelProvider = extractThreadModelProvider(thread.value.result);
+    if (modelProvider !== APPROVED_MODEL_PROVIDER) return await finish(known('policy-rejected'));
+
+    try {
+      await waitNotification(
+        (frame) =>
+          frame.kind === 'notification' &&
+          frame.value.method === 'thread/started' &&
+          notificationThreadId(frame.value.params) === threadId,
+        timeouts.threadStartTimeoutMs,
+      );
+    } catch {
+      if (protocolFailure.current !== null) {
+        const failureMessage = protocolFailure.current.message;
+        if (
+          failureMessage.includes('server-request') ||
+          failureMessage.includes('forbidden-notification')
+        )
+          return await finish(known('policy-rejected'));
+        return await finish(known('provider-unavailable'));
+      }
+      if (aborted()) return await finish(known('cancelled-before-invocation'));
+      return await finish(known('provider-unavailable'));
+    }
     if (aborted()) return await finish(known('cancelled-before-invocation'));
 
     let turnResponse: ParsedFrame;
     try {
-      turnResponse = await request(
-        'turn/start',
-        {
-          threadId,
-          input: [{ type: 'text', text: FIXED_PROBE_PROMPT }],
-        },
-        timeouts.turnTimeoutMs,
-        { markDispatchWrite: true },
-      );
+      turnResponse = await dispatchTurnStart();
     } catch (error) {
-      if (!dispatchState.turnStartWritten) {
-        if (aborted()) return await finish(known('cancelled-before-invocation'));
+      if (!dispatchState.dispatched) {
+        if (aborted() || (error instanceof Error && error.message === 'aborted'))
+          return await finish(known('cancelled-before-invocation'));
         if (error instanceof Error && error.message === 'timeout')
           return await finish(known('known-timeout'));
         return await finish(known('provider-unavailable'));
       }
-      if (aborted()) return await finish(known('outcome-unknown'));
       return await finish(known('outcome-unknown'));
     }
 
@@ -560,16 +757,40 @@ export const runCapabilityProbeOnTransport = async (
     turnId = extractTurnId(turnResponse.value.result);
     if (turnId === null) return await finish(known('outcome-unknown'));
 
+    try {
+      await waitNotification(
+        (frame) =>
+          frame.kind === 'notification' &&
+          frame.value.method === 'turn/started' &&
+          notificationTurnId(frame.value.params) === turnId &&
+          (notificationThreadId(frame.value.params) === null ||
+            notificationThreadId(frame.value.params) === threadId),
+        timeouts.turnTimeoutMs,
+      );
+    } catch {
+      if (protocolFailure.current !== null) {
+        const failureMessage = protocolFailure.current.message;
+        if (
+          failureMessage.includes('server-request') ||
+          failureMessage.includes('forbidden-notification') ||
+          failureMessage.includes('unknown-notification')
+        )
+          return await finish(known('policy-rejected'));
+        return await finish(known('outcome-unknown'));
+      }
+      return await finish(known('outcome-unknown'));
+    }
+
     const deadline = Date.now() + timeouts.turnTimeoutMs;
     let agentText: string | null = null;
     while (Date.now() < deadline) {
       if (protocolFailure.current !== null) {
         const failureMessage = protocolFailure.current.message;
-        if (failureMessage.includes('server-request'))
-          return await finish(known('policy-rejected'));
-        if (failureMessage.includes('forbidden-notification:model/rerouted'))
-          return await finish(known('policy-rejected'));
-        if (failureMessage.includes('forbidden-notification'))
+        if (
+          failureMessage.includes('server-request') ||
+          failureMessage.includes('forbidden-notification') ||
+          failureMessage.includes('unknown-notification')
+        )
           return await finish(known('policy-rejected'));
         return await finish(known('outcome-unknown'));
       }
@@ -592,6 +813,12 @@ export const runCapabilityProbeOnTransport = async (
         if (method === 'model/rerouted' || isForbiddenNotificationMethod(method))
           return await finish(known('policy-rejected'));
         if (method === 'item/started' || method === 'item/completed') {
+          const itemThread = notificationThreadId(frame.value.params);
+          const itemTurn = notificationTurnId(frame.value.params);
+          if (itemThread !== null && itemThread !== threadId)
+            return await finish(known('outcome-unknown'));
+          if (itemTurn !== null && itemTurn !== turnId)
+            return await finish(known('outcome-unknown'));
           const itemType = extractItemType(frame.value.params);
           if (itemType === null) return await finish(known('outcome-unknown'));
           if (isForbiddenItemType(itemType) || !isAllowedItemType(itemType))
@@ -623,7 +850,10 @@ export const runCapabilityProbeOnTransport = async (
   } catch (error) {
     if (protocolFailure.current !== null && !dispatchState.dispatched) {
       const failureMessage = protocolFailure.current.message;
-      if (failureMessage.includes('forbidden-notification'))
+      if (
+        failureMessage.includes('forbidden-notification') ||
+        failureMessage.includes('server-request')
+      )
         return await finish(known('policy-rejected'));
       return await finish(known('provider-unavailable'));
     }
@@ -633,8 +863,14 @@ export const runCapabilityProbeOnTransport = async (
         return await finish(known('known-timeout'));
       if (error instanceof Error && error.message === 'aborted')
         return await finish(known('cancelled-before-invocation'));
-      if (error instanceof Error && error.message.startsWith('protocol:'))
+      if (error instanceof Error && error.message.startsWith('protocol:')) {
+        if (
+          error.message.includes('forbidden-notification') ||
+          error.message.includes('server-request')
+        )
+          return await finish(known('policy-rejected'));
         return await finish(known('provider-unavailable'));
+      }
       if (error instanceof Error && error.message === 'child-exited')
         return await finish(known('provider-unavailable'));
       return await finish(known('provider-unavailable'));
@@ -643,5 +879,5 @@ export const runCapabilityProbeOnTransport = async (
   }
 };
 
-/** Test helper: last cleanup RPC labels when using instrumented fake transports. */
+/** Test helper type for cleanup RPC labels. */
 export type CleanupTraceSink = { readonly labels: string[] };
