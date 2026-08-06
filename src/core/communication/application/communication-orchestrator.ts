@@ -95,14 +95,27 @@ export const createCommunicationOrchestrator = (
   const sideEffects = { llmCalls: 0, deliveryCalls: 0, memoryCalls: 0 };
   const dispatcher = createPerConversationTurnDispatcher(deps.queueConfig);
   const admission = createConversationAdmissionSerializer();
+  const activeTurnAborts = new Set<AbortController>();
   const transportInstanceId = parseTransportInstanceId(deps.transportInstanceId);
   const bindingVersion = parseCommunicationBindingVersion(deps.bindingVersion);
   if (!transportInstanceId.ok || !bindingVersion.ok)
     throw new TypeError('Orchestrator transport/binding identity is invalid.');
 
+  const abortActiveTurns = (): void => {
+    for (const controller of activeTurnAborts) {
+      try {
+        controller.abort();
+      } catch {
+        // ignore
+      }
+    }
+    activeTurnAborts.clear();
+  };
+
   const failRuntime = (): void => {
     lifecycle = 'failed';
     ingressEnabled = false;
+    abortActiveTurns();
     dispatcher.beginDrain();
     generation += 1;
   };
@@ -312,11 +325,28 @@ export const createCommunicationOrchestrator = (
       if (queued.value.kind === 'transitioned') revision = Number(queued.value.turnRevision);
 
       const jobGeneration = generation;
+      const turnAbort = new AbortController();
+      const deadlineMs = deps.defaultDeadlineMs ?? 5_000;
+      const deadlineAbort = AbortSignal.timeout(deadlineMs);
+      const onDeadline = (): void => {
+        try {
+          turnAbort.abort();
+        } catch {
+          // ignore
+        }
+      };
+      deadlineAbort.addEventListener('abort', onDeadline, { once: true });
+      activeTurnAborts.add(turnAbort);
+
       const enqueued = dispatcher.enqueue({
         conversationId: bound.conversationId,
         conversationSequence,
         run: async () => {
-          if (lifecycle === 'failed') return;
+          if (lifecycle === 'failed') {
+            activeTurnAborts.delete(turnAbort);
+            deadlineAbort.removeEventListener('abort', onDeadline);
+            return;
+          }
           let result: Result<
             { kind: 'completed' } | { kind: 'completed-blocked-by-gate' },
             CommunicationError
@@ -353,8 +383,8 @@ export const createCommunicationOrchestrator = (
                 observation: observation.value,
                 turnRevision: revision as TurnRevision,
                 policyVersion: deps.policyVersion,
-                abortSignal: AbortSignal.timeout(deps.defaultDeadlineMs ?? 5_000),
-                deadlineMs: deps.defaultDeadlineMs ?? 5_000,
+                abortSignal: turnAbort.signal,
+                deadlineMs,
                 generation: jobGeneration,
               },
               operationContext,
@@ -362,11 +392,16 @@ export const createCommunicationOrchestrator = (
           } catch {
             failRuntime();
             return;
+          } finally {
+            activeTurnAborts.delete(turnAbort);
+            deadlineAbort.removeEventListener('abort', onDeadline);
           }
           if (!result.ok) failRuntime();
         },
       });
-      if (!enqueued.ok)
+      if (!enqueued.ok) {
+        activeTurnAborts.delete(turnAbort);
+        deadlineAbort.removeEventListener('abort', onDeadline);
         return {
           ok: false as const,
           error: communicationError(
@@ -374,6 +409,7 @@ export const createCommunicationOrchestrator = (
             enqueued.reason,
           ),
         };
+      }
       return ok({ accepted: true as const });
     });
   };
@@ -381,6 +417,7 @@ export const createCommunicationOrchestrator = (
   const beginDrain = (): void => {
     ingressEnabled = false;
     if (lifecycle === 'running') lifecycle = 'draining';
+    abortActiveTurns();
     dispatcher.beginDrain();
     generation += 1;
   };

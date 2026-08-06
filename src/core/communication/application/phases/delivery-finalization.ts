@@ -5,6 +5,7 @@ import { communicationError, type CommunicationError } from '../../domain/commun
 import { parseCommunicationIdempotencyKey } from '../../domain/communication-identity.js';
 import { getValidatedTextOutputView } from '../../domain/text-delivery.internal.js';
 import type { ValidatedTextOutput } from '../../domain/text-delivery.js';
+import type { LlmCompletionOutcome } from '../../domain/llm-completion.js';
 import { parseISO8601 } from '../../../domain/identity.js';
 import { OFFLINE_OUTBOX_MAX_TTL_MS } from '../../ports/offline-communication-persistence.contract.js';
 import type {
@@ -15,6 +16,8 @@ import type {
 import { bindTransition } from '../process-text-turn.types.js';
 import { finalizeDeliveryOutcomeUnknown } from './unknown-terminalization.js';
 import { finalizeCheckpointAfterDelivery } from './checkpoint-finalization.js';
+import { raceInvocationWithAbort } from './invocation-abort-latch.js';
+import { requireFactualSuccess, requireOutboxRecordSuccess } from './phase-outcomes.js';
 
 const hex64 = (seed: string): string => createHash('sha256').update(seed).digest('hex');
 
@@ -34,6 +37,7 @@ export const finalizeDeliveryAfterValidatedOutput = async (
   revisionIn: number,
   output: ValidatedTextOutput,
   fromState: 'llm_completed' | 'deterministic_notice_prepared',
+  llmOutcome: LlmCompletionOutcome | null,
   operationContext: OperationContext,
 ): Promise<Result<ProcessTextTurnSuccess, CommunicationError>> => {
   let revision = revisionIn;
@@ -87,6 +91,7 @@ export const finalizeDeliveryAfterValidatedOutput = async (
       conversationId: input.conversationId,
       revision,
       transition: t,
+      llmOutcome,
       operationContext,
     });
     if (!unknown.ok) return unknown;
@@ -94,12 +99,8 @@ export const finalizeDeliveryAfterValidatedOutput = async (
   }
 
   deps.noteDeliveryCall?.();
-  let delivered: Result<
-    import('../../ports/text-delivery.port.js').TextDeliveryOutcome,
-    CommunicationError
-  >;
-  try {
-    delivered = await deps.delivery.deliver(
+  const raced = await raceInvocationWithAbort(
+    deps.delivery.deliver(
       {
         output,
         principal: input.principal,
@@ -108,8 +109,15 @@ export const finalizeDeliveryAfterValidatedOutput = async (
         abortSignal: input.abortSignal,
       },
       operationContext,
-    );
-  } catch {
+    ),
+    input.abortSignal,
+  );
+
+  if (
+    raced.kind === 'aborted' ||
+    raced.kind === 'rejected' ||
+    !deps.isGenerationCurrent(input.generation)
+  ) {
     const unknown = await finalizeDeliveryOutcomeUnknown({
       ledger: deps.ledger,
       outbox: deps.outbox,
@@ -120,13 +128,14 @@ export const finalizeDeliveryAfterValidatedOutput = async (
       conversationId: input.conversationId,
       revision,
       transition: t,
+      llmOutcome,
       operationContext,
     });
     if (!unknown.ok) return unknown;
     return ok({ kind: 'completed' });
   }
 
-  if (!deps.isGenerationCurrent(input.generation) || !delivered.ok) {
+  if (!raced.value.ok) {
     const unknown = await finalizeDeliveryOutcomeUnknown({
       ledger: deps.ledger,
       outbox: deps.outbox,
@@ -137,24 +146,27 @@ export const finalizeDeliveryAfterValidatedOutput = async (
       conversationId: input.conversationId,
       revision,
       transition: t,
+      llmOutcome,
       operationContext,
     });
     if (!unknown.ok) return unknown;
     return ok({ kind: 'completed' });
   }
+
+  const delivered = raced.value.value;
 
   let outboxOutcome: 'delivered' | 'known-failure' | 'outcome-unknown';
   let deliveryStatus: 'delivered' | 'failed' | 'outcome_unknown';
   let errorCode: CommunicationError['code'] | null;
 
-  if (delivered.value.kind === 'delivered') {
+  if (delivered.kind === 'delivered') {
     outboxOutcome = 'delivered';
     deliveryStatus = 'delivered';
     errorCode = null;
   } else if (
-    delivered.value.kind === 'known-failure' ||
-    delivered.value.kind === 'disabled' ||
-    delivered.value.kind === 'recipient-denied'
+    delivered.kind === 'known-failure' ||
+    delivered.kind === 'disabled' ||
+    delivered.kind === 'recipient-denied'
   ) {
     outboxOutcome = 'known-failure';
     deliveryStatus = 'failed';
@@ -165,14 +177,16 @@ export const finalizeDeliveryAfterValidatedOutput = async (
     errorCode = 'DELIVERY_OUTCOME_UNKNOWN';
   }
 
-  const recordedOutbox = await deps.outbox.recordDeliveryOutcome(
-    {
-      turnId: input.turnId,
-      correlationId: input.correlationId,
-      idempotencyKey: mustIdempotency(`outbox-outcome-${String(input.turnId)}`),
-      outcome: outboxOutcome,
-    },
-    operationContext,
+  const recordedOutbox = requireOutboxRecordSuccess(
+    await deps.outbox.recordDeliveryOutcome(
+      {
+        turnId: input.turnId,
+        correlationId: input.correlationId,
+        idempotencyKey: mustIdempotency(`outbox-outcome-${String(input.turnId)}`),
+        outcome: outboxOutcome,
+      },
+      operationContext,
+    ),
   );
   if (!recordedOutbox.ok) return recordedOutbox;
 
@@ -187,6 +201,7 @@ export const finalizeDeliveryAfterValidatedOutput = async (
       conversationId: input.conversationId,
       revision,
       transition: t,
+      llmOutcome,
       operationContext,
     });
     if (!unknown.ok) return unknown;
@@ -197,21 +212,24 @@ export const finalizeDeliveryAfterValidatedOutput = async (
   const provenTarget: 'delivered' | 'delivery_failed' =
     deliveryStatus === 'delivered' ? 'delivered' : 'delivery_failed';
 
-  const factual = await deps.ledger.recordFactualOutcome(
-    {
-      turnId: input.turnId,
-      correlationId: input.correlationId,
-      expectedRevision: revision as never,
-      llmOutcome: null,
-      deliveryStatus: provenDeliveryStatus,
-      checkpointStatus: 'pending',
-      auditStatus: { start: 'succeeded', completion: 'pending' },
-      errorCode,
-    },
-    operationContext,
+  const factual = requireFactualSuccess(
+    await deps.ledger.recordFactualOutcome(
+      {
+        turnId: input.turnId,
+        correlationId: input.correlationId,
+        expectedRevision: revision as never,
+        llmOutcome,
+        deliveryStatus: provenDeliveryStatus,
+        checkpointStatus: 'pending',
+        auditStatus: { start: 'succeeded', completion: 'pending' },
+        errorCode,
+      },
+      operationContext,
+    ),
+    revision,
   );
   if (!factual.ok) return factual;
-  if (factual.value.kind === 'recorded') revision = Number(factual.value.turnRevision);
+  revision = factual.value;
 
   const moved = await t(revision, 'delivery_started', provenTarget);
   if (!moved.ok) return moved;
@@ -231,6 +249,7 @@ export const finalizeDeliveryAfterValidatedOutput = async (
       revision,
       deliveryStatus: provenDeliveryStatus,
       ledgerState: provenTarget,
+      llmOutcome,
       transition: t,
     },
     operationContext,

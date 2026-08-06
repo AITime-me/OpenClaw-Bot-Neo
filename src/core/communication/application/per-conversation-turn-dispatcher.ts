@@ -46,7 +46,7 @@ export const createPerConversationTurnDispatcher = (queueConfig: CommunicationQu
   };
 
   const pump = (conversationKey: string): void => {
-    if (draining && (queues.get(conversationKey)?.length ?? 0) === 0) {
+    if (draining) {
       active.set(conversationKey, false);
       notifyIdle();
       return;
@@ -92,6 +92,10 @@ export const createPerConversationTurnDispatcher = (queueConfig: CommunicationQu
     },
     beginDrain(): void {
       draining = true;
+      for (const key of [...queues.keys()]) {
+        queues.set(key, []);
+      }
+      notifyIdle();
     },
     whenIdle(): Promise<void> {
       if (globalActive === 0 && queuedCount() === 0) return Promise.resolve();

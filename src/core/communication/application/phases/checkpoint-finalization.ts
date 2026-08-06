@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { OperationContext } from '../../../domain/operation-context.js';
 import type { CorrelationId, OwnerId, PolicyVersion } from '../../../domain/identity.js';
 import { ok, type Result } from '../../../domain/result.js';
-import type { CommunicationError } from '../../domain/communication-errors.js';
+import { communicationError, type CommunicationError } from '../../domain/communication-errors.js';
 import type { ConversationId, TurnId, TurnRevision } from '../../domain/communication-identity.js';
 import { parseConversationRevision } from '../../domain/communication-identity.js';
 import { freezeConversationStateSnapshot } from '../../domain/conversation-state.js';
@@ -13,6 +13,7 @@ import { parseISO8601 } from '../../../domain/identity.js';
 import { parseCommunicationIdempotencyKey } from '../../domain/communication-identity.js';
 import { recordDurableCheckpointBarrier } from './unknown-terminalization.js';
 import type { TransitionFn } from './unknown-terminalization.js';
+import { requireAuditSuccess, requireFactualSuccess } from './phase-outcomes.js';
 
 const hex64 = (seed: string): string => createHash('sha256').update(seed).digest('hex');
 
@@ -35,12 +36,13 @@ export type CheckpointFinalizationInput = {
   readonly revision: number;
   readonly deliveryStatus: 'delivered' | 'failed';
   readonly ledgerState: 'delivered' | 'delivery_failed';
+  readonly llmOutcome: import('../../domain/llm-completion.js').LlmCompletionOutcome | null;
   readonly transition: TransitionFn;
 };
 
 /**
  * After durable delivery/known-failure transition: handle checkpoint outcomes.
- * Failure keeps deliveryStatus immutable, sets checkpoint failed + barrier, honest audit.
+ * Completion audit is mandatory and ledger-audited before completed.
  */
 export const finalizeCheckpointAfterDelivery = async (
   input: CheckpointFinalizationInput,
@@ -96,36 +98,47 @@ export const finalizeCheckpointAfterDelivery = async (
     return failCheckpointPath(input, revision, operationContext, 'Checkpoint Result.err.');
 
   if (checkpointed.value.kind === 'stored' || checkpointed.value.kind === 'already-applied') {
-    const factual = await input.ledger.recordFactualOutcome(
-      {
-        turnId: input.turnId,
-        correlationId: input.correlationId,
-        expectedRevision: revision as TurnRevision,
-        llmOutcome: null,
-        deliveryStatus: input.deliveryStatus,
-        checkpointStatus: 'succeeded',
-        auditStatus: { start: 'succeeded', completion: 'pending' },
-        errorCode: input.deliveryStatus === 'delivered' ? null : 'DELIVERY_FAILED',
-      },
-      operationContext,
+    const factual = requireFactualSuccess(
+      await input.ledger.recordFactualOutcome(
+        {
+          turnId: input.turnId,
+          correlationId: input.correlationId,
+          expectedRevision: revision as TurnRevision,
+          llmOutcome: input.llmOutcome,
+          deliveryStatus: input.deliveryStatus,
+          checkpointStatus: 'succeeded',
+          auditStatus: { start: 'succeeded', completion: 'pending' },
+          errorCode: input.deliveryStatus === 'delivered' ? null : 'DELIVERY_FAILED',
+        },
+        operationContext,
+      ),
+      revision,
     );
     if (!factual.ok) return factual;
-    if (factual.value.kind === 'recorded') revision = Number(factual.value.turnRevision);
+    revision = factual.value;
 
-    const completed = await input.transition(revision, input.ledgerState, 'completed');
-    if (!completed.ok) return completed;
-    await recordCompletionAudit(
+    const audited = await recordCompletionAuditAndLedger(
       input,
+      revision,
       operationContext,
       input.deliveryStatus === 'delivered' ? 'succeeded' : 'failed',
       'succeeded',
     );
+    if (!audited.ok) return audited;
+    revision = audited.value;
+
+    const completed = await input.transition(revision, input.ledgerState, 'completed');
+    if (!completed.ok) return completed;
     return ok({ completed: true });
   }
 
-  // unavailable | stale-revision | barrier-active | other unproven
-  const outcomeKind = checkpointed.value.kind;
-  return failCheckpointPath(input, revision, operationContext, `Checkpoint outcome=${outcomeKind}`);
+  // Fail-closed for unavailable, stale-revision, and barrier-active checkpoint outcomes.
+  return failCheckpointPath(
+    input,
+    revision,
+    operationContext,
+    `Checkpoint outcome=${checkpointed.value.kind}`,
+  );
 };
 
 const failCheckpointPath = async (
@@ -136,24 +149,24 @@ const failCheckpointPath = async (
 ): Promise<Result<{ readonly completed: true }, CommunicationError>> => {
   void reason;
   let revision = revisionIn;
-  const factual = await input.ledger.recordFactualOutcome(
-    {
-      turnId: input.turnId,
-      correlationId: input.correlationId,
-      expectedRevision: revision as TurnRevision,
-      llmOutcome: null,
-      deliveryStatus: input.deliveryStatus,
-      checkpointStatus: 'failed',
-      auditStatus: { start: 'succeeded', completion: 'pending' },
-      errorCode: 'CONVERSATION_CHECKPOINT_FAILED',
-    },
-    operationContext,
+  const factual = requireFactualSuccess(
+    await input.ledger.recordFactualOutcome(
+      {
+        turnId: input.turnId,
+        correlationId: input.correlationId,
+        expectedRevision: revision as TurnRevision,
+        llmOutcome: input.llmOutcome,
+        deliveryStatus: input.deliveryStatus,
+        checkpointStatus: 'failed',
+        auditStatus: { start: 'succeeded', completion: 'pending' },
+        errorCode: 'CONVERSATION_CHECKPOINT_FAILED',
+      },
+      operationContext,
+    ),
+    revision,
   );
   if (!factual.ok) return factual;
-  if (factual.value.kind === 'recorded') revision = Number(factual.value.turnRevision);
-
-  const completed = await input.transition(revision, input.ledgerState, 'completed');
-  if (!completed.ok) return completed;
+  revision = factual.value;
 
   const barrier = await recordDurableCheckpointBarrier(
     {
@@ -168,44 +181,86 @@ const failCheckpointPath = async (
   );
   if (!barrier.ok) return barrier;
 
-  await recordCompletionAudit(input, operationContext, 'failed', 'failed');
+  const audited = await recordCompletionAuditAndLedger(
+    input,
+    revision,
+    operationContext,
+    'failed',
+    'failed',
+  );
+  if (!audited.ok) return audited;
+  revision = audited.value;
+
+  const completed = await input.transition(revision, input.ledgerState, 'completed');
+  if (!completed.ok) return completed;
   return ok({ completed: true });
 };
 
-const recordCompletionAudit = async (
+const recordCompletionAuditAndLedger = async (
   input: CheckpointFinalizationInput,
+  revisionIn: number,
   operationContext: OperationContext,
   auditCompletionStatus: 'succeeded' | 'failed',
   checkpointStatus: 'succeeded' | 'failed',
-): Promise<void> => {
+): Promise<Result<number, CommunicationError>> => {
   const ts = parseISO8601(new Date().toISOString());
-  if (!ts.ok) return;
-  await input.audit.recordCompletion(
-    {
-      turnId: input.turnId,
-      correlationId: input.correlationId,
-      ownerId: input.ownerId,
-      conversationId: input.conversationId,
-      operationKind: 'text-turn',
-      policyVersion: input.policyVersion,
-      idempotencyKey: mustIdempotency(`audit-completion-${String(input.turnId)}`),
-      timestamp: ts.value,
-      deliveryStatus: input.deliveryStatus,
-      checkpointStatus,
-      auditStartStatus: 'succeeded',
-      auditCompletionStatus,
-      errorCode:
-        checkpointStatus === 'failed'
-          ? 'CONVERSATION_CHECKPOINT_FAILED'
-          : input.deliveryStatus === 'delivered'
-            ? null
-            : 'DELIVERY_FAILED',
-      redactedMetadata: {
-        phase: 'completion',
-        checkpointStatus,
+  if (!ts.ok)
+    return {
+      ok: false,
+      error: communicationError('AUDIT_COMPLETION_FAILED', 'Completion audit timestamp invalid.'),
+    };
+
+  const audited = requireAuditSuccess(
+    await input.audit.recordCompletion(
+      {
+        turnId: input.turnId,
+        correlationId: input.correlationId,
+        ownerId: input.ownerId,
+        conversationId: input.conversationId,
+        operationKind: 'text-turn',
+        policyVersion: input.policyVersion,
+        idempotencyKey: mustIdempotency(`audit-completion-${String(input.turnId)}`),
+        timestamp: ts.value,
         deliveryStatus: input.deliveryStatus,
+        checkpointStatus,
+        auditStartStatus: 'succeeded',
+        auditCompletionStatus,
+        errorCode:
+          checkpointStatus === 'failed'
+            ? 'CONVERSATION_CHECKPOINT_FAILED'
+            : input.deliveryStatus === 'delivered'
+              ? null
+              : 'DELIVERY_FAILED',
+        redactedMetadata: {
+          phase: 'completion',
+          checkpointStatus,
+          deliveryStatus: input.deliveryStatus,
+        },
       },
-    },
-    operationContext,
+      operationContext,
+    ),
+  );
+  if (!audited.ok) return audited;
+
+  return requireFactualSuccess(
+    await input.ledger.recordFactualOutcome(
+      {
+        turnId: input.turnId,
+        correlationId: input.correlationId,
+        expectedRevision: revisionIn as TurnRevision,
+        llmOutcome: input.llmOutcome,
+        deliveryStatus: input.deliveryStatus,
+        checkpointStatus,
+        auditStatus: { start: 'succeeded', completion: auditCompletionStatus },
+        errorCode:
+          checkpointStatus === 'failed'
+            ? 'CONVERSATION_CHECKPOINT_FAILED'
+            : input.deliveryStatus === 'delivered'
+              ? null
+              : 'DELIVERY_FAILED',
+      },
+      operationContext,
+    ),
+    revisionIn,
   );
 };

@@ -14,7 +14,7 @@ import type { TextDeliveryPort } from '../ports/text-delivery.port.js';
 import type { CommunicationMemoryAuthorizationPort } from '../ports/communication-memory-authorization.port.js';
 import type { SensitiveDataScannerPort } from '../../ports/sensitive-data-scanner.port.js';
 import type { CommunicationKillSwitchPort } from '../ports/communication-kill-switch.port.js';
-import { communicationError } from '../domain/communication-errors.js';
+import { requireTransitionSuccess } from './phases/phase-outcomes.js';
 import type { TransitionFn } from './phases/unknown-terminalization.js';
 
 export type ProcessTextTurnInput = {
@@ -66,14 +66,7 @@ export const bindTransition = (
       },
       operationContext,
     );
-    if (!result.ok) return result;
-    if (result.value.kind === 'transitioned')
-      return { ok: true, value: Number(result.value.turnRevision) };
-    if (result.value.kind === 'already-transitioned') return { ok: true, value: expectedRevision };
-    return {
-      ok: false,
-      error: communicationError('LEDGER_UNAVAILABLE', result.value.kind),
-    };
+    return requireTransitionSuccess(result, expectedRevision);
   };
 };
 

@@ -4,8 +4,8 @@ import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const REPO_ROOT = process.cwd();
-const BUILD_BASE = '529e51d1e389331e02b00ce9a893ffa5be0703b8';
-const BUILD_SUBJECT = 'fix(communication): close Build 3.7D runtime invariants';
+const BUILD_BASE = 'c93aace28a6b1457dcd960a364d40cee3abcc3d9';
+const BUILD_SUBJECT = 'fix(communication): finalize Build 3.7D recovery safety';
 
 const CLOSEOUT_REL = 'docs/validation/build-3.7d-communication-runtime-closeout.md';
 const CLOSEOUT_PATH = join(REPO_ROOT, CLOSEOUT_REL);

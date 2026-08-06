@@ -23,6 +23,8 @@ import {
 } from '../process-text-turn.types.js';
 import { finalizeLlmOutcomeUnknown } from './unknown-terminalization.js';
 import { finalizeDeliveryAfterValidatedOutput } from './delivery-finalization.js';
+import { raceInvocationWithAbort } from './invocation-abort-latch.js';
+import { requireFactualSuccess } from './phase-outcomes.js';
 
 /**
  * Memory → prompt → LLM after audit start and execution gate.
@@ -110,9 +112,8 @@ export const executeAfterAuditStart = async (
   }
 
   deps.noteLlmCall?.();
-  let llmResult: Result<LlmCompletionResult, CommunicationError>;
-  try {
-    llmResult = await deps.llm.complete(
+  const raced = await raceInvocationWithAbort(
+    deps.llm.complete(
       {
         prompt: assembled.prompt,
         turnId: input.turnId,
@@ -123,8 +124,15 @@ export const executeAfterAuditStart = async (
         abortSignal: input.abortSignal,
       },
       operationContext,
-    );
-  } catch {
+    ),
+    input.abortSignal,
+  );
+
+  if (
+    raced.kind === 'aborted' ||
+    raced.kind === 'rejected' ||
+    !deps.isGenerationCurrent(input.generation)
+  ) {
     const unknown = await finalizeLlmOutcomeUnknown({
       ledger: deps.ledger,
       conversationState: deps.conversationState,
@@ -141,7 +149,7 @@ export const executeAfterAuditStart = async (
     return ok({ kind: 'completed' });
   }
 
-  if (!deps.isGenerationCurrent(input.generation) || !llmResult.ok) {
+  if (!raced.value.ok) {
     const unknown = await finalizeLlmOutcomeUnknown({
       ledger: deps.ledger,
       conversationState: deps.conversationState,
@@ -158,7 +166,7 @@ export const executeAfterAuditStart = async (
     return ok({ kind: 'completed' });
   }
 
-  return routeLlmResult(deps, input, revision, llmResult.value, operationContext);
+  return routeLlmResult(deps, input, revision, raced.value.value, operationContext);
 };
 
 const routeLlmResult = async (
@@ -194,21 +202,24 @@ const routeLlmResult = async (
     if (!toFailed.ok) return toFailed;
     revision = toFailed.value;
 
-    const factual = await deps.ledger.recordFactualOutcome(
-      {
-        turnId: input.turnId,
-        correlationId: input.correlationId,
-        expectedRevision: revision as never,
-        llmOutcome: result.outcome,
-        deliveryStatus: 'not_started',
-        checkpointStatus: 'not_required',
-        auditStatus: { start: 'succeeded', completion: 'not_started' },
-        errorCode: null,
-      },
-      operationContext,
+    const factual = requireFactualSuccess(
+      await deps.ledger.recordFactualOutcome(
+        {
+          turnId: input.turnId,
+          correlationId: input.correlationId,
+          expectedRevision: revision as never,
+          llmOutcome: result.outcome,
+          deliveryStatus: 'not_started',
+          checkpointStatus: 'not_required',
+          auditStatus: { start: 'succeeded', completion: 'not_started' },
+          errorCode: null,
+        },
+        operationContext,
+      ),
+      revision,
     );
     if (!factual.ok) return factual;
-    if (factual.value.kind === 'recorded') revision = Number(factual.value.turnRevision);
+    revision = factual.value;
 
     if (disposition.kind === 'known-failure-without-notice') {
       const completed = await t(revision, 'llm_known_failed', 'completed');
@@ -231,6 +242,7 @@ const routeLlmResult = async (
       prepared.value,
       notice.output,
       'deterministic_notice_prepared',
+      result.outcome,
       operationContext,
     );
   }
@@ -250,6 +262,7 @@ const routeLlmResult = async (
     toCompleted.value,
     validated.output,
     'llm_completed',
+    'completed',
     operationContext,
   );
 };

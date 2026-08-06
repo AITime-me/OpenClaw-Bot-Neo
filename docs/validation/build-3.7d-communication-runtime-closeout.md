@@ -43,15 +43,11 @@ END_BUILD_3_7D_MARKERS
 - `scripts/verify-communication-flow.mjs`, `check:communication-flow`, AST/dependency-cruiser
   rules, negative fixtures
 - Focused behavioral + record tests
-- Corrective package (honest, on top of 529e51d): exclusive in-process runtime ownership per
-  SQLite ledger path; verified `REFERENCE_COMMUNICATION_QUEUE_CONFIG` object-identity (8/64);
-  checkpoint failure after delivery keeps immutable `deliveryStatus`, durable
-  `checkpointStatus=failed`, barrier `checkpoint-failed`, honest completion audit; barrier/gate
-  before memory/LLM; paginated recovery to empty with ingress latch; trusted
-  `conversationSequence` FIFO + admission serializer; post-start Result.err/throw/abort → durable
-  unknown terminalization; read-only `readDeliveryOutcome` (SELECT only); typed phases
-  (execution-gate, execution-after-audit, delivery-finalization, checkpoint-finalization,
-  unknown-terminalization)
+- Corrective package (honest, on top of 529e51d then c93aace): exclusive in-process runtime
+  ownership; verified queueConfig 8/64; checkpoint failure after delivery; barrier/gate before
+  memory/LLM; paginated recovery with unchanged-page fail-closed; ledger checkpointStatus-first
+  barrier rules; trusted FIFO; post-start abort/deadline latch; read-only outbox lookup; mandatory
+  completion audit before completed; typed phase outcomes (unavailable/stale/conflict fail-closed)
 
 ## Still absent
 

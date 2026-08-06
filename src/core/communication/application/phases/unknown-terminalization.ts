@@ -9,6 +9,7 @@ import type { ConversationStatePort } from '../../ports/conversation-state.port.
 import type { CommunicationTurnLedgerPort } from '../../ports/communication-turn-ledger.port.js';
 import type { CommunicationDeliveryOutboxPort } from '../../ports/communication-delivery-outbox.port.js';
 import { parseCommunicationIdempotencyKey } from '../../domain/communication-identity.js';
+import { requireFactualSuccess, requireOutboxRecordSuccess } from './phase-outcomes.js';
 
 const hex64 = (seed: string): string => createHash('sha256').update(seed).digest('hex');
 
@@ -68,14 +69,29 @@ export const recordDurableCheckpointBarrier = async (
         ok: false,
         error: communicationError('CONVERSATION_CHECKPOINT_FAILED', 'Barrier Result.err.'),
       };
-    if (recorded.value.kind === 'recorded' || recorded.value.kind === 'already-recorded')
-      return ok({ revision: Number(recorded.value.revision) });
-    if (recorded.value.kind === 'stale-revision') {
-      lastError = 'Barrier CAS stale-revision.';
-      continue;
+    switch (recorded.value.kind) {
+      case 'recorded':
+      case 'already-recorded':
+        return ok({ revision: Number(recorded.value.revision) });
+      case 'stale-revision':
+        lastError = 'Barrier CAS stale-revision.';
+        continue;
+      case 'unavailable':
+        return {
+          ok: false,
+          error: communicationError('CONVERSATION_CHECKPOINT_FAILED', recorded.value.reason),
+        };
+      default: {
+        const _exhaustive: never = recorded.value;
+        return {
+          ok: false,
+          error: communicationError(
+            'CONVERSATION_CHECKPOINT_FAILED',
+            `Barrier outcome unproven: ${String(_exhaustive)}`,
+          ),
+        };
+      }
     }
-    lastError = recorded.value.reason;
-    break;
   }
   return {
     ok: false,
@@ -102,30 +118,31 @@ export const finalizeLlmOutcomeUnknown = async (args: {
   readonly operationContext: OperationContext;
 }): Promise<Result<{ readonly completed: true }, CommunicationError>> => {
   let revision = args.revision;
-  const factual = await args.ledger.recordFactualOutcome(
-    {
-      turnId: args.turnId,
-      correlationId: args.correlationId,
-      expectedRevision: revision as TurnRevision,
-      llmOutcome: 'outcome-unknown',
-      deliveryStatus: 'not_started',
-      checkpointStatus: 'failed',
-      auditStatus: {
-        start: args.auditStartSucceeded ? 'succeeded' : 'failed',
-        completion: 'not_started',
+  const factual = requireFactualSuccess(
+    await args.ledger.recordFactualOutcome(
+      {
+        turnId: args.turnId,
+        correlationId: args.correlationId,
+        expectedRevision: revision as TurnRevision,
+        llmOutcome: 'outcome-unknown',
+        deliveryStatus: 'not_started',
+        checkpointStatus: 'failed',
+        auditStatus: {
+          start: args.auditStartSucceeded ? 'succeeded' : 'failed',
+          completion: args.auditStartSucceeded ? 'failed' : 'not_started',
+        },
+        errorCode: 'LLM_OUTCOME_UNKNOWN',
       },
-      errorCode: 'LLM_OUTCOME_UNKNOWN',
-    },
-    args.operationContext,
+      args.operationContext,
+    ),
+    revision,
   );
   if (!factual.ok) return factual;
-  if (factual.value.kind === 'recorded') revision = Number(factual.value.turnRevision);
+  revision = factual.value;
 
   const cancelled = await args.transition(revision, 'llm_started', 'cancelled');
   if (!cancelled.ok) return cancelled;
   revision = cancelled.value;
-  const completed = await args.transition(revision, 'cancelled', 'completed');
-  if (!completed.ok) return completed;
 
   const barrier = await recordDurableCheckpointBarrier(
     {
@@ -139,6 +156,9 @@ export const finalizeLlmOutcomeUnknown = async (args: {
     args.operationContext,
   );
   if (!barrier.ok) return barrier;
+
+  const completed = await args.transition(revision, 'cancelled', 'completed');
+  if (!completed.ok) return completed;
   return ok({ completed: true });
 };
 
@@ -151,42 +171,46 @@ export const finalizeDeliveryOutcomeUnknown = async (args: {
   readonly ownerId: OwnerId;
   readonly conversationId: ConversationId;
   readonly revision: number;
+  readonly llmOutcome?: import('../../domain/llm-completion.js').LlmCompletionOutcome | null;
   readonly transition: TransitionFn;
   readonly operationContext: OperationContext;
 }): Promise<Result<{ readonly completed: true }, CommunicationError>> => {
   let revision = args.revision;
-  const outbox = await args.outbox.recordDeliveryOutcome(
-    {
-      turnId: args.turnId,
-      correlationId: args.correlationId,
-      idempotencyKey: mustIdempotency(`outbox-unknown-${String(args.turnId)}`),
-      outcome: 'outcome-unknown',
-    },
-    args.operationContext,
+  const outbox = requireOutboxRecordSuccess(
+    await args.outbox.recordDeliveryOutcome(
+      {
+        turnId: args.turnId,
+        correlationId: args.correlationId,
+        idempotencyKey: mustIdempotency(`outbox-unknown-${String(args.turnId)}`),
+        outcome: 'outcome-unknown',
+      },
+      args.operationContext,
+    ),
   );
   if (!outbox.ok) return outbox;
 
-  const factual = await args.ledger.recordFactualOutcome(
-    {
-      turnId: args.turnId,
-      correlationId: args.correlationId,
-      expectedRevision: revision as TurnRevision,
-      llmOutcome: null,
-      deliveryStatus: 'outcome_unknown',
-      checkpointStatus: 'failed',
-      auditStatus: { start: 'succeeded', completion: 'pending' },
-      errorCode: 'DELIVERY_OUTCOME_UNKNOWN',
-    },
-    args.operationContext,
+  const factual = requireFactualSuccess(
+    await args.ledger.recordFactualOutcome(
+      {
+        turnId: args.turnId,
+        correlationId: args.correlationId,
+        expectedRevision: revision as TurnRevision,
+        llmOutcome: args.llmOutcome ?? null,
+        deliveryStatus: 'outcome_unknown',
+        checkpointStatus: 'failed',
+        auditStatus: { start: 'succeeded', completion: 'failed' },
+        errorCode: 'DELIVERY_OUTCOME_UNKNOWN',
+      },
+      args.operationContext,
+    ),
+    revision,
   );
   if (!factual.ok) return factual;
-  if (factual.value.kind === 'recorded') revision = Number(factual.value.turnRevision);
+  revision = factual.value;
 
   const moved = await args.transition(revision, 'delivery_started', 'delivery_outcome_unknown');
   if (!moved.ok) return moved;
   revision = moved.value;
-  const completed = await args.transition(revision, 'delivery_outcome_unknown', 'completed');
-  if (!completed.ok) return completed;
 
   const barrier = await recordDurableCheckpointBarrier(
     {
@@ -200,5 +224,8 @@ export const finalizeDeliveryOutcomeUnknown = async (args: {
     args.operationContext,
   );
   if (!barrier.ok) return barrier;
+
+  const completed = await args.transition(revision, 'delivery_outcome_unknown', 'completed');
+  if (!completed.ok) return completed;
   return ok({ completed: true });
 };

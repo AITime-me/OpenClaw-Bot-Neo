@@ -12,6 +12,7 @@ import type {
 } from './process-text-turn.types.js';
 import { evaluateConversationExecutionGate } from './phases/execution-gate.js';
 import { executeAfterAuditStart } from './phases/execution-after-audit.js';
+import { requireTransitionSuccess } from './phases/phase-outcomes.js';
 
 export type {
   ProcessTextTurnDeps,
@@ -45,13 +46,7 @@ const transition = async (
     },
     operationContext,
   );
-  if (!result.ok) return result;
-  if (result.value.kind === 'transitioned') return ok(Number(result.value.turnRevision));
-  if (result.value.kind === 'already-transitioned') return ok(expectedRevision);
-  return {
-    ok: false,
-    error: communicationError('LEDGER_UNAVAILABLE', result.value.kind),
-  };
+  return requireTransitionSuccess(result, expectedRevision);
 };
 
 /**

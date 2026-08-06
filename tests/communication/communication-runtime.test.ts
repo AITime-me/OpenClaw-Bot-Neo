@@ -61,15 +61,27 @@ import { operationContext } from '../support/fixtures.js';
 
 const REPO_ROOT = '/opt/openclaw-bot-neo-comm';
 const SERVICE_UID = 1001;
-const tempRoots: string[] = [];
+const tempFixtures: Array<{ readonly native: string; readonly storageRoot: string }> = [];
+const openFixtures: Array<{
+  close: () => void;
+}> = [];
 
 afterEach(() => {
   resetCommunicationRuntimeOwnershipForTests();
-  while (tempRoots.length > 0) {
-    const root = tempRoots.pop();
-    if (root === undefined) continue;
+  while (openFixtures.length > 0) {
+    const fixture = openFixtures.pop();
+    if (fixture === undefined) continue;
     try {
-      rmSync(root, { recursive: true, force: true });
+      fixture.close();
+    } catch {
+      // best-effort
+    }
+  }
+  while (tempFixtures.length > 0) {
+    const fixture = tempFixtures.pop();
+    if (fixture === undefined) continue;
+    try {
+      rmSync(fixture.native, { recursive: true, force: true });
     } catch {
       // best-effort
     }
@@ -91,12 +103,19 @@ const dirIdentity = (
   });
 
 const createTempStorageRoot = (): string => {
+  // Native os.tmpdir() directory; cleanup uses the native path.
+  // Capability/SQLite stack requires a POSIX absolute root string; map separators only and
+  // keep the path under the real temp tree (never invent /openclaw-* drive-root paths).
   const native = mkdtempSync(join(tmpdir(), 'openclaw-comm-runtime-'));
-  tempRoots.push(native);
-  const normalized = native.replace(/\\/g, '/');
-  const match = /^[A-Za-z]:\/(.*)$/.exec(normalized);
-  if (match?.[1] !== undefined) return `/${match[1]}`;
-  return normalized;
+  const forward = native.replace(/\\/g, '/');
+  const match = /^[A-Za-z]:\/(.*)$/.exec(forward);
+  const storageRoot = match?.[1] !== undefined ? `/${match[1]}` : forward;
+  tempFixtures.push({ native, storageRoot });
+  return storageRoot;
+};
+
+const trackFixtureClose = (close: () => void): void => {
+  openFixtures.push({ close });
 };
 
 const storagePlatform = (): 'win32' | 'posix' => 'posix';
@@ -274,7 +293,17 @@ const openRuntime = (options?: {
       : {}),
   });
   expect(slice.queueConfig).toBe(REFERENCE_COMMUNICATION_QUEUE_CONFIG);
-  return { storageRoot, root, handle: ports.value, slice };
+  const fixture = { storageRoot, root, handle: ports.value, slice };
+  trackFixtureClose(() => {
+    try {
+      void slice.orchestrator.close();
+    } catch {
+      // ignore
+    }
+    ports.value.close();
+    root.close();
+  });
+  return fixture;
 };
 
 const openCustomRuntime = (options: {
@@ -323,7 +352,17 @@ const openCustomRuntime = (options: {
     delivery: options.delivery ?? createReferenceTextDelivery('delivered'),
     killSwitch: createReferenceKillSwitch(),
   }) as ReferenceTextSlice;
-  return { storageRoot, root, handle: ports.value, slice };
+  const fixture = { storageRoot, root, handle: ports.value, slice };
+  trackFixtureClose(() => {
+    try {
+      void orchestrator.close();
+    } catch {
+      // ignore
+    }
+    ports.value.close();
+    root.close();
+  });
+  return fixture;
 };
 
 const startRuntime = async (fixture: RuntimeFixture) => {
@@ -1458,5 +1497,203 @@ describe('Build 3.7D communication runtime', () => {
     ).toThrow(/REFERENCE_COMMUNICATION_QUEUE_CONFIG identity/);
     fixture.handle.close();
     fixture.root.close();
+  });
+
+  it('requires recovery barrier for delivered pending/failed and missing or previous-turn snapshot', async () => {
+    const storageRoot = createTempStorageRoot();
+    const root = openGenuineRoot(storageRoot);
+    const firstPorts = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(firstPorts.ok).toBe(true);
+    if (!firstPorts.ok) throw new Error('open');
+    const db = openSqliteDatabaseFile(`${storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`);
+    const now = '2026-08-05T12:00:00.000Z';
+    db.prepare(
+      `INSERT INTO turns (
+         turn_id, transport_instance_id, idempotency_key, state, turn_revision,
+         conversation_sequence, owner_id, conversation_id, correlation_id,
+         delivery_status, checkpoint_status, audit_start_status, audit_completion_status,
+         llm_outcome, error_code, observed_at, updated_at
+       ) VALUES (?, 'transport-ref-1', ?, 'delivered', 4, 1, 'owner-1', 'conversation-conv-recover-barrier',
+         'corr-recover-barrier', 'delivered', 'pending', 'succeeded', 'pending', NULL, NULL, ?, ?)`,
+    ).run('turn-recover-barrier-1', 'a'.repeat(64), now, now);
+    db.close();
+    firstPorts.value.close();
+
+    const reopened = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) throw new Error('reopen');
+    const slice = createReferenceTextSlice({
+      ports: toReferencePorts(reopened.value),
+      scanner: fakeSensitiveDataScanner('allow'),
+    });
+    trackFixtureClose(() => {
+      void slice.orchestrator.close();
+      reopened.value.close();
+      root.close();
+    });
+    const started = await slice.orchestrator.start(ctx());
+    expect(started.ok).toBe(true);
+    const owner = must(parseOwnerId('owner-1'));
+    const conversation = must(parseConversationId('conversation-conv-recover-barrier'));
+    const loaded = await reopened.value.conversationState.load(
+      { ownerId: owner, conversationId: conversation },
+      ctx(),
+    );
+    expect(loaded.ok && loaded.value.kind === 'found').toBe(true);
+    if (!loaded.ok || loaded.value.kind !== 'found') throw new Error('barrier load');
+    expect(loaded.value.snapshot.pauseState).toBe('degraded');
+    expect(loaded.value.snapshot.checkpoint.status).toBe('failed');
+    expect(readTurns(storageRoot)[0]?.state).toBe('completed');
+  });
+
+  it('fails closed when recovery page fingerprint does not change', async () => {
+    const storageRoot = createTempStorageRoot();
+    const root = openGenuineRoot(storageRoot);
+    const ports = createOfflineSqliteCommunicationPorts(root, {
+      scanner: fakeSensitiveDataScanner('allow'),
+      queueConfig: REFERENCE_COMMUNICATION_QUEUE_CONFIG,
+    });
+    expect(ports.ok).toBe(true);
+    if (!ports.ok) throw new Error('open');
+    const stuck = Object.freeze({
+      turnId: must(parseTurnId('turn-stuck-page')),
+      correlationId: must(parseCorrelationId('corr-stuck-page')),
+      ownerId: must(parseOwnerId('owner-1')),
+      conversationId: must(parseConversationId('conversation-stuck-page')),
+      observedAt: must(parseISO8601('2026-08-05T12:00:00.000Z')),
+      updatedAt: must(parseISO8601('2026-08-05T12:00:00.000Z')),
+      llmOutcome: null,
+      errorCode: null,
+      record: Object.freeze({
+        state: 'queued',
+        turnRevision: 1,
+        checkpointStatus: 'not_required',
+        auditStatus: Object.freeze({ start: 'pending', completion: 'not_started' }),
+      }),
+      recoveryReasons: Object.freeze(['may-continue-under-kill-switch'] as const),
+    });
+    let calls = 0;
+    const ledger = {
+      ...ports.value.ledger,
+      listRecoveryCandidates: () => {
+        calls += 1;
+        return Promise.resolve(
+          ok({
+            kind: 'found' as const,
+            candidates: [stuck],
+          }),
+        );
+      },
+      transition: (command: { readonly expectedRevision: number }) =>
+        Promise.resolve(
+          ok({
+            kind: 'transitioned' as const,
+            turnRevision: (command.expectedRevision + 1) as never,
+          }),
+        ),
+    };
+    const { recoverCommunicationTurns } =
+      await import('../../src/core/communication/application/recover-communication-turns.service.js');
+    const recovered = await recoverCommunicationTurns(
+      {
+        ledger: ledger as never,
+        outbox: ports.value.outbox,
+        conversationState: ports.value.conversationState,
+      },
+      ctx(),
+    );
+    expect(recovered.ok).toBe(false);
+    if (recovered.ok) throw new Error('expected fail');
+    expect(recovered.error.reason).toMatch(/page did not change/i);
+    expect(calls).toBeGreaterThanOrEqual(2);
+    ports.value.close();
+    root.close();
+  });
+
+  it('terminalizes completion audit status in the ledger before completed', async () => {
+    const fixture = openRuntime();
+    await startRuntime(fixture);
+    await fixture.slice.orchestrator.submitObservation(
+      observation('conv-audit-complete', 'msg-audit-complete'),
+      ctx(),
+    );
+    await fixture.slice.orchestrator.whenIdle();
+    const db = openSqliteDatabaseFile(
+      `${fixture.storageRoot}/${SQLITE_COMMUNICATION_DATABASE_FILENAME}`,
+    );
+    const row = db
+      .prepare(
+        `SELECT state, audit_completion_status, delivery_status, checkpoint_status FROM turns LIMIT 1`,
+      )
+      .get() as {
+      state: string;
+      audit_completion_status: string;
+      delivery_status: string;
+      checkpoint_status: string;
+    };
+    db.close();
+    expect(row.state).toBe('completed');
+    expect(row.audit_completion_status).toBe('succeeded');
+    expect(row.delivery_status).toBe('delivered');
+    expect(row.checkpoint_status).toBe('succeeded');
+    await fixture.slice.orchestrator.close();
+    fixture.handle.close();
+    fixture.root.close();
+  });
+
+  it('latches abort for deferred LLM that ignores signal and does not hang drain', async () => {
+    let resolveLate: ((value: unknown) => void) | undefined;
+    const deferred = new Promise((resolve) => {
+      resolveLate = resolve;
+    });
+    const fixture = openCustomRuntime({
+      llm: {
+        complete() {
+          return deferred as never;
+        },
+      },
+    });
+    await startRuntime(fixture);
+    await fixture.slice.orchestrator.submitObservation(
+      observation('conv-ignore-abort', 'msg-ignore-abort'),
+      ctx(),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const closeStarted = Date.now();
+    const closed = fixture.slice.orchestrator.close();
+    await expect(closed).resolves.toMatchObject({ ok: true });
+    expect(Date.now() - closeStarted).toBeLessThan(2000);
+    expect(readTurns(fixture.storageRoot)[0]?.llm_outcome).toBe('outcome-unknown');
+    resolveLate?.({
+      ok: true,
+      value: { kind: 'completed', outcome: 'completed', text: 'late' },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(readTurns(fixture.storageRoot)[0]?.llm_outcome).toBe('outcome-unknown');
+    fixture.handle.close();
+    fixture.root.close();
+  });
+
+  it('fails closed on stale factual outcomes without rewriting delivery facts', async () => {
+    const { requireFactualSuccess } =
+      await import('../../src/core/communication/application/phases/phase-outcomes.js');
+    const denied = requireFactualSuccess(ok({ kind: 'stale-revision' } as const), 3);
+    expect(denied.ok).toBe(false);
+    const conflict = requireFactualSuccess(
+      ok({ kind: 'concurrency-conflict', reason: 'busy' } as const),
+      3,
+    );
+    expect(conflict.ok).toBe(false);
+    const rewrite = requireFactualSuccess(
+      ok({ kind: 'fact-rewrite-denied', reason: 'immutable' } as const),
+      3,
+    );
+    expect(rewrite.ok).toBe(false);
   });
 });
