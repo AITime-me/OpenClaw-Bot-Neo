@@ -205,27 +205,39 @@ Exact ordered lifecycle:
 8. bounded `model/list`
 9. `thread/start`
 10. `turn/start` (**dispatch** / provider invocation start)
-11. On post-dispatch failure requiring cancellation: `turn/interrupt`
-12. `thread/unsubscribe`
-13. bounded child close (close stdin → wait with timeout → force-kill on hang)
+11. State-dependent cleanup per Decision 14a:
+    - active/dispatched turn → best-effort `turn/interrupt`, then `thread/unsubscribe`, then
+      bounded child close;
+    - thread created, turn not dispatched → `thread/unsubscribe`, then bounded child close;
+    - process spawned, thread absent → bounded child close only;
+    - child already crashed/exited → reap/close-only (no interrupt/unsubscribe RPCs)
 
 ### Fail-closed preflight checks (before dispatch)
 
 All must pass before `turn/start`:
 
-- `account.type` must be exactly `chatgpt` (auth mode mismatch → fail-closed;
-  `provider-unavailable` or `policy-rejected` as classified locally — never continue);
+- Unique auth mapping (one input state → exactly one outcome; no alternative outcomes):
+  - `account === null` **or** ChatGPT auth absent / unreadably missing → `provider-unavailable`
+    (no dispatch);
+  - recognized non-ChatGPT auth mode (`account.type` present and ≠ `chatgpt`) →
+    `policy-rejected` (no dispatch);
+  - `account.type === "chatgpt"` required to continue;
 - effective config from `config/read` / `configRequirements/read` must show **no** custom
   provider / base URL, and **no** web, shell, apps, MCP, hooks, or other agentic capabilities;
 - quota / rate-limit evidence from `account/rateLimits/read` must allow the probe **before**
   dispatch; known exhaustion → `quota-unavailable` without `turn/start`;
 - bounded `model/list` must yield **exactly one** visible default text-capable model; empty,
-  multiple, or unsupported discovery → fail-closed without dispatch; silent model reroute is
-  forbidden;
+  multiple, or unsupported discovery → `policy-rejected` without dispatch;
 - fixed probe prompt (exact):
   `Return one JSON object with ok=true and no other fields.`
 - exact accepted output schema (exact JSON object): `{ "ok": true }`
   — any other shape / extra fields / non-JSON → `invalid-response`.
+
+Exact auth mapping tokens for tests:
+
+- `account === null` → `provider-unavailable`
+- recognized non-ChatGPT auth mode → `policy-rejected`
+- one input state → one outcome
 
 `thread/start` params remain:
 
@@ -267,6 +279,7 @@ method, and any listen/transport reconfiguration RPC.
 
 Any of the following observed after provider invocation start maps per Decision 13–14:
 
+- `model/rerouted` (post-dispatch only) → `policy-rejected` + best-effort active-turn cleanup;
 - separate **web** events / browsing items;
 - separate **file** change / patch items;
 - separate **shell** / command-execution items;
@@ -291,17 +304,19 @@ Before that boundary:
 
 - abort / owner cancel → `cancelled-before-invocation`;
 - pin/env/spawn/initialize/preflight/`thread/start` failure without sending `turn/start` →
-  `provider-unavailable` or `policy-rejected` / `quota-unavailable` as classified — never dispatch.
+  the unique outcome from Decisions 11/14 (`provider-unavailable`, `policy-rejected`,
+  `quota-unavailable`, or `known-timeout`) — never dispatch.
 
-After that boundary, cancel/timeout/crash uncertainty follows Decision 14 (no silent retry).
-Post-dispatch failure paths must issue `turn/interrupt`, then `thread/unsubscribe`, then bounded
-child close.
+After that boundary, cancel/timeout/crash uncertainty and known post-dispatch policy failures
+follow Decision 14 (no silent retry). Cleanup is **state-dependent** (Decision 14a), not a single
+unconditional interrupt→unsubscribe→close chain.
 
 Neo must transition to ledger `llm_started` only at or after this boundary, never earlier.
 
 ## Decision 14 — Timeout / abort / crash / malformed-frame outcome mapping
 
-Map to existing `LlmCompletionOutcome` values only:
+Map to existing `LlmCompletionOutcome` values only. Each listed input state has **exactly one**
+outcome (no `A or B` alternatives):
 
 | Condition | Outcome |
 |-----------|---------|
@@ -309,22 +324,46 @@ Map to existing `LlmCompletionOutcome` values only:
 | `initialize` / preflight timeout (including `config/*`, `account/*`, `model/list`) | `known-timeout` |
 | `thread/start` timeout | `known-timeout` |
 | Abort **before** dispatch | `cancelled-before-invocation` |
+| `account === null` / ChatGPT auth absent | `provider-unavailable` |
+| Recognized non-ChatGPT auth mode | `policy-rejected` |
 | Abort / deadline / child crash **after** dispatch without proven terminal success or known failure | `outcome-unknown` |
 | Malformed frame **after** dispatch | `outcome-unknown` |
-| Post-dispatch failure → bounded `turn/interrupt` + `thread/unsubscribe` + bounded child close without proven success | `outcome-unknown` (unless a prior known failure was already classified) |
+| Post-dispatch uncertain failure after state-dependent cleanup without proven success | `outcome-unknown` (unless a prior known failure was already classified) |
 | Allowlisted turn completed with exact `{ "ok": true }` | `completed` |
-| Auth mode mismatch (`account.type` ≠ `chatgpt`) before dispatch | `provider-unavailable` or `policy-rejected` |
 | Effective config violation (custom provider/base URL / web / shell / apps / MCP / hooks / agentic) | `policy-rejected` |
 | Explicit quota / rate-limit failure before dispatch | `quota-unavailable` |
-| Empty / multiple / unsupported model discovery; model reroute attempt | `policy-rejected` |
+| Empty / multiple / unsupported model discovery (preflight) | `policy-rejected` |
+| Post-dispatch `model/rerouted` | `policy-rejected` |
 | Forbidden separate web / file / shell / MCP event after dispatch | `policy-rejected` |
 | Completion text not exact `{ "ok": true }` | `invalid-response` |
 
-Bounded interrupt and close are mandatory cleanup after post-dispatch failure; cleanup itself does
-not upgrade `outcome-unknown` to a known success.
+`model/rerouted` is a **post-dispatch** event only. It is **not** a preflight / no-dispatch case.
+On `model/rerouted`: classify `policy-rejected`, then run best-effort **active/dispatched turn**
+cleanup (Decision 14a). Cleanup does not upgrade or replace the classified outcome.
 
 No automatic retry. No API/paid fallback. No notice for `outcome-unknown`, `policy-rejected`, or
 `invalid-response` beyond existing communication policy rules.
+
+## Decision 14a — State-dependent cleanup and timeout/grace rules
+
+Cleanup depends on probe process state. Impossible RPCs must not be attempted.
+
+| State | Cleanup actions | Timeout / grace |
+|-------|-----------------|-----------------|
+| Process spawned, thread absent | bounded child close only (no `turn/interrupt`, no `thread/unsubscribe`) | close stdin; wait **exit-wait 2s**; if still alive → `SIGTERM` / equivalent and **term-grace 1s**; if still alive → force-kill (`SIGKILL` / equivalent); total close budget **≤ 5s** |
+| Thread created, turn not dispatched | `thread/unsubscribe` then bounded child close | unsubscribe RPC budget **2s**; then same close budget as above (**≤ 5s**) |
+| Active / dispatched turn | best-effort `turn/interrupt` + `thread/unsubscribe` + bounded child close | interrupt RPC budget **2s**; unsubscribe budget **2s**; then close budget **≤ 5s**; total cleanup budget **≤ 10s** |
+| Child already crashed / exited | reap / close-only (drain/close pipes and handles); **no** `turn/interrupt`, **no** `thread/unsubscribe`, no other impossible RPCs | reap immediately; handle-close budget **≤ 1s** |
+
+Exact cleanup-state tokens for tests:
+
+- `process spawned, thread absent` → bounded close
+- `thread created, turn not dispatched` → unsubscribe + close
+- `active/dispatched turn` → best-effort interrupt + unsubscribe + close
+- `child already crashed/exited` → reap/close-only
+
+Cleanup failures do not invent a second outcome; they leave the already-classified
+`LlmCompletionOutcome` unchanged.
 
 ## Decision 15 — API / fallback evidence and proof limits
 
@@ -353,27 +392,31 @@ Codex binary) covering at least:
 | Fake scenario | Expected `LlmCompletionResult` / behavior |
 |---------------|-------------------------------------------|
 | happy-path exact `{ "ok": true }` | `completed` |
-| auth mode mismatch (`account.type` ≠ `chatgpt`) | `provider-unavailable` or `policy-rejected`; no dispatch |
+| `account === null` / ChatGPT auth absent | `provider-unavailable`; no dispatch |
+| recognized non-ChatGPT auth mode | `policy-rejected`; no dispatch |
 | effective config violation (custom provider/base URL / web / shell / apps / MCP / hooks) | `policy-rejected`; no dispatch |
 | quota / rate-limit failure before dispatch | `quota-unavailable`; no dispatch |
 | empty model discovery | `policy-rejected`; no dispatch |
 | multiple model discovery | `policy-rejected`; no dispatch |
 | unsupported model discovery | `policy-rejected`; no dispatch |
-| model reroute attempt | `policy-rejected`; no dispatch |
+| post-dispatch `model/rerouted` | `policy-rejected` + best-effort active-turn cleanup |
 | abort before dispatch | `cancelled-before-invocation` |
 | initialize / preflight timeout | `known-timeout` |
 | thread-start timeout | `known-timeout` |
 | malformed frame before dispatch | `provider-unavailable` |
-| abort after dispatch mid-stream | `outcome-unknown` + `turn/interrupt` + `thread/unsubscribe` + bounded close |
-| timeout after dispatch | `outcome-unknown` + interrupt/unsubscribe/close |
-| child crash after dispatch | `outcome-unknown` + bounded close |
+| abort after dispatch mid-stream | `outcome-unknown` + active/dispatched-turn cleanup |
+| timeout after dispatch | `outcome-unknown` + active/dispatched-turn cleanup |
+| child crash after dispatch | `outcome-unknown` + reap/close-only |
 | malformed frame after dispatch | `outcome-unknown` |
 | separate web event after dispatch | `policy-rejected` |
 | separate file event after dispatch | `policy-rejected` |
 | separate shell event after dispatch | `policy-rejected` |
 | separate MCP event after dispatch | `policy-rejected` |
 | non-exact output (not `{ "ok": true }`) | `invalid-response` |
-| interrupt / unsubscribe / close path after post-dispatch failure | cleanup observed; outcome remains classified |
+| process spawned, thread absent cleanup | bounded close only |
+| thread created, turn not dispatched cleanup | unsubscribe + close |
+| active/dispatched turn cleanup | best-effort interrupt + unsubscribe + close |
+| child already crashed/exited cleanup | reap/close-only; no impossible RPCs |
 | denylisted env / `PATH` present rejected before spawn | configuration error (no spawn) |
 | basename / PATH resolution attempted | configuration error (no spawn) |
 | pin hash/version/file-identity mismatch immediately before spawn | configuration error (no spawn) |
@@ -397,8 +440,9 @@ Not executed by Build 3.7E1A. Normative future procedure:
    Telegram absent and Neo SQLite prompt/output persistence hooks asserted off; accept only
    `{ "ok": true }`.
 6. Capture ephemeral exit status / outcome classification only; do not copy credential files.
-7. Mandatory cleanup: `turn/interrupt` if needed, `thread/unsubscribe`, bounded child close,
-   revoke/logout per owner plan, delete or seal probe home as owner directs.
+7. Mandatory state-dependent cleanup (Decision 14a): interrupt only when a turn was dispatched;
+   unsubscribe when a thread exists; otherwise bounded close / reap-only; then revoke/logout per
+   owner plan, delete or seal probe home as owner directs.
 8. Record whether live probe passed/failed in a later validation note — this architecture package
    remains `LIVE_PROBE: OWNER_APPROVAL_REQUIRED` and **live probe not run**.
 

@@ -9,6 +9,7 @@ const BUILD_SUBJECTS = [
   'docs(communication): decide Build 3.7E1A Codex probe route',
   'docs(communication): complete Build 3.7E1A probe contract',
   'docs(communication): finalize Build 3.7E1A probe lifecycle',
+  'docs(communication): finalize Build 3.7E1A outcome contracts',
 ] as const;
 
 const CLOSEOUT_REL = 'docs/validation/build-3.7e1a-codex-subscription-probe-decisions.md';
@@ -76,6 +77,7 @@ const REQUIRED_CONTRACT_HEADINGS = [
   '## Decision 12 — Event allowlist and forbidden events',
   '## Decision 13 — Provider invocation start boundary (dispatch)',
   '## Decision 14 — Timeout / abort / crash / malformed-frame outcome mapping',
+  '## Decision 14a — State-dependent cleanup and timeout/grace rules',
   '## Decision 15 — API / fallback evidence and proof limits',
   '## Decision 16 — Fake test matrix',
   '## Decision 17 — Manual owner-approved live probe procedure',
@@ -108,6 +110,9 @@ const REQUIRED_CONTRACT_TOKENS = [
   'shared OS keyring',
   'account.type',
   'chatgpt',
+  'account === null',
+  'recognized non-ChatGPT auth mode',
+  'one input state → one outcome',
   'Return one JSON object with ok=true and no other fields.',
   '{ "ok": true }',
   'ephemeral: true',
@@ -116,9 +121,13 @@ const REQUIRED_CONTRACT_TOKENS = [
   'outcome-unknown',
   'malformed',
   'fake Codex app-server',
-  'auth mode mismatch',
+  'model/rerouted',
+  'post-dispatch',
   'effective config violation',
-  'model reroute',
+  'process spawned, thread absent',
+  'thread created, turn not dispatched',
+  'active/dispatched turn',
+  'child already crashed/exited',
   'codex-app-server-protocol.ts',
   'codex-app-server-client.ts',
   'codex-app-server-config.ts',
@@ -132,29 +141,40 @@ const REQUIRED_OUTCOME_ROWS = [
   '`initialize` / preflight timeout',
   '`thread/start` timeout',
   'Abort **before** dispatch',
+  '`account === null` / ChatGPT auth absent',
+  'Recognized non-ChatGPT auth mode',
   'Abort / deadline / child crash **after** dispatch',
   'Malformed frame **after** dispatch',
-  'bounded `turn/interrupt`',
-  'Auth mode mismatch',
+  'Post-dispatch `model/rerouted`',
   'Effective config violation',
-  'Empty / multiple / unsupported model discovery',
+  'Empty / multiple / unsupported model discovery (preflight)',
 ] as const;
 
 const REQUIRED_FAKE_SCENARIOS = [
-  'auth mode mismatch',
+  '`account === null` / ChatGPT auth absent',
+  'recognized non-ChatGPT auth mode',
   'effective config violation',
   'quota / rate-limit failure before dispatch',
   'empty model discovery',
   'multiple model discovery',
   'unsupported model discovery',
-  'model reroute attempt',
+  'post-dispatch `model/rerouted`',
   'separate web event after dispatch',
   'separate file event after dispatch',
   'separate shell event after dispatch',
   'separate MCP event after dispatch',
-  'interrupt / unsubscribe / close path',
+  'process spawned, thread absent cleanup',
+  'thread created, turn not dispatched cleanup',
+  'active/dispatched turn cleanup',
+  'child already crashed/exited cleanup',
   'basename / PATH resolution attempted',
   '`shell: true` or non-absolute spawn',
+] as const;
+
+const FORBIDDEN_AMBIGUOUS_AUTH_PHRASES = [
+  'auth mode mismatch (`account.type` ≠ `chatgpt`) | `provider-unavailable` or `policy-rejected`',
+  'Auth mode mismatch (`account.type` ≠ `chatgpt`) before dispatch | `provider-unavailable` or `policy-rejected`',
+  'model reroute attempt | `policy-rejected`; no dispatch',
 ] as const;
 
 function git(args: readonly string[]): string {
@@ -388,6 +408,57 @@ describe('Build 3.7E1A Codex subscription probe decisions record', () => {
     expect(record).toMatch(/`PATH` is \*\*not\*\* allowlisted/);
     expect(record).toMatch(/must \*\*not\*\* be passed to the child process/);
     expect(record).toMatch(/immediately before spawn/);
+  });
+
+  it('freezes unique auth mapping without alternative outcomes', () => {
+    expect(record).toContain('account === null');
+    expect(record).toContain('ChatGPT auth absent');
+    expect(record).toMatch(/account === null[\s\S]*?→ `provider-unavailable`/);
+    expect(record).toContain('recognized non-ChatGPT auth mode');
+    expect(record).toMatch(/recognized non-ChatGPT auth mode[\s\S]*?→\s*`policy-rejected`/);
+    expect(record).toContain('one input state → one outcome');
+    expect(record).toContain('exactly one');
+    for (const phrase of FORBIDDEN_AMBIGUOUS_AUTH_PHRASES) {
+      expect(record.includes(phrase), `ambiguous auth phrase present: ${phrase}`).toBe(false);
+    }
+    expect(record).not.toMatch(
+      /Auth mode mismatch \(`account\.type` ≠ `chatgpt`\) before dispatch \| `provider-unavailable` or `policy-rejected`/,
+    );
+    expect(record).not.toMatch(
+      /auth mode mismatch \(`account\.type` ≠ `chatgpt`\) \| `provider-unavailable` or `policy-rejected`/,
+    );
+  });
+
+  it('freezes state-dependent cleanup with timeout/grace rules', () => {
+    expect(record).toContain('## Decision 14a — State-dependent cleanup and timeout/grace rules');
+    expect(record).toContain('process spawned, thread absent');
+    expect(record).toContain('thread created, turn not dispatched');
+    expect(record).toContain('active/dispatched turn');
+    expect(record).toContain('child already crashed/exited');
+    expect(record).toMatch(/bounded child close only/);
+    expect(record).toMatch(/`thread\/unsubscribe` then bounded child close|unsubscribe \+ close/);
+    expect(record).toMatch(/best-effort `turn\/interrupt`/);
+    expect(record).toMatch(/reap \/ close-only|reap\/close-only/);
+    expect(record).toContain('exit-wait 2s');
+    expect(record).toContain('term-grace 1s');
+    expect(record).toContain('unsubscribe RPC budget **2s**');
+    expect(record).toContain('interrupt RPC budget **2s**');
+    expect(record).toContain('total cleanup budget **≤ 10s**');
+    expect(record).toContain('handle-close budget **≤ 1s**');
+    expect(record).toMatch(/no other impossible RPCs|no impossible RPCs/);
+  });
+
+  it('freezes post-dispatch model/rerouted as policy-rejected', () => {
+    expect(record).toContain('model/rerouted');
+    expect(record).toContain('Post-dispatch `model/rerouted`');
+    expect(record).toContain('post-dispatch `model/rerouted`');
+    expect(record).toMatch(/`model\/rerouted` is a \*\*post-dispatch\*\* event only/);
+    expect(record).toMatch(/It is \*\*not\*\* a preflight \/ no-dispatch case/);
+    expect(record).toMatch(/Post-dispatch `model\/rerouted` \| `policy-rejected`/);
+    expect(record).toMatch(
+      /post-dispatch `model\/rerouted` \| `policy-rejected` \+ best-effort active-turn cleanup/,
+    );
+    expect(record).not.toContain('model reroute attempt | `policy-rejected`; no dispatch');
   });
 
   it('freezes clarified outcomes and expanded fake matrix contracts', () => {

@@ -189,7 +189,9 @@ OAuth with `cli_auth_credentials_store="file"`; Neo does not read credentials; s
 forbidden; isolated `CODEX_HOME`; spawn only by pinned `absolutePath` with `shell: false` (no
 `PATH`/basename); exact lifecycle
 `initialize → initialized → config/read → configRequirements/read → account/read { refreshToken:false } → account/rateLimits/read → bounded model/list → thread/start → turn/start` with
-`turn/interrupt` / `thread/unsubscribe` / bounded close; fixed prompt and exact `{ "ok": true }`
+state-dependent cleanup (`interrupt` / `unsubscribe` / bounded close / reap-only); unique auth
+mapping (`account === null` → `provider-unavailable`; non-ChatGPT auth → `policy-rejected`);
+post-dispatch `model/rerouted` → `policy-rejected`; fixed prompt and exact `{ "ok": true }`
 output; prompt/output not stored in Neo SQLite; API/paid fallback disabled; OpenClaw route out of
 scope; durable 3.7D integration blocked by encryption; implementation ready; live probe not run;
 production false.
