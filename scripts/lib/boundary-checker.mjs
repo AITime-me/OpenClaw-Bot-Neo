@@ -55,6 +55,16 @@ export const CORE_LAYER_RULES = {
     'core/communication/application',
     'communication/reference',
   ],
+  /**
+   * Probe-only Codex app-server adapter (Build 3.7E1). Package-private; not wired to durable 3.7D.
+   */
+  'communication/adapters/codex-app-server': [
+    'core/domain',
+    'core/ports',
+    'core/communication/domain',
+    'core/communication/ports',
+    'communication/adapters/codex-app-server',
+  ],
   'core/ports': ['core/domain', 'core/domain/infrastructure', 'core/ports'],
   'core/policy': ['core/domain', 'core/ports', 'core/policy'],
   'core/routing': ['core/domain', 'core/ports', 'core/routing'],

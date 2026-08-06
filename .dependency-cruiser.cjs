@@ -75,6 +75,18 @@ module.exports = {
       },
     },
     {
+      name: 'communication-codex-app-server-depend-on-allowed-only',
+      severity: 'error',
+      comment:
+        'Codex app-server probe adapter may depend on communication domain/ports and itself only.',
+      from: { path: '^src/communication/adapters/codex-app-server' },
+      to: {
+        path: '^src/',
+        pathNot:
+          '^src/(core/(domain|ports|communication/(domain|ports))|communication/adapters/codex-app-server)',
+      },
+    },
+    {
       name: 'communication-no-connectors-infrastructure-host',
       severity: 'error',
       comment:

@@ -14,9 +14,11 @@ Build 3.7E0 capability probe: NOT_RUN
 
 Build 3.7E1A status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; live probe not run)
 
-Build 3.7E1 status: BLOCKED
+Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: NOT_RUN; durable 3.7D wiring BLOCKED_BY_ENCRYPTION)
 
-Build 3.7E1 implementation status: NOT_STARTED
+Build 3.7E1 implementation status: IMPLEMENTED
+
+LIVE_PROBE_STATUS: NOT_RUN
 
 Build 3.7F status: BLOCKED
 
@@ -27,15 +29,17 @@ Meaning:
 - existence of a modern Codex/ChatGPT technical subscription route was confirmed by Build 3.7E0
   official-source research;
 - Build 3.7E1A selects a **probe-only Codex app-server stdio** route as the Neo architecture
-  target for the next implementation package;
+  target; Build 3.7E1 implements that probe-only package with fake coverage;
+- `LIVE_PROBE_STATUS: NOT_RUN` — no real Codex login, app-server spawn, or model call in 3.7E1;
 - durable 3.7D live wiring of that Codex route remains blocked by encryption;
 - compatibility of a future **OpenClaw**/Neo runtime integration was **not** verified and remains
-  **OUT_OF_SCOPE** for 3.7E1A;
+  **OUT_OF_SCOPE** for 3.7E1A/3.7E1;
 - no OpenClaw runtime, adapter, OAuth integration, capability probe, or model call was executed in
-  Build 3.7E0 or 3.7E1A;
+  Build 3.7E0, 3.7E1A, or 3.7E1;
 - therefore OpenClaw-specific rows below remain **UNVERIFIED** for runtime verification status;
-- do not read External Codex/ChatGPT prerequisite verification or 3.7E1A architecture readiness as
-  OpenClaw runtime PASS, live probe PASS, or production readiness.
+- do not read External Codex/ChatGPT prerequisite verification, 3.7E1A architecture readiness, or
+  3.7E1 probe-only implementation as OpenClaw runtime PASS, live probe PASS, or production
+  readiness.
 
 Все OpenClaw-специфичные runtime-утверждения ниже — **UNVERIFIED**, пока не выполнены
 reproducible runtime checks против закреплённой OpenClaw version.

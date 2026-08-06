@@ -486,6 +486,15 @@ describe('Build 3.7E0 subscription route feasibility record', () => {
       for (const { rel, required } of DOC_REQUIRED) {
         const text = docsByRel.get(rel) ?? '';
         for (const line of required) {
+          if (line === 'Build 3.7E1 status: BLOCKED') {
+            // Successor Build 3.7E1 may advance companions to PROBE_IMPLEMENTED while live
+            // remains NOT_RUN; historical E0 closeout markers stay BLOCKED.
+            const ok =
+              containsNormalized(text, 'Build 3.7E1 status: BLOCKED') ||
+              containsNormalized(text, 'Build 3.7E1 status: PROBE_IMPLEMENTED');
+            expect(ok, `${rel} missing E1 status BLOCKED or PROBE_IMPLEMENTED`).toBe(true);
+            continue;
+          }
           expect(containsNormalized(text, line), `${rel} missing exact line: ${line}`).toBe(true);
         }
       }

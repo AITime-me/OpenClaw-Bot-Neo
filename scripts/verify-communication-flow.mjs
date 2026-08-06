@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -172,13 +172,22 @@ if (existsSync(reference)) {
     failures.push('FLOW: reference composition must pass ownershipKey.');
 }
 
-const forbiddenLive = [
-  'src/communication/adapters',
-  'src/neo-runtime/production/create-production-text-communication.ts',
-];
+const forbiddenLive = ['src/neo-runtime/production/create-production-text-communication.ts'];
 for (const path of forbiddenLive) {
   if (existsSync(path))
-    failures.push(`FLOW_FORBIDDEN_LIVE: ${path} must remain absent in Build 3.7D.`);
+    failures.push(`FLOW_FORBIDDEN_LIVE: ${path} must remain absent until production composition.`);
+}
+
+const adaptersRoot = 'src/communication/adapters';
+if (existsSync(adaptersRoot)) {
+  for (const name of readdirSync(adaptersRoot)) {
+    if (name !== 'codex-app-server')
+      failures.push(
+        `FLOW_FORBIDDEN_ADAPTER: src/communication/adapters/${name} is not authorized.`,
+      );
+  }
+  if (!existsSync('src/communication/adapters/codex-app-server/create-codex-app-server-route.ts'))
+    failures.push('FLOW: missing create-codex-app-server-route.ts for Build 3.7E1.');
 }
 
 if (failures.length > 0) {

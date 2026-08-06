@@ -12,8 +12,8 @@
 5. **3.7D** — application orchestrator and offline reference / fake completion only.
 6. **3.7E1A** — Codex app-server probe route **architecture decisions closed** (implementation
    ready; live probe not run; OpenClaw out of scope).
-7. **3.7E1** — Codex app-server probe **implementation package** not started; durable 3.7D live
-   wiring **BLOCKED_BY_ENCRYPTION**.
+7. **3.7E1** — Codex app-server probe **implementation package** present (probe-only; fake matrix;
+   `LIVE_PROBE_STATUS: NOT_RUN`); durable 3.7D live wiring **BLOCKED_BY_ENCRYPTION**.
 8. **3.7F** — temporary owner-only Telegram adapter **BLOCKED** pending E1 live gates, encryption,
    operational approval.
 9. Later: files/images → voice input → masculine voice output → plans/reminders → private mobile
@@ -23,9 +23,11 @@ Build 3.7B–D are offline only
 
 Build 3.7E1A status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; LIVE_PROBE owner-approval required; live probe not run)
 
-Build 3.7E1 status: BLOCKED
+Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: NOT_RUN; durable 3.7D wiring BLOCKED_BY_ENCRYPTION)
 
-Build 3.7E1 implementation status: NOT_STARTED
+Build 3.7E1 implementation status: IMPLEMENTED
+
+LIVE_PROBE_STATUS: NOT_RUN
 
 Build 3.7F status: BLOCKED
 
@@ -43,10 +45,12 @@ Research executive verdict remains FAIL under the absolute zero-paid-fallback cr
 subscription route remains PASS; live operational approval remains UNRESOLVED. See
 [3.7E0 closeout](../validation/build-3.7e0-subscription-route-feasibility.md).
 
-Offline B–D work may proceed. Build 3.7E1A architecture decisions are closed for a probe-only
-Codex app-server stdio route; live probe and production remain blocked. OpenClaw remains a
-separate unverified / out-of-scope route. See
-[3.7E1A decisions](../validation/build-3.7e1a-codex-subscription-probe-decisions.md).
+Offline B–D work may proceed. Build 3.7E1A architecture decisions are closed. Build 3.7E1
+implements the probe-only Codex app-server stdio adapter with fake coverage;
+`LIVE_PROBE_STATUS: NOT_RUN`; durable 3.7D live wiring and production remain blocked. OpenClaw
+remains a separate unverified / out-of-scope route. See
+[3.7E1A decisions](../validation/build-3.7e1a-codex-subscription-probe-decisions.md) and
+[3.7E1 closeout](../validation/build-3.7e1-codex-subscription-probe-closeout.md).
 
 ## 2. Public API / barrel rule (B37A-004)
 
@@ -166,7 +170,8 @@ src/communication/reference/reference-id-generator.ts
 src/communication/reference/index.ts
 ```
 
-Build 3.7D next stage: 3.7E1A architecture (closed) → 3.7E1 implementation (not started).
+Build 3.7D next stage: 3.7E1A architecture (closed) → 3.7E1 probe implementation (present;
+LIVE_PROBE_STATUS: NOT_RUN) → owner-approved live probe → encryption gate.
 
 ### 3.7E0
 
@@ -196,9 +201,7 @@ output; prompt/output not stored in Neo SQLite; API/paid fallback disabled; Open
 scope; durable 3.7D integration blocked by encryption; implementation ready; live probe not run;
 production false.
 
-### 3.7E1 — Codex app-server probe implementation (not started)
-
-Future exact paths (normative; not implemented in 3.7E1A):
+### 3.7E1 — Codex app-server probe implementation (present; live not run)
 
 ```text
 src/communication/adapters/codex-app-server/create-codex-app-server-route.ts
@@ -216,13 +219,20 @@ tests/communication/codex-app-server-executable-pin.test.ts
 tests/communication/codex-app-server-client.fake.test.ts
 tests/communication/codex-app-server-llm-completion.fake.test.ts
 tests/communication/codex-app-server-boundaries.test.ts
+scripts/manual/codex-app-server-owner-probe.mjs
 scripts/verify-communication-boundaries.mjs
+scripts/verify-communication-flow.mjs
 .dependency-cruiser.cjs
 scripts/lib/boundary-checker.mjs
+docs/validation/build-3.7e1-codex-subscription-probe-closeout.md
+tests/build-3.7e1-codex-subscription-probe-closeout-record.test.ts
 ```
 
-Codex app-server is a **separate** route from OpenClaw. Do not reunify them under a combined route name.
-Durable 3.7D live wiring remains blocked by encryption. PRODUCTION_READY: FALSE.
+Status: **probe-only implementation**. Fake Decision 16 matrix covered in CI.
+`LIVE_PROBE_STATUS: NOT_RUN`. Manual owner probe script requires exact
+`OWNER_PROBE_CONFIRMATION` and is not part of default check. Codex app-server is a **separate**
+route from OpenClaw. Durable 3.7D live wiring remains blocked by encryption.
+PRODUCTION_READY: FALSE.
 
 ### OpenClaw route — out of scope / unverified
 

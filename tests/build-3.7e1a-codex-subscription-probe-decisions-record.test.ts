@@ -246,6 +246,8 @@ function parseCanonicalMarkers(record: string): Map<string, string> {
 }
 
 function resolveBuildTip(): { tip: string; includeWorkingTree: boolean } {
+  // Newest-first log; tip must pin to the last E1A architecture commit so successor
+  // implementation Builds (3.7E1+) do not expand this package's path set.
   const matches = git(['log', `${BUILD_BASE}..HEAD`, '--format=%H%x09%s'])
     .split('\n')
     .map((line) => line.trim())
@@ -258,16 +260,13 @@ function resolveBuildTip(): { tip: string; includeWorkingTree: boolean } {
     })
     .filter((entry) => (BUILD_SUBJECTS as readonly string[]).includes(entry.subject));
 
-  const working = workingTreePaths();
-  if (working.length > 0) {
-    return { tip: git(['rev-parse', 'HEAD']), includeWorkingTree: true };
+  if (matches.length > 0) {
+    const newest = matches[0];
+    if (!newest) throw new Error('E1A build commit match missing');
+    return { tip: newest.hash, includeWorkingTree: false };
   }
 
-  if (matches.length === 0) {
-    return { tip: git(['rev-parse', 'HEAD']), includeWorkingTree: true };
-  }
-
-  return { tip: git(['rev-parse', 'HEAD']), includeWorkingTree: false };
+  return { tip: git(['rev-parse', 'HEAD']), includeWorkingTree: true };
 }
 
 function changedPathsBetween(base: string, tip: string): string[] {
@@ -488,8 +487,10 @@ describe('Build 3.7E1A Codex subscription probe decisions record', () => {
     for (const relativePath of COMPANION_DOCS) {
       const text = readCompanion(relativePath);
       expect(text).toMatch(/probe-only/i);
-      expect(text).toMatch(/Build 3\.7E1 implementation status:\s*NOT_STARTED/);
-      expect(text).toMatch(/live probe not run/i);
+      // E1A frozen companions at NOT_STARTED; successor 3.7E1 may advance to IMPLEMENTED
+      // while keeping LIVE_PROBE_STATUS: NOT_RUN and durable wiring blocked.
+      expect(text).toMatch(/Build 3\.7E1 implementation status:\s*(?:NOT_STARTED|IMPLEMENTED)/);
+      expect(text).toMatch(/live probe not run|LIVE_PROBE_STATUS:\s*NOT_RUN/i);
       expect(text).toMatch(/blocked by encryption/i);
       expect(text).toMatch(/OpenClaw/);
       expect(text).toMatch(/UNVERIFIED|OUT_OF_SCOPE|out of scope|out-of-scope/i);

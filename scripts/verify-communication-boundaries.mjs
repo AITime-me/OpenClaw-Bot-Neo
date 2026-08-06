@@ -40,14 +40,26 @@ if (!existsSync(communicationRoot)) {
       failures.push(`MISSING_PERSISTENCE_FACADE: ${facade} is required for Build 3.7C0.`);
   }
 
-  const forbiddenTrees = [
-    'src/core/communication/runtime',
-    'src/core/communication/adapters',
-    'src/communication/adapters',
-  ];
+  const forbiddenTrees = ['src/core/communication/runtime', 'src/core/communication/adapters'];
   for (const tree of forbiddenTrees) {
     if (existsSync(tree))
       failures.push(`FORBIDDEN_TREE: ${tree} must not exist until a later live Build.`);
+  }
+
+  // Build 3.7E1 allows only the exact Codex app-server probe adapter tree.
+  const adaptersRoot = 'src/communication/adapters';
+  if (existsSync(adaptersRoot)) {
+    const adapterEntries = readdirSync(adaptersRoot);
+    for (const name of adapterEntries) {
+      if (name !== 'codex-app-server')
+        failures.push(
+          `FORBIDDEN_ADAPTER: src/communication/adapters/${name} is not authorized (only codex-app-server).`,
+        );
+    }
+    if (!existsSync('src/communication/adapters/codex-app-server'))
+      failures.push(
+        'MISSING_TREE: src/communication/adapters/codex-app-server is required for 3.7E1.',
+      );
   }
 
   const requiredRuntimeTrees = [
@@ -147,13 +159,15 @@ if (!existsSync(communicationRoot)) {
       'core/communication/policy',
       'core/communication/application',
       'communication/reference',
+      'communication/adapters/codex-app-server',
     ],
   });
   for (const violation of report.violations) {
     if (
       violation.code === 'MISSING_LAYER' &&
       !String(violation.message).includes('core/communication/') &&
-      !String(violation.message).includes('communication/reference')
+      !String(violation.message).includes('communication/reference') &&
+      !String(violation.message).includes('communication/adapters/codex-app-server')
     ) {
       continue;
     }

@@ -150,13 +150,14 @@
 - technical PASS does not satisfy live acceptance
 - Build 3.7E0 live operational approval: UNRESOLVED
 - Build 3.7E1A status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; live probe not run)
-- Build 3.7E1 status: BLOCKED
-- Build 3.7E1 implementation status: NOT_STARTED
+- Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: NOT_RUN; durable 3.7D wiring BLOCKED_BY_ENCRYPTION)
+- Build 3.7E1 implementation status: IMPLEMENTED
+- LIVE_PROBE_STATUS: NOT_RUN
 - Build 3.7F status: BLOCKED
 - Build 3.7E0 next stage: 3.7B
 - 3.7B is offline only
 - Acceptance of live text chat requires later implementation Builds, owner-approved capability
-  probe, encryption gate, and independent review; 3.7A/3.7E0/3.7E1A alone do not satisfy
+  probe, encryption gate, and independent review; 3.7A/3.7E0/3.7E1A/3.7E1 alone do not satisfy
   channel/LLM runtime acceptance.
 
 ## Text communication (Build 3.7B contracts)
@@ -172,15 +173,18 @@
   Codex app-server stdio; OpenClaw out of scope / UNVERIFIED; Neo SQLite probe persistence
   forbidden; durable 3.7D integration blocked by encryption)
 - PRODUCTION_READY: FALSE
-- Build 3.7E1 status: BLOCKED
-- Build 3.7E1 implementation status: NOT_STARTED
+- Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: NOT_RUN; durable 3.7D wiring BLOCKED_BY_ENCRYPTION)
+- Build 3.7E1 implementation status: IMPLEMENTED
+- LIVE_PROBE_STATUS: NOT_RUN
 - Build 3.7F status: BLOCKED
-- Build 3.7D next stage: 3.7E1A (architecture closed) → 3.7E1 implementation
+- Build 3.7D next stage: 3.7E1A (architecture closed) → 3.7E1 probe implementation (present;
+  LIVE_PROBE_STATUS: NOT_RUN) → owner-approved live probe → encryption gate
 - See [3.7B closeout](validation/build-3.7b-communication-contracts-closeout.md).
 - See [3.7C closeout](validation/build-3.7c-communication-persistence-closeout.md).
 - See [3.7D0 decisions](validation/build-3.7d0-communication-runtime-decisions.md).
 - See [3.7D closeout](validation/build-3.7d-communication-runtime-closeout.md).
 - See [3.7E1A decisions](validation/build-3.7e1a-codex-subscription-probe-decisions.md).
+- See [3.7E1 closeout](validation/build-3.7e1-codex-subscription-probe-closeout.md).
 
 ## Deployment
 

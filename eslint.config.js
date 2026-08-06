@@ -45,6 +45,13 @@ export default tseslint.config(
     },
   },
   {
+    files: ['tests/communication/codex-app-server-*.test.ts'],
+    rules: {
+      // Probe-only adapter tests must import the package-private adapter under test.
+      'no-restricted-imports': 'off',
+    },
+  },
+  {
     files: [
       'scripts/integration/**/*.ts',
       'tests/durable-composition-linux-gate.test.ts',
