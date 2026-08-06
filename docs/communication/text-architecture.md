@@ -10,13 +10,16 @@
 
 **Build 3.7B status:** offline contracts implemented; live runtime absent.
 
+Build 3.7E1A status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; live probe not run)
+
 Build 3.7E1 status: BLOCKED
+
+Build 3.7E1 implementation status: NOT_STARTED
 
 Build 3.7F status: BLOCKED
 
-Build 3.7B next stage: 3.7C
-
-See [3.7B closeout](../validation/build-3.7b-communication-contracts-closeout.md).
+See [3.7B closeout](../validation/build-3.7b-communication-contracts-closeout.md) and
+[3.7E1A decisions](../validation/build-3.7e1a-codex-subscription-probe-decisions.md).
 
 ## 1. Executive design
 
@@ -296,7 +299,11 @@ Build 3.7E0 provider strategy: RETAIN_CHATGPT_CODEX_AS_PRIMARY_CANDIDATE
 
 Build 3.7B–D are offline only
 
+Build 3.7E1A status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; live probe not run)
+
 Build 3.7E1 status: BLOCKED
+
+Build 3.7E1 implementation status: NOT_STARTED
 
 Build 3.7F status: BLOCKED
 
@@ -307,7 +314,12 @@ subscription route remains PASS. API-key / token-billed Platform API / silent fa
 forbidden. Repository flags do not control upstream ChatGPT credit accounting; existing
 ChatGPT/Codex credits may still be consumed after included quota.
 
-See [3.7E0 closeout](../validation/build-3.7e0-subscription-route-feasibility.md).
+Build 3.7E1A freezes a **probe-only Codex app-server stdio** route with Codex-managed ChatGPT
+OAuth, isolated `CODEX_HOME`, pinned executable/hash, and Neo SQLite persistence forbidden for
+prompt/output. OpenClaw remains a **separate** unverified / out-of-scope route. Durable wiring
+into 3.7D stays blocked by encryption. See
+[3.7E1A decisions](../validation/build-3.7e1a-codex-subscription-probe-decisions.md) and
+[3.7E0 closeout](../validation/build-3.7e0-subscription-route-feasibility.md).
 
 ## 12. Public / private API
 
@@ -326,9 +338,13 @@ root.
 4. **3.7C** — durable SQLite communication foundation (offline only).
 5. **3.7D** — orchestrator + offline reference / fake completion (**implemented**; see
    [3.7D closeout](../validation/build-3.7d-communication-runtime-closeout.md)).
-6. **3.7E1** — Codex/OpenClaw route **blocked** pending capability probe and live gates.
-7. **3.7F** — temporary Telegram adapter **blocked** pending E1, encryption, operational approval.
-8. Later: files/images → voice → masculine TTS → plans/reminders → private mobile → Telegram
+6. **3.7E1A** — Codex app-server probe architecture (**closed**; implementation ready; live probe
+   not run; OpenClaw out of scope).
+7. **3.7E1** — Codex app-server probe implementation (**not started**); durable 3.7D live wiring
+   blocked by encryption.
+8. **3.7F** — temporary Telegram adapter **blocked** pending E1 live gates, encryption, operational
+   approval.
+9. Later: files/images → voice → masculine TTS → plans/reminders → private mobile → Telegram
    removal → read-only eyes → safe hands.
 
 ## 14. Future diagnostics (absent in 3.7A)

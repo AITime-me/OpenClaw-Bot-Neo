@@ -149,12 +149,15 @@
 - Temporary Telegram and future private mobile messenger are equal adapter slots on one core.
 - technical PASS does not satisfy live acceptance
 - Build 3.7E0 live operational approval: UNRESOLVED
+- Build 3.7E1A status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; live probe not run)
 - Build 3.7E1 status: BLOCKED
+- Build 3.7E1 implementation status: NOT_STARTED
 - Build 3.7F status: BLOCKED
 - Build 3.7E0 next stage: 3.7B
 - 3.7B is offline only
-- Acceptance of live text chat requires later implementation Builds, capability probe, encryption
-  gate, and independent review; 3.7A/3.7E0 alone do not satisfy channel/LLM runtime acceptance.
+- Acceptance of live text chat requires later implementation Builds, owner-approved capability
+  probe, encryption gate, and independent review; 3.7A/3.7E0/3.7E1A alone do not satisfy
+  channel/LLM runtime acceptance.
 
 ## Text communication (Build 3.7B contracts)
 
@@ -165,13 +168,17 @@
 - Build 3.7C status: offline SQLite communication persistence implemented; live runtime absent.
 - Build 3.7D status: offline executable communication runtime implemented (fake LLM/delivery only);
   fail-safe no-resume recovery; schema v1 unchanged.
+- Build 3.7E1A status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; live probe not run; OpenClaw out of
+  scope; Neo SQLite probe persistence forbidden; durable 3.7D integration blocked by encryption)
 - Build 3.7E1 status: BLOCKED
+- Build 3.7E1 implementation status: NOT_STARTED
 - Build 3.7F status: BLOCKED
-- Build 3.7D next stage: 3.7E1
+- Build 3.7D next stage: 3.7E1A (architecture closed) → 3.7E1 implementation
 - See [3.7B closeout](validation/build-3.7b-communication-contracts-closeout.md).
 - See [3.7C closeout](validation/build-3.7c-communication-persistence-closeout.md).
 - See [3.7D0 decisions](validation/build-3.7d0-communication-runtime-decisions.md).
 - See [3.7D closeout](validation/build-3.7d-communication-runtime-closeout.md).
+- See [3.7E1A decisions](validation/build-3.7e1a-codex-subscription-probe-decisions.md).
 
 ## Deployment
 

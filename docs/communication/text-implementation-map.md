@@ -10,15 +10,22 @@
 3. **3.7B** — package-private domain, ports, policies, boundary rules (**closed contracts**; offline only).
 4. **3.7C** — durable SQLite communication foundation (offline only; no live auth).
 5. **3.7D** — application orchestrator and offline reference / fake completion only.
-6. **3.7E1** — Codex/OpenClaw route **BLOCKED** pending capability probe and live gates.
-7. **3.7F** — temporary owner-only Telegram adapter **BLOCKED** pending E1, encryption, operational
-   approval.
-8. Later: files/images → voice input → masculine voice output → plans/reminders → private mobile
+6. **3.7E1A** — Codex app-server probe route **architecture decisions closed** (implementation
+   ready; live probe not run; OpenClaw out of scope).
+7. **3.7E1** — Codex app-server probe **implementation package** not started; durable 3.7D live
+   wiring **BLOCKED_BY_ENCRYPTION**.
+8. **3.7F** — temporary owner-only Telegram adapter **BLOCKED** pending E1 live gates, encryption,
+   operational approval.
+9. Later: files/images → voice input → masculine voice output → plans/reminders → private mobile
    app → Telegram removal → read-only eyes → safe hands.
 
 Build 3.7B–D are offline only
 
+Build 3.7E1A status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; LIVE_PROBE owner-approval required)
+
 Build 3.7E1 status: BLOCKED
+
+Build 3.7E1 implementation status: NOT_STARTED
 
 Build 3.7F status: BLOCKED
 
@@ -34,7 +41,10 @@ Research executive verdict remains FAIL under the absolute zero-paid-fallback cr
 subscription route remains PASS; live operational approval remains UNRESOLVED. See
 [3.7E0 closeout](../validation/build-3.7e0-subscription-route-feasibility.md).
 
-Offline B–D work may proceed; live-oriented E1/F remain blocked.
+Offline B–D work may proceed. Build 3.7E1A architecture decisions are closed for a probe-only
+Codex app-server stdio route; live probe and production remain blocked. OpenClaw remains a
+separate unverified / out-of-scope route. See
+[3.7E1A decisions](../validation/build-3.7e1a-codex-subscription-probe-decisions.md).
 
 ## 2. Public API / barrel rule (B37A-004)
 
@@ -154,7 +164,7 @@ src/communication/reference/reference-id-generator.ts
 src/communication/reference/index.ts
 ```
 
-Build 3.7D next stage: 3.7E1 (blocked).
+Build 3.7D next stage: 3.7E1A architecture (closed) → 3.7E1 implementation (not started).
 
 ### 3.7E0
 
@@ -163,18 +173,39 @@ docs/validation/build-3.7e0-subscription-route-feasibility.md
 tests/build-3.7e0-subscription-route-feasibility-record.test.ts
 ```
 
-Status: **closed** as research-only. Technical route PASS; live UNRESOLVED; E1/F blocked;
-next stage 3.7B.
+Status: **closed** as research-only. Technical route PASS; live UNRESOLVED; next stage was 3.7B.
 
-### 3.7E1 — blocked pending capability probe and live gates
+### 3.7E1A — Codex app-server probe architecture (closed decisions)
 
 ```text
-src/communication/adapters/codex-openclaw/codex-openclaw-capability-probe.ts
-src/communication/adapters/codex-openclaw/codex-openclaw-llm-completion.ts
-src/communication/adapters/codex-openclaw/create-codex-openclaw-route.ts
+docs/validation/build-3.7e1a-codex-subscription-probe-decisions.md
+tests/build-3.7e1a-codex-subscription-probe-decisions-record.test.ts
 ```
 
-### 3.7F — blocked pending E1, encryption, operational approval
+Status: **architecture-only**. Probe-only Codex app-server stdio route; Codex-managed ChatGPT
+OAuth; Neo does not read credentials; isolated `CODEX_HOME`; pinned executable/version/hash;
+strict env/config/event allowlists; one owner-approved non-persistent probe; prompt/output not
+stored in Neo SQLite; API/paid fallback disabled; OpenClaw route out of scope; durable 3.7D
+integration blocked by encryption; implementation ready; live probe not run; production false.
+
+### 3.7E1 — Codex app-server probe implementation (not started)
+
+Future exact paths (normative; not implemented in 3.7E1A):
+
+```text
+src/communication/adapters/codex-app-server/codex-app-server-capability-probe.ts
+src/communication/adapters/codex-app-server/codex-app-server-llm-completion.ts
+src/communication/adapters/codex-app-server/create-codex-app-server-route.ts
+```
+
+Codex app-server is a **separate** route from OpenClaw. Do not reunify under `codex-openclaw`.
+
+### OpenClaw route — out of scope / unverified
+
+OpenClaw runtime compatibility remains **UNVERIFIED**. No OpenClaw adapter path is authorized by
+Build 3.7E1A. Any future OpenClaw route requires its own decision package and runtime proof.
+
+### 3.7F — blocked pending E1 live gates, encryption, operational approval
 
 ```text
 src/communication/adapters/telegram/telegram-update-parser.ts

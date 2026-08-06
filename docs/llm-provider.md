@@ -72,7 +72,11 @@ Build 3.7E0 provider strategy: RETAIN_CHATGPT_CODEX_AS_PRIMARY_CANDIDATE
 
 Build 3.7E0 capability probe: NOT_RUN
 
+Build 3.7E1A status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; LIVE_PROBE owner-approval required)
+
 Build 3.7E1 status: BLOCKED
+
+Build 3.7E1 implementation status: NOT_STARTED
 
 Build 3.7F status: BLOCKED
 
@@ -81,8 +85,12 @@ Build 3.7E0 next stage: 3.7B
 **Build 3.7B (offline contracts):** `LlmCompletionPort` contract and related communication policies
 are implemented package-private under `src/core/communication/`. No live model calls, provider adapter,
 or root exports. Build 3.7B status: offline contracts implemented; live runtime absent.
-Build 3.7E1 status: BLOCKED. Build 3.7F status: BLOCKED. Build 3.7B next stage: 3.7C.
-See [3.7B closeout](validation/build-3.7b-communication-contracts-closeout.md).
+Build 3.7E1A architecture is closed for a probe-only Codex app-server stdio route; Neo does not
+read credentials; isolated `CODEX_HOME` required; API/paid fallback remain false; Neo SQLite must
+not persist probe prompt/output; durable 3.7D integration remains blocked by encryption; OpenClaw
+is a separate out-of-scope route. Live probe is not run by this decision package.
+See [3.7E1A decisions](validation/build-3.7e1a-codex-subscription-probe-decisions.md) and
+[3.7B closeout](validation/build-3.7b-communication-contracts-closeout.md).
 
 Additional norms:
 
