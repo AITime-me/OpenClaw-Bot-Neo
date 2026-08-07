@@ -1,0 +1,27 @@
+{
+  "config": {
+    "cli_auth_credentials_store": "file",
+    "forced_login_method": "chatgpt",
+    "model_provider": "openai",
+    "model": "gpt-5.6-sol",
+    "approval_policy": "never",
+    "sandbox_mode": "read-only",
+    "web_search": "disabled",
+    "allow_login_shell": false,
+    "tools": { "web_search": null },
+    "apps": {},
+    "mcp_servers": {},
+    "hooks": {},
+    "features": {
+      "auth_elicitation": false,
+      "mentions_v2": true,
+      "remote_plugin": false,
+      "tool_suggest": false
+    },
+    "model_context_window": 272000,
+    "analytics": null,
+    "desktop": null
+  },
+  "origins": {},
+  "layers": null
+}

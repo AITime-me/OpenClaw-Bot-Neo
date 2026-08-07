@@ -12,11 +12,11 @@
 
 Build 3.7E1A status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; live probe not run)
 
-Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: NOT_RUN; durable 3.7D wiring BLOCKED_BY_ENCRYPTION)
+Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: EXECUTED_FAIL / provider-unavailable / pre-dispatch compatibility on codex-cli 0.147.0; durable 3.7D wiring BLOCKED_BY_ENCRYPTION)
 
 Build 3.7E1 implementation status: IMPLEMENTED
 
-LIVE_PROBE_STATUS: NOT_RUN
+LIVE_PROBE_STATUS: EXECUTED_FAIL
 
 Build 3.7F status: BLOCKED
 
@@ -306,11 +306,11 @@ Build 3.7B–D are offline only
 
 Build 3.7E1A status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; live probe not run)
 
-Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: NOT_RUN; durable 3.7D wiring BLOCKED_BY_ENCRYPTION)
+Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: EXECUTED_FAIL / provider-unavailable / pre-dispatch compatibility on codex-cli 0.147.0; durable 3.7D wiring BLOCKED_BY_ENCRYPTION)
 
 Build 3.7E1 implementation status: IMPLEMENTED
 
-LIVE_PROBE_STATUS: NOT_RUN
+LIVE_PROBE_STATUS: EXECUTED_FAIL
 
 Build 3.7F status: BLOCKED
 
@@ -326,7 +326,7 @@ ChatGPT/Codex credits may still be consumed after included quota.
 Build 3.7E1A freezes a **probe-only Codex app-server stdio** route with Codex-managed ChatGPT
 OAuth, isolated `CODEX_HOME`, pinned executable/hash, and Neo SQLite persistence forbidden for
 prompt/output. Build 3.7E1 implements that route as package-private probe-only code with fake
-coverage; `LIVE_PROBE_STATUS: NOT_RUN`. OpenClaw remains a **separate** unverified / out-of-scope
+coverage; `LIVE_PROBE_STATUS: EXECUTED_FAIL`. OpenClaw remains a **separate** unverified / out-of-scope
 route. Durable wiring into 3.7D stays blocked by encryption. See
 [3.7E1A decisions](../validation/build-3.7e1a-codex-subscription-probe-decisions.md),
 [3.7E1 closeout](../validation/build-3.7e1-codex-subscription-probe-closeout.md), and
@@ -351,7 +351,7 @@ root.
    [3.7D closeout](../validation/build-3.7d-communication-runtime-closeout.md)).
 6. **3.7E1A** — Codex app-server probe architecture (**closed**; implementation ready; live probe
    not run; OpenClaw out of scope).
-7. **3.7E1** — Codex app-server probe implementation (**present**; `LIVE_PROBE_STATUS: NOT_RUN`);
+7. **3.7E1** — Codex app-server probe implementation (**present**; `LIVE_PROBE_STATUS: EXECUTED_FAIL`);
    durable 3.7D live wiring blocked by encryption.
 8. **3.7F** — temporary Telegram adapter **blocked** pending E1 live gates, encryption, operational
    approval.

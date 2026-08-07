@@ -500,9 +500,10 @@ describe('Build 3.7E1A Codex subscription probe decisions record', () => {
       const text = readCompanion(relativePath);
       expect(text).toMatch(/probe-only/i);
       // E1A frozen companions at NOT_STARTED; successor 3.7E1 may advance to IMPLEMENTED
-      // while keeping LIVE_PROBE_STATUS: NOT_RUN and durable wiring blocked.
+      // with LIVE_PROBE_STATUS NOT_RUN or EXECUTED_FAIL (never PASS) and durable wiring blocked.
       expect(text).toMatch(/Build 3\.7E1 implementation status:\s*(?:NOT_STARTED|IMPLEMENTED)/);
-      expect(text).toMatch(/live probe not run|LIVE_PROBE_STATUS:\s*NOT_RUN/i);
+      expect(text).toMatch(/live probe not run|LIVE_PROBE_STATUS:\s*(?:NOT_RUN|EXECUTED_FAIL)/i);
+      expect(text).not.toMatch(/LIVE_PROBE_STATUS:\s*EXECUTED_PASS/i);
       expect(text).toMatch(/blocked by encryption/i);
       expect(text).toMatch(/OpenClaw/);
       expect(text).toMatch(/UNVERIFIED|OUT_OF_SCOPE|out of scope|out-of-scope/i);

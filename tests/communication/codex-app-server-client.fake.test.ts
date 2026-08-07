@@ -99,23 +99,25 @@ describe('codex-app-server client fake matrix', () => {
     const turnParams = fake.controller.turnStartParams[0] as Record<string, unknown>;
     expect(threadParams.sandboxPolicy).toBeUndefined();
     expect(threadParams.cwd).toBe(isolated.paths.probeCwd);
+    expect(threadParams.sandbox).toBe('read-only');
+    expect(threadParams.runtimeWorkspaceRoots).toEqual([isolated.paths.probeCwd]);
     expect(turnParams.sandboxPolicy).toEqual({
       type: 'readOnly',
-      access: {
-        type: 'restricted',
-        includePlatformDefaults: false,
-        readableRoots: [isolated.paths.probeCwd],
-      },
+      networkAccess: false,
     });
-    expect(
-      (turnParams.sandboxPolicy as { access: { readableRoots: string[] } }).access.readableRoots,
-    ).not.toContain(isolated.paths.codexHome);
+    const initParams = fake.controller.initializeParams[0] as {
+      capabilities: { optOutNotificationMethods: string[] };
+    };
+    expect(initParams.capabilities.optOutNotificationMethods).toEqual([
+      'remoteControl/status/changed',
+    ]);
   });
 
   it('2. config allowlist / modelProvider / quota map to exact outcomes', async () => {
     for (const scenario of [
       'effective-config-violation',
       'unknown-config-key',
+      'codex-0147-observed-config',
       'empty-models',
       'multiple-models',
       'unsupported-models',
@@ -126,6 +128,9 @@ describe('codex-app-server client fake matrix', () => {
     }
     const quota = await run('quota-exhausted');
     expectOutcome(quota.result, 'quota-unavailable', 'quota-exhausted');
+
+    const remote = await run('remote-control-status-changed');
+    expectOutcome(remote.result, 'provider-unavailable', 'remote-control-status-changed');
   });
 
   it('4. cleanup after protocol failure and crash paths', async () => {

@@ -16,7 +16,9 @@ import {
 } from './codex-app-server-owner-capability.js';
 import {
   APPROVED_MODEL_PROVIDER,
+  APPROVED_SANDBOX_MODE,
   FIXED_PROBE_PROMPT,
+  buildProbeInitializeParams,
   buildProbeSandboxPolicy,
   decodeAccountReadResult,
   decodeConfigPreflight,
@@ -653,7 +655,7 @@ export const runCapabilityProbeOnTransport = async (
     const params = {
       threadId,
       input: [{ type: 'text', text: FIXED_PROBE_PROMPT }],
-      sandboxPolicy: buildProbeSandboxPolicy({ readableRoots: input.readableRoots }),
+      sandboxPolicy: buildProbeSandboxPolicy(),
     };
     const line = serializeRequest({ method: 'turn/start', id, params });
     const deadline = Date.now() + timeouts.turnTimeoutMs;
@@ -750,9 +752,7 @@ export const runCapabilityProbeOnTransport = async (
 
     const init = await request(
       'initialize',
-      {
-        clientInfo: { name: 'neo-codex-probe', title: 'Neo Codex Probe', version: '3.7E1' },
-      },
+      buildProbeInitializeParams(),
       timeouts.preflightTimeoutMs,
     );
     if (init.kind !== 'success') return await finish(known('provider-unavailable'));
@@ -811,8 +811,9 @@ export const runCapabilityProbeOnTransport = async (
       {
         ephemeral: true,
         approvalPolicy: 'never',
-        sandbox: 'readOnly',
+        sandbox: APPROVED_SANDBOX_MODE,
         cwd: input.probeCwd,
+        runtimeWorkspaceRoots: [input.probeCwd],
         model: modelDecoded.modelId,
       },
       timeouts.threadStartTimeoutMs,

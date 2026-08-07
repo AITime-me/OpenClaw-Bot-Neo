@@ -4,6 +4,12 @@
  * Creates a one-shot owner capability and always enters the probe path after confirmation.
  * Version is read from the same pinned absolute executable via fixed `--version` argv (shell:false).
  * Repository root is derived only from this script location (no env override).
+ *
+ * Codex CLI 0.147.0 isolated CODEX_HOME prerequisites (owner-managed config.toml):
+ *   cli_auth_credentials_store="file", forced_login_method="chatgpt", model_provider="openai",
+ *   approval_policy="never", sandbox_mode="read-only", web_search="disabled",
+ *   allow_login_shell=false; empty MCP/apps/hooks; disable remote_plugin/tool_suggest/auth_elicitation.
+ * Null is not a safe default for approval/sandbox/web_search/login shell.
  */
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';

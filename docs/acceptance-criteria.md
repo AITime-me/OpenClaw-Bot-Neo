@@ -150,9 +150,9 @@
 - technical PASS does not satisfy live acceptance
 - Build 3.7E0 live operational approval: UNRESOLVED
 - Build 3.7E1A status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; live probe not run)
-- Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: NOT_RUN; durable 3.7D wiring BLOCKED_BY_ENCRYPTION)
+- Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: EXECUTED_FAIL / provider-unavailable / pre-dispatch compatibility on codex-cli 0.147.0; durable 3.7D wiring BLOCKED_BY_ENCRYPTION)
 - Build 3.7E1 implementation status: IMPLEMENTED
-- LIVE_PROBE_STATUS: NOT_RUN
+- LIVE_PROBE_STATUS: EXECUTED_FAIL
 - Build 3.7F status: BLOCKED
 - Build 3.7E0 next stage: 3.7B
 - 3.7B is offline only
@@ -173,12 +173,12 @@
   Codex app-server stdio; OpenClaw out of scope / UNVERIFIED; Neo SQLite probe persistence
   forbidden; durable 3.7D integration blocked by encryption)
 - PRODUCTION_READY: FALSE
-- Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: NOT_RUN; durable 3.7D wiring BLOCKED_BY_ENCRYPTION)
+- Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: EXECUTED_FAIL / provider-unavailable / pre-dispatch compatibility on codex-cli 0.147.0; durable 3.7D wiring BLOCKED_BY_ENCRYPTION)
 - Build 3.7E1 implementation status: IMPLEMENTED
-- LIVE_PROBE_STATUS: NOT_RUN
+- LIVE_PROBE_STATUS: EXECUTED_FAIL
 - Build 3.7F status: BLOCKED
 - Build 3.7D next stage: 3.7E1A (architecture closed) → 3.7E1 probe implementation (present;
-  LIVE_PROBE_STATUS: NOT_RUN) → owner-approved live probe → encryption gate
+  LIVE_PROBE_STATUS: EXECUTED_FAIL) → owner-approved live retry after 0.147.0 compat → encryption gate
 - See [3.7B closeout](validation/build-3.7b-communication-contracts-closeout.md).
 - See [3.7C closeout](validation/build-3.7c-communication-persistence-closeout.md).
 - See [3.7D0 decisions](validation/build-3.7d0-communication-runtime-decisions.md).

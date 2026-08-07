@@ -74,11 +74,11 @@ Build 3.7E0 capability probe: NOT_RUN
 
 Build 3.7E1A status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; LIVE_PROBE owner-approval required; live probe not run)
 
-Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: NOT_RUN; durable 3.7D wiring BLOCKED_BY_ENCRYPTION)
+Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: EXECUTED_FAIL / provider-unavailable / pre-dispatch compatibility on codex-cli 0.147.0; durable 3.7D wiring BLOCKED_BY_ENCRYPTION)
 
 Build 3.7E1 implementation status: IMPLEMENTED
 
-LIVE_PROBE_STATUS: NOT_RUN
+LIVE_PROBE_STATUS: EXECUTED_FAIL
 
 Build 3.7F status: BLOCKED
 
@@ -93,7 +93,7 @@ Build 3.7E1A architecture is closed for a probe-only Codex app-server stdio rout
 read credentials; isolated `CODEX_HOME` required; API/paid fallback remain false; Neo SQLite must
 not persist probe prompt/output; durable 3.7D integration remains blocked by encryption; OpenClaw
 is a separate unverified / out-of-scope route. Build 3.7E1 implements that probe-only adapter with
-fake coverage; `LIVE_PROBE_STATUS: NOT_RUN`.
+fake coverage; first live attempt `LIVE_PROBE_STATUS: EXECUTED_FAIL` (pre-dispatch compatibility).
 See [3.7E1A decisions](validation/build-3.7e1a-codex-subscription-probe-decisions.md),
 [3.7E1 closeout](validation/build-3.7e1-codex-subscription-probe-closeout.md), and
 [3.7B closeout](validation/build-3.7b-communication-contracts-closeout.md).

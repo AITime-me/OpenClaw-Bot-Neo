@@ -63,7 +63,9 @@ export type FakeCodexAppServerScenario =
   | 'delayed-stdin-write'
   | 'unknown-response-id'
   | 'typed-id-mismatch'
-  | 'protocol-failure-cleanup';
+  | 'protocol-failure-cleanup'
+  | 'codex-0147-observed-config'
+  | 'remote-control-status-changed';
 
 type FakeController = {
   readonly scenario: FakeCodexAppServerScenario;
@@ -71,6 +73,7 @@ type FakeController = {
   readonly interruptParams: unknown[];
   readonly turnStartParams: unknown[];
   readonly threadStartParams: unknown[];
+  readonly initializeParams: unknown[];
   triggerAbort(): void;
   forceExit(code?: number): void;
 };
@@ -93,13 +96,23 @@ const happyConfig = {
     model_provider: 'openai',
     model: 'gpt-probe',
     approval_policy: 'never',
-    sandbox: 'readOnly',
-    mcpServers: {},
-    web: false,
-    shell: false,
-    search: false,
-    apps: { _default: { enabled: false } },
-    hooks: false,
+    sandbox_mode: 'read-only',
+    web_search: 'disabled',
+    allow_login_shell: false,
+    tools: { web_search: null },
+    apps: {},
+    mcp_servers: {},
+    hooks: {},
+    features: {
+      mentions_v2: true,
+      remote_plugin: false,
+      tool_suggest: false,
+      auth_elicitation: false,
+    },
+    // Benign extended 0.147.0 keys must not fail closed by themselves.
+    model_context_window: 128000,
+    model_reasoning_effort: null,
+    service_tier: null,
   },
 };
 
@@ -150,6 +163,7 @@ export const createFakeCodexAppServerTransport = (
   const interruptParams: unknown[] = [];
   const turnStartParams: unknown[] = [];
   const threadStartParams: unknown[] = [];
+  const initializeParams: unknown[] = [];
   const stderrBuf = '';
   let delayedWriteTimer: ReturnType<typeof setTimeout> | null = null;
   let delayedWriteReject: ((error: Error) => void) | null = null;
@@ -279,25 +293,66 @@ export const createFakeCodexAppServerTransport = (
 
     switch (method) {
       case 'initialize':
+        initializeParams.push(params);
         respond(id, { serverInfo: { name: 'fake-codex' } });
+        if (scenario === 'remote-control-status-changed') {
+          notify('remoteControl/status/changed', {
+            status: 'disabled',
+            serverName: 'fake',
+            installationId: 'inst_1',
+            environmentId: null,
+          });
+        }
         return;
       case 'config/read':
         if (scenario === 'effective-config-violation') {
           respond(id, {
             config: {
               ...happyConfig.config,
-              web: true,
-              mcpServers: { x: {} },
+              web_search: 'live',
+              allow_login_shell: true,
+              mcp_servers: { x: {} },
               apps: { demo: { enabled: true } },
             },
           });
           return;
         }
         if (scenario === 'unknown-config-key') {
+          // Extra keys alone are no longer rejected; agentic feature flags still are.
           respond(id, {
             config: {
               ...happyConfig.config,
-              experimentalAgenticSurface: true,
+              features: {
+                ...(happyConfig.config.features as Record<string, unknown>),
+                remote_plugin: true,
+              },
+            },
+          });
+          return;
+        }
+        if (scenario === 'codex-0147-observed-config') {
+          respond(id, {
+            config: {
+              cli_auth_credentials_store: 'file',
+              forced_login_method: 'chatgpt',
+              model_provider: 'openai',
+              approval_policy: null,
+              sandbox_mode: null,
+              web_search: null,
+              allow_login_shell: true,
+              tools: {},
+              apps: {},
+              mcp_servers: {},
+              hooks: {},
+              features: {
+                auth_elicitation: true,
+                mentions_v2: true,
+                remote_plugin: true,
+                tool_suggest: true,
+              },
+              model_context_window: 272000,
+              analytics: null,
+              desktop: null,
             },
           });
           return;
@@ -709,6 +764,7 @@ export const createFakeCodexAppServerTransport = (
       interruptParams,
       turnStartParams,
       threadStartParams,
+      initializeParams,
       triggerAbort: () => {
         abort.abort();
       },

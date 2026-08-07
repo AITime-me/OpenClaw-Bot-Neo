@@ -1,0 +1,9 @@
+{
+  "method": "remoteControl/status/changed",
+  "params": {
+    "status": "disabled",
+    "serverName": "codex",
+    "installationId": "inst_observed",
+    "environmentId": null
+  }
+}

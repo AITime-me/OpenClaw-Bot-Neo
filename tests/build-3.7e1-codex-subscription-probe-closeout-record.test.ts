@@ -16,7 +16,10 @@ const EXPECTED_MARKERS: ReadonlyArray<readonly [string, string]> = [
   ['ROUTE_SCOPE', 'PROBE_ONLY'],
   ['ADAPTER', 'CODEX_APP_SERVER_STDIO'],
   ['NEO_READS_CREDENTIALS', 'FALSE'],
-  ['LIVE_PROBE_STATUS', 'NOT_RUN'],
+  ['LIVE_PROBE_STATUS', 'EXECUTED_FAIL'],
+  ['LIVE_PROBE_OUTCOME', 'provider-unavailable'],
+  ['LIVE_PROBE_FAILURE_STAGE', 'PRE_DISPATCH_COMPATIBILITY'],
+  ['LIVE_PROBE_CODEX_CLI', '0.147.0'],
   ['LIVE_PROBE', 'OWNER_APPROVAL_REQUIRED'],
   ['DURABLE_3_7D_INTEGRATION', 'BLOCKED_BY_ENCRYPTION'],
   ['OPENCLAW_ROUTE', 'OUT_OF_SCOPE'],
@@ -46,14 +49,16 @@ function toPosix(pathValue: string): string {
 describe('Build 3.7E1 Codex subscription probe closeout record', () => {
   const record = readFileSync(CLOSEOUT_PATH, 'utf8');
 
-  it('parses markers including LIVE_PROBE_STATUS NOT_RUN', () => {
+  it('parses markers including LIVE_PROBE_STATUS EXECUTED_FAIL', () => {
     const normalized = record.replace(/\r\n/g, '\n');
     for (const [key, value] of EXPECTED_MARKERS) {
       expect(normalized).toMatch(
         new RegExp(`(?:^|\\n)${key}:\\s*${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\n|$)`),
       );
     }
-    expect(normalized).toContain('LIVE_PROBE_STATUS: NOT_RUN');
+    expect(normalized).toContain('LIVE_PROBE_STATUS: EXECUTED_FAIL');
+    expect(normalized).not.toContain('LIVE_PROBE_STATUS: NOT_RUN');
+    expect(normalized).not.toMatch(/LIVE_PROBE_STATUS:\s*EXECUTED_PASS/);
   });
 
   it('keeps required adapter/fake/manual/evidence paths present', () => {

@@ -14,11 +14,11 @@ Build 3.7E0 capability probe: NOT_RUN
 
 Build 3.7E1A status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; live probe not run)
 
-Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: NOT_RUN; durable 3.7D wiring BLOCKED_BY_ENCRYPTION)
+Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: EXECUTED_FAIL / provider-unavailable / pre-dispatch compatibility on codex-cli 0.147.0; durable 3.7D wiring BLOCKED_BY_ENCRYPTION)
 
 Build 3.7E1 implementation status: IMPLEMENTED
 
-LIVE_PROBE_STATUS: NOT_RUN
+LIVE_PROBE_STATUS: EXECUTED_FAIL
 
 Build 3.7F status: BLOCKED
 
@@ -30,7 +30,7 @@ Meaning:
   official-source research;
 - Build 3.7E1A selects a **probe-only Codex app-server stdio** route as the Neo architecture
   target; Build 3.7E1 implements that probe-only package with fake coverage;
-- `LIVE_PROBE_STATUS: NOT_RUN` — no real Codex login, app-server spawn, or model call in 3.7E1;
+- `LIVE_PROBE_STATUS: EXECUTED_FAIL` — first 0.147.0 preflight failed closed pre-dispatch; not PASS;
 - durable 3.7D live wiring of that Codex route remains blocked by encryption;
 - compatibility of a future **OpenClaw**/Neo runtime integration was **not** verified and remains
   **OUT_OF_SCOPE** for 3.7E1A/3.7E1;

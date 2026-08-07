@@ -8,26 +8,47 @@ export const EXACT_OK_TRUE_OUTPUT = Object.freeze({ ok: true as const });
 export const CLI_AUTH_CREDENTIALS_STORE = 'file' as const;
 export const FORCED_LOGIN_METHOD = 'chatgpt' as const;
 export const APPROVED_MODEL_PROVIDER = 'openai' as const;
+/** Codex 0.147.0 `SandboxMode` wire token (config + thread/start). */
+export const APPROVED_SANDBOX_MODE = 'read-only' as const;
+/** Codex 0.147.0 `WebSearchMode` — null is not safe. */
+export const APPROVED_WEB_SEARCH_MODE = 'disabled' as const;
+export const APPROVED_APPROVAL_POLICY = 'never' as const;
 
-/** Exact config keys Neo accepts from config/read; any other key fails closed. */
+/**
+ * Notifications suppressed via `initialize.capabilities.optOutNotificationMethods`
+ * (Codex 0.147.0 `InitializeCapabilities`).
+ */
+export const OPT_OUT_NOTIFICATION_METHODS = Object.freeze([
+  'remoteControl/status/changed',
+] as const);
+
+/**
+ * Feature flags that must not be enabled for the probe (agentic / remote surfaces).
+ * Presence with value `true` is fail-closed; absent/false is acceptable.
+ */
+export const FORBIDDEN_ENABLED_FEATURES = Object.freeze([
+  'remote_plugin',
+  'tool_suggest',
+  'auth_elicitation',
+] as const);
+
+/** @deprecated Retained for tests that assert the old full-key allowlist was removed. */
 export const ALLOWED_CONFIG_KEYS = Object.freeze([
   'cli_auth_credentials_store',
   'forced_login_method',
   'model_provider',
   'model',
   'approval_policy',
-  'sandbox',
-  'web',
-  'shell',
-  'hooks',
+  'sandbox_mode',
+  'web_search',
+  'allow_login_shell',
+  'tools',
   'apps',
   'mcp_servers',
   'mcpServers',
-  'search',
+  'hooks',
+  'features',
 ] as const);
-
-/** Exact requirements keys Neo accepts; any other key fails closed. */
-export const ALLOWED_REQUIREMENTS_KEYS = Object.freeze(['network', 'featureRequirements'] as const);
 
 export const CLIENT_REQUEST_METHODS = Object.freeze([
   'initialize',
@@ -347,52 +368,102 @@ export type ConfigPreflightDecode =
 
 const isDisabledFlag = (value: unknown): boolean => value === false;
 
-const appsAllDisabled = (apps: unknown): boolean => {
+const isEmptyObject = (value: unknown): boolean =>
+  isPlainObject(value) && Object.keys(value).length === 0;
+
+const appsAllDisabledOrEmpty = (apps: unknown): boolean => {
+  if (apps === undefined || apps === null) return true;
   if (!isPlainObject(apps)) return false;
-  const entries = Object.values(apps);
-  // Empty apps object is vacuous — require explicit disabled entries.
-  if (entries.length === 0) return false;
-  for (const value of entries) {
-    if (!isPlainObject(value) || value.enabled !== false) return false;
+  const entries = Object.entries(apps);
+  if (entries.length === 0) return true;
+  for (const [, value] of entries) {
+    if (!isPlainObject(value)) return false;
+    if (value.enabled !== false) return false;
   }
   return true;
 };
 
 const mcpEmpty = (value: unknown): boolean => {
-  if (value === undefined) return true;
+  if (value === undefined || value === null) return true;
   if (!isPlainObject(value)) return false;
   return Object.keys(value).length === 0;
 };
 
+const hooksDisabled = (value: unknown): boolean => {
+  if (value === undefined || value === null || value === false) return true;
+  if (isEmptyObject(value)) return true;
+  return false;
+};
+
+const toolsWebSearchDisabled = (tools: unknown): boolean => {
+  if (tools === undefined || tools === null) return true;
+  if (!isPlainObject(tools)) return false;
+  // Non-null web_search tool config means the tool surface is present → reject.
+  if (!('web_search' in tools)) return Object.keys(tools).length === 0;
+  return tools.web_search === null;
+};
+
+const featuresSafe = (features: unknown): boolean => {
+  if (features === undefined || features === null) return true;
+  if (!isPlainObject(features)) return false;
+  for (const name of FORBIDDEN_ENABLED_FEATURES) {
+    if (features[name] === true) return false;
+  }
+  return true;
+};
+
+const requireExact = (
+  config: Record<string, unknown>,
+  key: string,
+  expected: unknown,
+): ConfigPreflightDecode | null => {
+  if (!(key in config) || config[key] !== expected) return { kind: 'policy-rejected', reason: key };
+  return null;
+};
+
 /**
- * Fail-closed preflight for official config/requirements.
- * Requires cli_auth_credentials_store=file, forced ChatGPT login, approved OpenAI provider,
- * agentic surfaces off, and rejects unknown keys.
+ * Fail-closed preflight for Codex 0.147.0 effective config/requirements.
+ * Does not require a total key allowlist: unknown keys are ignored unless
+ * security-critical fields are missing, null, or unsafe. Null is never treated
+ * as a safe default for approval / sandbox / web_search / login shell.
  */
 export const decodeConfigPreflight = (
   config: Record<string, unknown>,
   requirements: Record<string, unknown> | null,
 ): ConfigPreflightDecode => {
-  for (const key of Object.keys(config)) {
-    if (!(ALLOWED_CONFIG_KEYS as readonly string[]).includes(key))
-      return { kind: 'policy-rejected', reason: `unknown-config-key:${key}` };
+  const criticalChecks: Array<ConfigPreflightDecode | null> = [
+    requireExact(config, 'cli_auth_credentials_store', CLI_AUTH_CREDENTIALS_STORE),
+    requireExact(config, 'forced_login_method', FORCED_LOGIN_METHOD),
+    requireExact(config, 'model_provider', APPROVED_MODEL_PROVIDER),
+    requireExact(config, 'approval_policy', APPROVED_APPROVAL_POLICY),
+    requireExact(config, 'sandbox_mode', APPROVED_SANDBOX_MODE),
+    requireExact(config, 'web_search', APPROVED_WEB_SEARCH_MODE),
+    requireExact(config, 'allow_login_shell', false),
+  ];
+  for (const check of criticalChecks) {
+    if (check !== null) return check;
   }
-  if (config.cli_auth_credentials_store !== CLI_AUTH_CREDENTIALS_STORE)
-    return { kind: 'policy-rejected', reason: 'cli_auth_credentials_store' };
-  if (config.forced_login_method !== FORCED_LOGIN_METHOD)
-    return { kind: 'policy-rejected', reason: 'forced_login_method' };
-  if (config.model_provider !== APPROVED_MODEL_PROVIDER)
-    return { kind: 'policy-rejected', reason: 'model_provider' };
-  if (config.approval_policy !== 'never')
-    return { kind: 'policy-rejected', reason: 'approval_policy' };
-  if (config.sandbox !== 'readOnly') return { kind: 'policy-rejected', reason: 'sandbox' };
-  if (!isDisabledFlag(config.web)) return { kind: 'policy-rejected', reason: 'web' };
-  if (!isDisabledFlag(config.shell)) return { kind: 'policy-rejected', reason: 'shell' };
-  if (!isDisabledFlag(config.hooks)) return { kind: 'policy-rejected', reason: 'hooks' };
-  if (!isDisabledFlag(config.search)) return { kind: 'policy-rejected', reason: 'search' };
-  if (!appsAllDisabled(config.apps)) return { kind: 'policy-rejected', reason: 'apps' };
+
+  // Legacy aliases — if present they must also be explicitly safe (null/true rejected).
+  if (
+    'sandbox' in config &&
+    config.sandbox !== APPROVED_SANDBOX_MODE &&
+    config.sandbox !== 'readOnly'
+  )
+    return { kind: 'policy-rejected', reason: 'sandbox' };
+  if ('web' in config && !isDisabledFlag(config.web))
+    return { kind: 'policy-rejected', reason: 'web' };
+  if ('shell' in config && !isDisabledFlag(config.shell))
+    return { kind: 'policy-rejected', reason: 'shell' };
+  if ('search' in config && !isDisabledFlag(config.search))
+    return { kind: 'policy-rejected', reason: 'search' };
+
+  if (!toolsWebSearchDisabled(config.tools)) return { kind: 'policy-rejected', reason: 'tools' };
+  if (!appsAllDisabledOrEmpty(config.apps)) return { kind: 'policy-rejected', reason: 'apps' };
   if (!mcpEmpty(config.mcp_servers) || !mcpEmpty(config.mcpServers))
     return { kind: 'policy-rejected', reason: 'mcp' };
+  if (!hooksDisabled(config.hooks)) return { kind: 'policy-rejected', reason: 'hooks' };
+  if (!featuresSafe(config.features)) return { kind: 'policy-rejected', reason: 'features' };
 
   const serialized = JSON.stringify({ config, requirements }).toLowerCase();
   if (serialized.includes('base_url') || serialized.includes('baseurl'))
@@ -403,17 +474,32 @@ export const decodeConfigPreflight = (
     return { kind: 'policy-rejected', reason: 'api-key' };
 
   if (requirements !== null) {
-    for (const key of Object.keys(requirements)) {
-      if (!(ALLOWED_REQUIREMENTS_KEYS as readonly string[]).includes(key))
-        return { kind: 'policy-rejected', reason: `unknown-requirements-key:${key}` };
-    }
     if (isPlainObject(requirements.network) && requirements.network.enabled === true)
       return { kind: 'policy-rejected', reason: 'network' };
+    if (requirements.allowLoginShell === true)
+      return { kind: 'policy-rejected', reason: 'allowLoginShell' };
+    if (requirements.allowRemoteControl === true)
+      return { kind: 'policy-rejected', reason: 'allowRemoteControl' };
     if (
       isPlainObject(requirements.featureRequirements) &&
       requirements.featureRequirements.unified_exec === true
     )
       return { kind: 'policy-rejected', reason: 'unified_exec' };
+    if (
+      isPlainObject(requirements.browserUse) &&
+      (requirements.browserUse.enabled === true || requirements.browserUse.allowed === true)
+    )
+      return { kind: 'policy-rejected', reason: 'browserUse' };
+    if (
+      isPlainObject(requirements.computerUse) &&
+      (requirements.computerUse.enabled === true || requirements.computerUse.allowed === true)
+    )
+      return { kind: 'policy-rejected', reason: 'computerUse' };
+    if (
+      Array.isArray(requirements.allowedWebSearchModes) &&
+      requirements.allowedWebSearchModes.some((mode) => mode !== APPROVED_WEB_SEARCH_MODE)
+    )
+      return { kind: 'policy-rejected', reason: 'allowedWebSearchModes' };
   }
   return { kind: 'ok' };
 };
@@ -483,14 +569,22 @@ export const extractItemType = (params: unknown): string | null => {
   return typeof params.item.type === 'string' ? params.item.type : null;
 };
 
-/** Restricted read-only sandbox denying repository / shared developer roots. */
-export const buildProbeSandboxPolicy = (options: {
-  readonly readableRoots: readonly string[];
-}): Record<string, unknown> => ({
+/** Official Codex 0.147.0 readOnly sandbox policy — network denied. */
+export const buildProbeSandboxPolicy = (): Record<string, unknown> => ({
   type: 'readOnly',
-  access: {
-    type: 'restricted',
-    includePlatformDefaults: false,
-    readableRoots: [...options.readableRoots],
+  networkAccess: false,
+});
+
+/** Initialize params with remoteControl status notification opted out. */
+export const buildProbeInitializeParams = (): Record<string, unknown> => ({
+  clientInfo: {
+    name: 'neo-codex-probe',
+    title: 'Neo Codex Probe',
+    version: '3.7E1',
+  },
+  capabilities: {
+    experimentalApi: false,
+    requestAttestation: false,
+    optOutNotificationMethods: [...OPT_OUT_NOTIFICATION_METHODS],
   },
 });
