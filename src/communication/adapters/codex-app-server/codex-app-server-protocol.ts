@@ -349,7 +349,10 @@ const isDisabledFlag = (value: unknown): boolean => value === false;
 
 const appsAllDisabled = (apps: unknown): boolean => {
   if (!isPlainObject(apps)) return false;
-  for (const value of Object.values(apps)) {
+  const entries = Object.values(apps);
+  // Empty apps object is vacuous — require explicit disabled entries.
+  if (entries.length === 0) return false;
+  for (const value of entries) {
     if (!isPlainObject(value) || value.enabled !== false) return false;
   }
   return true;
@@ -380,6 +383,9 @@ export const decodeConfigPreflight = (
     return { kind: 'policy-rejected', reason: 'forced_login_method' };
   if (config.model_provider !== APPROVED_MODEL_PROVIDER)
     return { kind: 'policy-rejected', reason: 'model_provider' };
+  if (config.approval_policy !== 'never')
+    return { kind: 'policy-rejected', reason: 'approval_policy' };
+  if (config.sandbox !== 'readOnly') return { kind: 'policy-rejected', reason: 'sandbox' };
   if (!isDisabledFlag(config.web)) return { kind: 'policy-rejected', reason: 'web' };
   if (!isDisabledFlag(config.shell)) return { kind: 'policy-rejected', reason: 'shell' };
   if (!isDisabledFlag(config.hooks)) return { kind: 'policy-rejected', reason: 'hooks' };
@@ -440,7 +446,7 @@ export const extractTurnId = (result: unknown): string | null => {
 };
 
 export type TurnCompletedDecode =
-  | { readonly kind: 'completed'; readonly turnId: string; readonly threadId: string | null }
+  | { readonly kind: 'completed'; readonly turnId: string; readonly threadId: string }
   | { readonly kind: 'failed-or-interrupted'; readonly status: string }
   | { readonly kind: 'malformed'; readonly reason: string };
 
@@ -459,6 +465,8 @@ export const decodeTurnCompletedParams = (params: unknown): TurnCompletedDecode 
       : typeof params.turn.threadId === 'string'
         ? params.turn.threadId
         : null;
+  if (threadId === null || threadId.length === 0)
+    return { kind: 'malformed', reason: 'thread-id-missing' };
   return { kind: 'completed', turnId, threadId };
 };
 

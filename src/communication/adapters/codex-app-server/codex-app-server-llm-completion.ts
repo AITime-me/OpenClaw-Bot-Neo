@@ -19,6 +19,8 @@ import type { CodexExecutablePin } from './codex-app-server-executable-pin.js';
 import type { CodexAppServerChildEnvInput } from './codex-app-server-child-env.js';
 import type { CodexOwnerSpawnCapability } from './codex-app-server-owner-capability.js';
 import type { VersionReader } from './codex-app-server-executable-pin.js';
+import type { IsolationPaths } from './codex-app-server-isolation.js';
+import { pathEquals } from './codex-app-server-isolation.js';
 
 export type CodexAppServerLlmCompletionDeps = {
   readonly transport?: CodexAppServerTransport;
@@ -26,6 +28,7 @@ export type CodexAppServerLlmCompletionDeps = {
   readonly envInput?: CodexAppServerChildEnvInput;
   readonly cwd?: string;
   readonly readableRoots?: readonly string[];
+  readonly isolationPaths?: IsolationPaths;
   readonly readVersion?: VersionReader;
   readonly ownerCapability?: CodexOwnerSpawnCapability;
   readonly timeouts?: Partial<CodexAppServerTimeouts>;
@@ -46,6 +49,7 @@ export const createCodexAppServerLlmCompletion = (
     let transport = deps.transport;
     let probeCwd = deps.cwd ?? '/tmp/neo-fake-probe-cwd';
     let readableRoots = deps.readableRoots ?? [probeCwd];
+    const isolationPaths = deps.isolationPaths;
 
     if (transport === undefined) {
       if (
@@ -61,6 +65,15 @@ export const createCodexAppServerLlmCompletion = (
             'live Codex probe requires pin+env+cwd+readVersion+ownerCapability (or fake transport)',
           ),
         );
+      if (isolationPaths === undefined)
+        return err(
+          communicationError(
+            'CONFIG_INVALID',
+            'live Codex probe requires isolationPaths for model-readable root checks',
+          ),
+        );
+      if (!pathEquals(deps.cwd, isolationPaths.probeCwd))
+        return err(communicationError('CONFIG_INVALID', 'cwd must equal isolated probe cwd'));
       const created = createChildProcessTransport({
         pin: deps.pin,
         envInput: deps.envInput,
@@ -79,6 +92,7 @@ export const createCodexAppServerLlmCompletion = (
       abortSignal: request.abortSignal,
       probeCwd,
       readableRoots,
+      ...(isolationPaths !== undefined ? { isolationPaths } : {}),
       ...(deps.timeouts !== undefined ? { timeouts: deps.timeouts } : {}),
     });
     if (result.kind === 'config-error')

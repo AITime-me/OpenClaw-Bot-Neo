@@ -49,6 +49,8 @@ export type FakeCodexAppServerScenario =
   | 'wrong-turn-id'
   | 'wrong-thread-id'
   | 'wrong-event-order'
+  | 'item-before-turn-started'
+  | 'hung-stdin-write'
   | 'stdin-write-fail'
   | 'delayed-stdin-write'
   | 'unknown-response-id'
@@ -355,6 +357,22 @@ export const createFakeCodexAppServerTransport = (
           });
           return;
         }
+        if (scenario === 'item-before-turn-started') {
+          notify('item/completed', {
+            item: { type: 'agentMessage', id: 'i1', text: '{"ok":true}' },
+            threadId,
+            turnId: 'turn_1',
+          });
+          notify('turn/started', {
+            turn: { id: 'turn_1', status: 'inProgress', items: [] },
+            threadId,
+          });
+          notify('turn/completed', {
+            turn: { id: 'turn_1', status: 'completed', items: [] },
+            threadId,
+          });
+          return;
+        }
         notify('turn/started', {
           turn: { id: 'turn_1', status: 'inProgress', items: [] },
           threadId,
@@ -533,6 +551,11 @@ export const createFakeCodexAppServerTransport = (
     writeLine(line) {
       if (scenario === 'stdin-write-fail')
         return Promise.reject(new Error('stdin-write-failed:test'));
+      if (scenario === 'hung-stdin-write' && line.includes('"method":"turn/start"')) {
+        return new Promise(() => {
+          /* never settles */
+        });
+      }
       if (scenario === 'cleanup-thread-no-dispatch' && line.includes('"method":"turn/start"')) {
         queueMicrotask(() => {
           abort.abort();

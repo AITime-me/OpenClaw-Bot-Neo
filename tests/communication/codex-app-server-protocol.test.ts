@@ -100,9 +100,27 @@ describe('codex-app-server protocol', () => {
     expect(
       decodeConfigPreflight({ ...okConfig, cli_auth_credentials_store: 'keyring' }, null).kind,
     ).toBe('policy-rejected');
+    expect(decodeConfigPreflight({ ...okConfig, forced_login_method: 'api' }, null).kind).toBe(
+      'policy-rejected',
+    );
     expect(decodeConfigPreflight({ ...okConfig, model_provider: 'azure' }, null).kind).toBe(
       'policy-rejected',
     );
+    expect(decodeConfigPreflight({ ...okConfig, approval_policy: 'on-request' }, null).kind).toBe(
+      'policy-rejected',
+    );
+    expect(decodeConfigPreflight({ ...okConfig, apps: {} }, null).kind).toBe('policy-rejected');
+    expect(decodeConfigPreflight({ ...okConfig, shell: true }, null).kind).toBe('policy-rejected');
+    expect(
+      decodeConfigPreflight(okConfig, {
+        network: { enabled: true },
+      }).kind,
+    ).toBe('policy-rejected');
+    expect(
+      decodeConfigPreflight(okConfig, {
+        featureRequirements: { unified_exec: true },
+      }).kind,
+    ).toBe('policy-rejected');
   });
 
   it('serializes requests without jsonrpc header', () => {

@@ -176,9 +176,61 @@ describe('codex-app-server owner gate', () => {
     expect(isOwnerSpawnCapability(issued.capability)).toBe(true);
     expect(isOwnerSpawnCapability({ ...issued.capability })).toBe(false);
     expect(isOwnerSpawnCapability(Object.assign({}, issued.capability))).toBe(false);
+    expect(() => {
+      (issued.capability as { nonce: string }).nonce = 'mutated';
+    }).toThrow();
     expect(consumeOwnerSpawnCapability(issued.capability).ok).toBe(true);
     expect(consumeOwnerSpawnCapability(issued.capability).ok).toBe(false);
     expect(issueOwnerSpawnCapability({ confirmation: 'nope' }).ok).toBe(false);
+  });
+
+  it('createChildProcessTransport rejects second use of same capability', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'neo-gate-reuse-'));
+    const absolutePath = join(dir, 'bin');
+    writeFileSync(absolutePath, 'x');
+    const isolated = buildIsolatedProbeContour({
+      codexHome: join(dir, 'home'),
+      repositoryRoot: repoRoot,
+    });
+    expect(isolated.ok).toBe(true);
+    if (!isolated.ok) return;
+    const issued = issueOwnerSpawnCapability({ confirmation: OWNER_PROBE_CONFIRMATION_VALUE });
+    expect(issued.ok).toBe(true);
+    if (!issued.ok) return;
+    const pin = {
+      absolutePath,
+      version: '1',
+      sha256: hashFileSha256(absolutePath),
+      sizeBytes: readExecutableSizeBytes(absolutePath),
+      argv: ['app-server'] as const,
+    };
+    const envInput = {
+      codexHome: isolated.paths.codexHome,
+      home: isolated.paths.home,
+      tempDir: isolated.paths.tempDir,
+    };
+    const first = createChildProcessTransport({
+      pin,
+      envInput,
+      cwd: isolated.paths.probeCwd,
+      readVersion: () => '1',
+      ownerCapability: issued.capability,
+    });
+    if (first.ok) {
+      try {
+        first.transport.dispose();
+      } catch {
+        /* Windows may EINVAL on already-exited child */
+      }
+    }
+    const second = createChildProcessTransport({
+      pin,
+      envInput,
+      cwd: isolated.paths.probeCwd,
+      readVersion: () => '1',
+      ownerCapability: issued.capability,
+    });
+    expect(second.ok).toBe(false);
   });
 
   it('manual script negative path creates no process', () => {

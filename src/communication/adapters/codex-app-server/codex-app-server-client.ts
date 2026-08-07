@@ -183,7 +183,11 @@ export const createChildProcessTransport = (
     },
     dispose() {
       rl.close();
-      if (!exited) child.kill('SIGKILL');
+      try {
+        if (!exited) child.kill('SIGKILL');
+      } catch {
+        /* ignore platform kill races */
+      }
     },
     getStderrRedacted: () => stderrBuf,
     async awaitReaped(timeoutMs) {
@@ -254,7 +258,11 @@ export const runCapabilityProbeOnTransport = async (
     if (!pathEquals(input.probeCwd, input.isolationPaths.probeCwd))
       return { kind: 'config-error', reason: 'probe cwd must match isolated contour' };
   }
-  if (input.readableRoots.length !== 1 || input.readableRoots[0] !== input.probeCwd)
+  if (
+    input.readableRoots.length !== 1 ||
+    input.readableRoots[0] === undefined ||
+    !pathEquals(input.readableRoots[0], input.probeCwd)
+  )
     return { kind: 'config-error', reason: 'readable roots must be exactly probe cwd' };
 
   let nextId = 1;
@@ -441,17 +449,14 @@ export const runCapabilityProbeOnTransport = async (
     });
   };
 
-  const waitNotification = async (
-    predicate: (frame: ParsedFrame) => boolean,
-    timeoutMs: number,
-  ): Promise<ParsedFrame> => {
+  /** FIFO notification wait — never skips earlier frames (strict correlation order). */
+  const waitNextNotification = async (timeoutMs: number): Promise<ParsedFrame> => {
     const started = Date.now();
     for (;;) {
       if (protocolFailure.current !== null) throw protocolFailure.current;
       if (input.abortSignal?.aborted === true) throw new Error('aborted');
-      const idx = notifications.findIndex(predicate);
-      if (idx >= 0) {
-        const [frame] = notifications.splice(idx, 1);
+      if (notifications.length > 0) {
+        const frame = notifications.shift();
         if (!frame) throw new Error('missing-frame');
         return frame;
       }
@@ -465,6 +470,21 @@ export const runCapabilityProbeOnTransport = async (
           resolve();
         });
       });
+    }
+  };
+
+  const waitNotification = async (
+    predicate: (frame: ParsedFrame) => boolean,
+    timeoutMs: number,
+  ): Promise<ParsedFrame> => {
+    const started = Date.now();
+    for (;;) {
+      const remaining = timeoutMs - (Date.now() - started);
+      if (remaining <= 0) throw new Error('timeout');
+      const frame = await waitNextNotification(remaining);
+      if (predicate(frame)) return frame;
+      failProtocol('out-of-order-notification');
+      throw protocolFailure.current ?? new Error('protocol:out-of-order-notification');
     }
   };
 
@@ -602,32 +622,49 @@ export const runCapabilityProbeOnTransport = async (
         dispatchState.dispatched = true;
       },
       (error: unknown) => {
-        writeState.outcome = input.abortSignal?.aborted ? 'aborted' : 'failed';
+        if (writeState.outcome === null) {
+          writeState.outcome = input.abortSignal?.aborted ? 'aborted' : 'failed';
+        }
         throw error instanceof Error ? error : new Error('stdin-write-failed');
       },
     );
 
+    const settleWrite = async (budgetMs: number): Promise<void> => {
+      const settleFlag = { settled: false };
+      await Promise.race([
+        writePromise.then(
+          () => {
+            settleFlag.settled = true;
+          },
+          () => {
+            settleFlag.settled = true;
+          },
+        ),
+        sleep(Math.max(1, budgetMs)).then(() => undefined),
+      ]);
+      if (!settleFlag.settled && writeState.outcome === null) {
+        // Hung stdin after deadline/abort: possible in-flight write → post-dispatch.
+        dispatchState.dispatched = true;
+        writeState.outcome = 'failed';
+      }
+    };
+
     while (writeState.outcome === null) {
       if (input.abortSignal?.aborted || Date.now() >= deadline) {
-        try {
-          await writePromise;
-        } catch {
-          /* settled below */
-        }
+        await settleWrite(Math.max(1, Math.min(timeouts.interruptBudgetMs, deadline - Date.now())));
         break;
       }
       await Promise.race([writePromise.catch(() => undefined), sleep(5)]);
     }
     if (writeState.outcome === null) {
-      try {
-        await writePromise;
-      } catch {
-        /* settled */
-      }
+      await settleWrite(Math.max(1, Math.min(timeouts.interruptBudgetMs, deadline - Date.now())));
     }
 
     if (writeState.outcome !== 'proven') {
       clearPendingIfMatch(id);
+      if (outcomeLatched) throw new Error('outcome-latched');
+      // Possible/hung write already marked dispatched above.
+      if (dispatchState.dispatched) throw new Error('timeout');
       if (writeState.outcome === 'aborted' || Boolean(input.abortSignal?.aborted))
         throw new Error('aborted');
       if (writeState.outcome === 'failed') throw new Error('stdin-write-failed');
@@ -763,8 +800,7 @@ export const runCapabilityProbeOnTransport = async (
           frame.kind === 'notification' &&
           frame.value.method === 'turn/started' &&
           notificationTurnId(frame.value.params) === turnId &&
-          (notificationThreadId(frame.value.params) === null ||
-            notificationThreadId(frame.value.params) === threadId),
+          notificationThreadId(frame.value.params) === threadId,
         timeouts.turnTimeoutMs,
       );
     } catch {
@@ -798,7 +834,7 @@ export const runCapabilityProbeOnTransport = async (
       if (transport.isExited()) return await finish(known('outcome-unknown'));
       let frame: ParsedFrame;
       try {
-        frame = await waitNotification(() => true, Math.max(1, deadline - Date.now()));
+        frame = await waitNextNotification(Math.max(1, deadline - Date.now()));
       } catch (error) {
         if (error instanceof Error && error.message === 'timeout')
           return await finish(known('outcome-unknown'));
@@ -812,12 +848,11 @@ export const runCapabilityProbeOnTransport = async (
         const method = frame.value.method;
         if (method === 'model/rerouted' || isForbiddenNotificationMethod(method))
           return await finish(known('policy-rejected'));
+        if (method === 'item/agentMessage/delta') continue;
         if (method === 'item/started' || method === 'item/completed') {
           const itemThread = notificationThreadId(frame.value.params);
           const itemTurn = notificationTurnId(frame.value.params);
-          if (itemThread !== null && itemThread !== threadId)
-            return await finish(known('outcome-unknown'));
-          if (itemTurn !== null && itemTurn !== turnId)
+          if (itemThread !== threadId || itemTurn !== turnId)
             return await finish(known('outcome-unknown'));
           const itemType = extractItemType(frame.value.params);
           if (itemType === null) return await finish(known('outcome-unknown'));
@@ -834,8 +869,7 @@ export const runCapabilityProbeOnTransport = async (
           if (decoded.kind === 'failed-or-interrupted')
             return await finish(known('outcome-unknown'));
           if (decoded.turnId !== turnId) return await finish(known('outcome-unknown'));
-          if (decoded.threadId !== null && decoded.threadId !== threadId)
-            return await finish(known('outcome-unknown'));
+          if (decoded.threadId !== threadId) return await finish(known('outcome-unknown'));
           if (agentText === null) return await finish(known('invalid-response'));
           if (!isExactOkTrueOutput(agentText)) return await finish(known('invalid-response'));
           return await finish({

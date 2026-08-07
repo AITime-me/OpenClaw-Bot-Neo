@@ -61,6 +61,7 @@ export const createCodexAppServerRoute = (
           }),
           cwd: isolated.paths.probeCwd,
           readableRoots,
+          isolationPaths: isolated.paths,
           readVersion: config.readVersion,
         }
       : {}),
