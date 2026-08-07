@@ -16,10 +16,10 @@ import {
 } from './codex-app-server-owner-capability.js';
 import {
   APPROVED_MODEL_PROVIDER,
-  APPROVED_SANDBOX_MODE,
   FIXED_PROBE_PROMPT,
   buildProbeInitializeParams,
-  buildProbeSandboxPolicy,
+  buildProbeThreadIsolationParams,
+  buildProbeTurnPermissionsParams,
   decodeAccountReadResult,
   decodeConfigPreflight,
   decodeConfigReadResult,
@@ -39,6 +39,7 @@ import {
   isForbiddenNotificationMethod,
   jsonRpcIdsEqual,
   parseJsonlFrame,
+  probeLiveFilesystemBoundarySupported,
   serializeNotification,
   serializeRequest,
   type JsonRpcId,
@@ -104,6 +105,12 @@ export const createChildProcessTransport = (
   | { readonly ok: false; readonly reason: string } => {
   if (!isOwnerSpawnCapability(input.ownerCapability))
     return { ok: false, reason: 'live Codex spawn requires owner capability' };
+  if (!probeLiveFilesystemBoundarySupported())
+    return {
+      ok: false,
+      reason:
+        'filesystem-boundary-unsupported: Codex 0.147.0 legacy readOnly on Windows grants full filesystem read; elevated split-filesystem/permissions not guaranteed by Neo probe (LIVE_RETRY_STATUS=BLOCKED)',
+    };
   const consumed = consumeOwnerSpawnCapability(input.ownerCapability);
   if (!consumed.ok) return consumed;
 
@@ -655,7 +662,7 @@ export const runCapabilityProbeOnTransport = async (
     const params = {
       threadId,
       input: [{ type: 'text', text: FIXED_PROBE_PROMPT }],
-      sandboxPolicy: buildProbeSandboxPolicy(),
+      ...buildProbeTurnPermissionsParams(),
     };
     const line = serializeRequest({ method: 'turn/start', id, params });
     const deadline = Date.now() + timeouts.turnTimeoutMs;
@@ -811,10 +818,8 @@ export const runCapabilityProbeOnTransport = async (
       {
         ephemeral: true,
         approvalPolicy: 'never',
-        sandbox: APPROVED_SANDBOX_MODE,
-        cwd: input.probeCwd,
-        runtimeWorkspaceRoots: [input.probeCwd],
         model: modelDecoded.modelId,
+        ...buildProbeThreadIsolationParams(input.probeCwd),
       },
       timeouts.threadStartTimeoutMs,
     );

@@ -8,11 +8,49 @@ export const EXACT_OK_TRUE_OUTPUT = Object.freeze({ ok: true as const });
 export const CLI_AUTH_CREDENTIALS_STORE = 'file' as const;
 export const FORCED_LOGIN_METHOD = 'chatgpt' as const;
 export const APPROVED_MODEL_PROVIDER = 'openai' as const;
-/** Codex 0.147.0 `SandboxMode` wire token (config + thread/start). */
-export const APPROVED_SANDBOX_MODE = 'read-only' as const;
+/**
+ * Config field `sandbox_mode` vocabulary (Codex `SandboxMode` enum).
+ * Distinct from SandboxPolicy.type (`readOnly`) and from thread/start wire below.
+ */
+export const APPROVED_CONFIG_SANDBOX_MODE = 'read-only' as const;
+/**
+ * `thread/start.sandbox` wire token — Codex 0.147.0 `SandboxMode` (kebab-case).
+ * Not `readOnly` (that is SandboxPolicy.type only).
+ */
+export const APPROVED_THREAD_SANDBOX_MODE = 'read-only' as const;
+/** Codex 0.147.0 `SandboxPolicy.type` for turn/start when legacy policy is used. */
+export const APPROVED_SANDBOX_POLICY_TYPE = 'readOnly' as const;
+/** @deprecated Use APPROVED_CONFIG_SANDBOX_MODE / APPROVED_THREAD_SANDBOX_MODE. */
+export const APPROVED_SANDBOX_MODE = APPROVED_CONFIG_SANDBOX_MODE;
 /** Codex 0.147.0 `WebSearchMode` — null is not safe. */
 export const APPROVED_WEB_SEARCH_MODE = 'disabled' as const;
 export const APPROVED_APPROVAL_POLICY = 'never' as const;
+
+/**
+ * Named permissions profile for probeCwd-only read, no write, no network.
+ * Required because legacy sandbox_mode/readOnly implies full filesystem read on Windows
+ * and SandboxPolicy.readOnly has no readableRoots field in 0.147.0.
+ */
+export const PROBE_PERMISSIONS_PROFILE_ID = 'neo-probe-cwd-readonly' as const;
+
+/** Official SandboxMode enum values from generate-ts / JSON schema. */
+export const THREAD_SANDBOX_MODE_ENUM = Object.freeze([
+  'read-only',
+  'workspace-write',
+  'danger-full-access',
+] as const);
+
+export const isThreadSandboxModeWireToken = (
+  value: unknown,
+): value is (typeof THREAD_SANDBOX_MODE_ENUM)[number] =>
+  typeof value === 'string' && (THREAD_SANDBOX_MODE_ENUM as readonly string[]).includes(value);
+
+/**
+ * Live Codex on native Windows cannot guarantee probeCwd-only confidentiality:
+ * legacy readOnly = full FS read; split/permissions needs elevated Windows sandbox
+ * which Neo probe does not guarantee. Fail closed for live spawn/retry.
+ */
+export const probeLiveFilesystemBoundarySupported = (): boolean => process.platform !== 'win32';
 
 /**
  * Notifications suppressed via `initialize.capabilities.optOutNotificationMethods`
@@ -30,6 +68,20 @@ export const FORBIDDEN_ENABLED_FEATURES = Object.freeze([
   'remote_plugin',
   'tool_suggest',
   'auth_elicitation',
+] as const);
+
+/** Top-level config booleans that enable agentic/tool surfaces when true. */
+export const FORBIDDEN_ENABLED_CONFIG_FLAGS = Object.freeze([
+  'experimental_use_unified_exec_tool',
+  'experimental_unified_exec_tool',
+] as const);
+
+/** Known base-URL keys — null/absent is safe; non-empty override is not. */
+export const BASE_URL_CONFIG_KEYS = Object.freeze([
+  'openai_base_url',
+  'chatgpt_base_url',
+  'base_url',
+  'baseUrl',
 ] as const);
 
 /** @deprecated Retained for tests that assert the old full-key allowlist was removed. */
@@ -412,6 +464,58 @@ const featuresSafe = (features: unknown): boolean => {
   return true;
 };
 
+const forbiddenConfigFlagsOff = (config: Record<string, unknown>): boolean => {
+  for (const key of FORBIDDEN_ENABLED_CONFIG_FLAGS) {
+    if (config[key] === true) return false;
+  }
+  return true;
+};
+
+/**
+ * Null / absent / empty base URL keys are safe. Reject only actual non-default overrides
+ * (non-empty string). Do not reject merely because the key name appears in JSON.
+ */
+const baseUrlOverridesSafe = (config: Record<string, unknown>): boolean => {
+  for (const key of BASE_URL_CONFIG_KEYS) {
+    if (!(key in config)) continue;
+    const value = config[key];
+    if (value === null || value === undefined) continue;
+    if (typeof value === 'string' && value.trim().length === 0) continue;
+    if (typeof value === 'string') return false;
+    return false;
+  }
+  // Nested model_providers.*.base_url custom overrides.
+  if (isPlainObject(config.model_providers)) {
+    for (const provider of Object.values(config.model_providers)) {
+      if (!isPlainObject(provider)) continue;
+      for (const key of ['base_url', 'baseUrl', 'openai_base_url', 'chatgpt_base_url'] as const) {
+        const value = provider[key];
+        if (value === null || value === undefined) continue;
+        if (typeof value === 'string' && value.trim().length === 0) continue;
+        // Any non-empty string or non-string override is a custom base URL.
+        return false;
+      }
+    }
+  }
+  return true;
+};
+
+const probePermissionsProfileOk = (config: Record<string, unknown>): boolean => {
+  if (config.default_permissions !== PROBE_PERMISSIONS_PROFILE_ID) return false;
+  if (!isPlainObject(config.permissions)) return false;
+  const profile = config.permissions[PROBE_PERMISSIONS_PROFILE_ID];
+  if (!isPlainObject(profile)) return false;
+  if (!isPlainObject(profile.filesystem)) return false;
+  if (profile.filesystem[':root'] === 'read' || profile.filesystem[':root'] === 'write')
+    return false;
+  if (profile.filesystem[':minimal'] !== 'read') return false;
+  const workspace = profile.filesystem[':workspace_roots'];
+  if (!isPlainObject(workspace)) return false;
+  if (workspace['.'] !== 'read') return false;
+  if (!isPlainObject(profile.network) || profile.network.enabled !== false) return false;
+  return true;
+};
+
 const requireExact = (
   config: Record<string, unknown>,
   key: string,
@@ -425,7 +529,11 @@ const requireExact = (
  * Fail-closed preflight for Codex 0.147.0 effective config/requirements.
  * Does not require a total key allowlist: unknown keys are ignored unless
  * security-critical fields are missing, null, or unsafe. Null is never treated
- * as a safe default for approval / sandbox / web_search / login shell.
+ * as a safe default for approval / web_search / login shell.
+ *
+ * Legacy `sandbox_mode` (including `read-only`) implies full filesystem read on
+ * Windows and cannot express probeCwd-only roots via SandboxPolicy — probe requires
+ * the permissions profile instead (`sandbox_mode` must be null/absent).
  */
 export const decodeConfigPreflight = (
   config: Record<string, unknown>,
@@ -436,7 +544,6 @@ export const decodeConfigPreflight = (
     requireExact(config, 'forced_login_method', FORCED_LOGIN_METHOD),
     requireExact(config, 'model_provider', APPROVED_MODEL_PROVIDER),
     requireExact(config, 'approval_policy', APPROVED_APPROVAL_POLICY),
-    requireExact(config, 'sandbox_mode', APPROVED_SANDBOX_MODE),
     requireExact(config, 'web_search', APPROVED_WEB_SEARCH_MODE),
     requireExact(config, 'allow_login_shell', false),
   ];
@@ -444,13 +551,16 @@ export const decodeConfigPreflight = (
     if (check !== null) return check;
   }
 
+  // Legacy sandbox_mode enables full-FS-read semantics on Windows and disables permissions.
+  if ('sandbox_mode' in config && config.sandbox_mode !== null && config.sandbox_mode !== undefined)
+    return { kind: 'policy-rejected', reason: 'legacy-sandbox-full-filesystem-read' };
+  if ('sandbox' in config && config.sandbox !== null && config.sandbox !== undefined)
+    return { kind: 'policy-rejected', reason: 'legacy-sandbox-full-filesystem-read' };
+
+  if (!probePermissionsProfileOk(config))
+    return { kind: 'policy-rejected', reason: 'probe-permissions-profile' };
+
   // Legacy aliases — if present they must also be explicitly safe (null/true rejected).
-  if (
-    'sandbox' in config &&
-    config.sandbox !== APPROVED_SANDBOX_MODE &&
-    config.sandbox !== 'readOnly'
-  )
-    return { kind: 'policy-rejected', reason: 'sandbox' };
   if ('web' in config && !isDisabledFlag(config.web))
     return { kind: 'policy-rejected', reason: 'web' };
   if ('shell' in config && !isDisabledFlag(config.shell))
@@ -464,10 +574,12 @@ export const decodeConfigPreflight = (
     return { kind: 'policy-rejected', reason: 'mcp' };
   if (!hooksDisabled(config.hooks)) return { kind: 'policy-rejected', reason: 'hooks' };
   if (!featuresSafe(config.features)) return { kind: 'policy-rejected', reason: 'features' };
+  if (!forbiddenConfigFlagsOff(config))
+    return { kind: 'policy-rejected', reason: 'experimental_use_unified_exec_tool' };
+  if (!baseUrlOverridesSafe(config))
+    return { kind: 'policy-rejected', reason: 'base-url-override' };
 
   const serialized = JSON.stringify({ config, requirements }).toLowerCase();
-  if (serialized.includes('base_url') || serialized.includes('baseurl'))
-    return { kind: 'policy-rejected', reason: 'base-url' };
   if (serialized.includes('customprovider') || serialized.includes('custom_provider'))
     return { kind: 'policy-rejected', reason: 'custom-provider' };
   if (serialized.includes('openai_api_key') || serialized.includes('codex_api_key'))
@@ -569,10 +681,25 @@ export const extractItemType = (params: unknown): string | null => {
   return typeof params.item.type === 'string' ? params.item.type : null;
 };
 
-/** Official Codex 0.147.0 readOnly sandbox policy — network denied. */
+/**
+ * Legacy SandboxPolicy shape — network denied. Does NOT provide probeCwd-only reads;
+ * prefer {@link buildProbeTurnPermissionsParams}. Retained for schema token tests.
+ */
 export const buildProbeSandboxPolicy = (): Record<string, unknown> => ({
-  type: 'readOnly',
+  type: APPROVED_SANDBOX_POLICY_TYPE,
   networkAccess: false,
+});
+
+/** Permissions-based thread/start fields: probeCwd-only via runtimeWorkspaceRoots + profile. */
+export const buildProbeThreadIsolationParams = (probeCwd: string): Record<string, unknown> => ({
+  permissions: PROBE_PERMISSIONS_PROFILE_ID,
+  cwd: probeCwd,
+  runtimeWorkspaceRoots: [probeCwd],
+});
+
+/** Permissions-based turn/start isolation (cannot combine with sandboxPolicy). */
+export const buildProbeTurnPermissionsParams = (): Record<string, unknown> => ({
+  permissions: PROBE_PERMISSIONS_PROFILE_ID,
 });
 
 /** Initialize params with remoteControl status notification opted out. */

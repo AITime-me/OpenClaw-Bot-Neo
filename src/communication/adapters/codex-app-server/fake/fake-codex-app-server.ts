@@ -1,6 +1,8 @@
 import type { CodexAppServerTransport } from '../codex-app-server-client.js';
 import {
   FIXED_PROBE_PROMPT,
+  PROBE_PERMISSIONS_PROFILE_ID,
+  isThreadSandboxModeWireToken,
   parseJsonlFrame,
   serializeRequest,
   type JsonRpcId,
@@ -89,6 +91,14 @@ const happyAccount = {
   requiresOpenaiAuth: true,
 };
 
+const happyPermissionsProfile = {
+  filesystem: {
+    ':minimal': 'read',
+    ':workspace_roots': { '.': 'read' },
+  },
+  network: { enabled: false },
+};
+
 const happyConfig = {
   config: {
     cli_auth_credentials_store: 'file',
@@ -96,9 +106,13 @@ const happyConfig = {
     model_provider: 'openai',
     model: 'gpt-probe',
     approval_policy: 'never',
-    sandbox_mode: 'read-only',
+    sandbox_mode: null,
     web_search: 'disabled',
     allow_login_shell: false,
+    default_permissions: 'neo-probe-cwd-readonly',
+    permissions: {
+      'neo-probe-cwd-readonly': happyPermissionsProfile,
+    },
     tools: { web_search: null },
     apps: {},
     mcp_servers: {},
@@ -109,6 +123,9 @@ const happyConfig = {
       tool_suggest: false,
       auth_elicitation: false,
     },
+    openai_base_url: null,
+    chatgpt_base_url: null,
+    experimental_use_unified_exec_tool: false,
     // Benign extended 0.147.0 keys must not fail closed by themselves.
     model_context_window: 128000,
     model_reasoning_effort: null,
@@ -350,6 +367,9 @@ export const createFakeCodexAppServerTransport = (
                 remote_plugin: true,
                 tool_suggest: true,
               },
+              openai_base_url: null,
+              chatgpt_base_url: null,
+              experimental_use_unified_exec_tool: false,
               model_context_window: 272000,
               analytics: null,
               desktop: null,
@@ -428,8 +448,28 @@ export const createFakeCodexAppServerTransport = (
         }
         respond(id, happyModels);
         return;
-      case 'thread/start':
+      case 'thread/start': {
         threadStartParams.push(params);
+        const threadParams = params as Record<string, unknown>;
+        // Wire validation: SandboxMode is kebab-case; camelCase `readOnly` is invalid.
+        if ('sandbox' in threadParams && threadParams.sandbox !== null) {
+          if (!isThreadSandboxModeWireToken(threadParams.sandbox)) {
+            respondError(id, 'invalid-thread-sandbox-wire-token');
+            return;
+          }
+          if ('permissions' in threadParams && threadParams.permissions !== null) {
+            respondError(id, 'sandbox-and-permissions-mutually-exclusive');
+            return;
+          }
+        }
+        if (threadParams.permissions !== PROBE_PERMISSIONS_PROFILE_ID) {
+          respondError(id, 'missing-probe-permissions-profile');
+          return;
+        }
+        if ('sandboxPolicy' in threadParams) {
+          respondError(id, 'sandboxPolicy-not-allowed-on-thread-start');
+          return;
+        }
         threadId = 'thr_fake_1';
         respond(id, {
           thread: {
@@ -442,8 +482,18 @@ export const createFakeCodexAppServerTransport = (
         });
         notify('thread/started', { thread: { id: threadId } });
         return;
+      }
       case 'turn/start': {
         turnStartParams.push(params);
+        const turnParams = params as Record<string, unknown>;
+        if ('sandboxPolicy' in turnParams && turnParams.sandboxPolicy !== null) {
+          respondError(id, 'legacy-sandboxPolicy-forbidden-for-probe');
+          return;
+        }
+        if (turnParams.permissions !== PROBE_PERMISSIONS_PROFILE_ID) {
+          respondError(id, 'missing-probe-permissions-profile');
+          return;
+        }
         const input = (params as { input?: Array<{ text?: string }> }).input;
         const text = input?.[0]?.text ?? '';
         if (text !== FIXED_PROBE_PROMPT) {

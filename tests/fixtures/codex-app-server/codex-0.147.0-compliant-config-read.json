@@ -5,9 +5,19 @@
     "model_provider": "openai",
     "model": "gpt-5.6-sol",
     "approval_policy": "never",
-    "sandbox_mode": "read-only",
+    "sandbox_mode": null,
     "web_search": "disabled",
     "allow_login_shell": false,
+    "default_permissions": "neo-probe-cwd-readonly",
+    "permissions": {
+      "neo-probe-cwd-readonly": {
+        "filesystem": {
+          ":minimal": "read",
+          ":workspace_roots": { ".": "read" }
+        },
+        "network": { "enabled": false }
+      }
+    },
     "tools": { "web_search": null },
     "apps": {},
     "mcp_servers": {},
@@ -18,6 +28,9 @@
       "remote_plugin": false,
       "tool_suggest": false
     },
+    "openai_base_url": null,
+    "chatgpt_base_url": null,
+    "experimental_use_unified_exec_tool": false,
     "model_context_window": 272000,
     "analytics": null,
     "desktop": null

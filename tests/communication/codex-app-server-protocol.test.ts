@@ -2,26 +2,40 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  APPROVED_CONFIG_SANDBOX_MODE,
   APPROVED_MODEL_PROVIDER,
-  APPROVED_SANDBOX_MODE,
+  APPROVED_SANDBOX_POLICY_TYPE,
+  APPROVED_THREAD_SANDBOX_MODE,
   APPROVED_WEB_SEARCH_MODE,
   FIXED_PROBE_PROMPT,
   OPT_OUT_NOTIFICATION_METHODS,
+  PROBE_PERMISSIONS_PROFILE_ID,
   buildProbeInitializeParams,
   buildProbeSandboxPolicy,
+  buildProbeThreadIsolationParams,
+  buildProbeTurnPermissionsParams,
   decodeAccountReadResult,
   decodeConfigPreflight,
   decodeConfigReadResult,
   decodeModelListResult,
   decodeRateLimitsReadResult,
   isExactOkTrueOutput,
+  isThreadSandboxModeWireToken,
   jsonRpcIdsEqual,
   parseJsonlFrame,
+  probeLiveFilesystemBoundarySupported,
   serializeRequest,
 } from '../../src/communication/adapters/codex-app-server/codex-app-server-protocol.js';
 
 const fixture = (name: string): unknown =>
   JSON.parse(readFileSync(join(process.cwd(), 'tests/fixtures/codex-app-server', name), 'utf8'));
+
+const compliantBase = () => {
+  const compliant = fixture('codex-0.147.0-compliant-config-read.json') as {
+    config: Record<string, unknown>;
+  };
+  return { ...compliant.config };
+};
 
 describe('codex-app-server protocol', () => {
   it('keeps fixed prompt and exact ok:true output', () => {
@@ -88,28 +102,26 @@ describe('codex-app-server protocol', () => {
     );
   });
 
+  it('separates config SandboxMode token from SandboxPolicy.type wire token', () => {
+    expect(APPROVED_CONFIG_SANDBOX_MODE).toBe('read-only');
+    expect(APPROVED_THREAD_SANDBOX_MODE).toBe('read-only');
+    expect(APPROVED_SANDBOX_POLICY_TYPE).toBe('readOnly');
+    expect(isThreadSandboxModeWireToken('read-only')).toBe(true);
+    expect(isThreadSandboxModeWireToken('readOnly')).toBe(false);
+    expect(isThreadSandboxModeWireToken('workspace-write')).toBe(true);
+    expect(buildProbeSandboxPolicy()).toEqual({
+      type: APPROVED_SANDBOX_POLICY_TYPE,
+      networkAccess: false,
+    });
+  });
+
   it('checks Codex 0.147.0 security-critical config values without total key allowlist', () => {
-    const okConfig = {
-      cli_auth_credentials_store: 'file',
-      forced_login_method: 'chatgpt',
-      model_provider: APPROVED_MODEL_PROVIDER,
-      model: 'gpt-probe',
-      approval_policy: 'never',
-      sandbox_mode: APPROVED_SANDBOX_MODE,
-      web_search: APPROVED_WEB_SEARCH_MODE,
-      allow_login_shell: false,
-      tools: { web_search: null },
-      apps: {},
-      mcp_servers: {},
-      hooks: {},
-      features: { mentions_v2: true, remote_plugin: false },
-      model_context_window: 128000,
-    };
+    const okConfig = compliantBase();
     expect(decodeConfigPreflight(okConfig, null).kind).toBe('ok');
     expect(decodeConfigPreflight({ ...okConfig, approval_policy: null }, null).kind).toBe(
       'policy-rejected',
     );
-    expect(decodeConfigPreflight({ ...okConfig, sandbox_mode: null }, null).kind).toBe(
+    expect(decodeConfigPreflight({ ...okConfig, sandbox_mode: 'read-only' }, null).kind).toBe(
       'policy-rejected',
     );
     expect(decodeConfigPreflight({ ...okConfig, web_search: null }, null).kind).toBe(
@@ -127,15 +139,15 @@ describe('codex-app-server protocol', () => {
     expect(decodeConfigPreflight({ ...okConfig, model_provider: 'azure' }, null).kind).toBe(
       'policy-rejected',
     );
-    expect(decodeConfigPreflight({ ...okConfig, approval_policy: 'on-request' }, null).kind).toBe(
-      'policy-rejected',
-    );
     expect(decodeConfigPreflight({ ...okConfig, web_search: 'live' }, null).kind).toBe(
       'policy-rejected',
     );
     expect(
+      decodeConfigPreflight({ ...okConfig, experimental_use_unified_exec_tool: true }, null).kind,
+    ).toBe('policy-rejected');
+    expect(
       decodeConfigPreflight(
-        { ...okConfig, features: { ...okConfig.features, remote_plugin: true } },
+        { ...okConfig, features: { ...(okConfig.features as object), remote_plugin: true } },
         null,
       ).kind,
     ).toBe('policy-rejected');
@@ -144,10 +156,29 @@ describe('codex-app-server protocol', () => {
         network: { enabled: true },
       }).kind,
     ).toBe('policy-rejected');
+  });
+
+  it('treats null openai/chatgpt base_url as safe and rejects custom overrides', () => {
+    const okConfig = compliantBase();
     expect(
-      decodeConfigPreflight(okConfig, {
-        featureRequirements: { unified_exec: true },
-      }).kind,
+      decodeConfigPreflight({ ...okConfig, openai_base_url: null, chatgpt_base_url: null }, null)
+        .kind,
+    ).toBe('ok');
+    expect(
+      decodeConfigPreflight({ ...okConfig, openai_base_url: 'https://evil.example/v1' }, null).kind,
+    ).toBe('policy-rejected');
+    expect(
+      decodeConfigPreflight({ ...okConfig, chatgpt_base_url: 'https://evil.example/v1' }, null)
+        .kind,
+    ).toBe('policy-rejected');
+    expect(
+      decodeConfigPreflight(
+        {
+          ...okConfig,
+          model_providers: { openai: { base_url: 'https://custom.example' } },
+        },
+        null,
+      ).kind,
     ).toBe('policy-rejected');
   });
 
@@ -161,6 +192,8 @@ describe('codex-app-server protocol', () => {
       config: Record<string, unknown>;
     };
     expect(decodeConfigPreflight(compliant.config, null).kind).toBe('ok');
+    expect(compliant.config.openai_base_url).toBeNull();
+    expect(compliant.config.chatgpt_base_url).toBeNull();
 
     const remote = fixture('codex-0.147.0-remote-control-status-changed.json') as {
       method: string;
@@ -170,7 +203,7 @@ describe('codex-app-server protocol', () => {
     expect(OPT_OUT_NOTIFICATION_METHODS).toContain('remoteControl/status/changed');
   });
 
-  it('builds 0.147.0 initialize opt-out and readOnly sandbox policy', () => {
+  it('builds 0.147.0 initialize opt-out and permissions-based isolation wire', () => {
     expect(buildProbeInitializeParams()).toEqual({
       clientInfo: {
         name: 'neo-codex-probe',
@@ -183,7 +216,20 @@ describe('codex-app-server protocol', () => {
         optOutNotificationMethods: ['remoteControl/status/changed'],
       },
     });
-    expect(buildProbeSandboxPolicy()).toEqual({ type: 'readOnly', networkAccess: false });
+    expect(buildProbeThreadIsolationParams('/probe/cwd')).toEqual({
+      permissions: PROBE_PERMISSIONS_PROFILE_ID,
+      cwd: '/probe/cwd',
+      runtimeWorkspaceRoots: ['/probe/cwd'],
+    });
+    expect(buildProbeTurnPermissionsParams()).toEqual({
+      permissions: PROBE_PERMISSIONS_PROFILE_ID,
+    });
+    expect(typeof probeLiveFilesystemBoundarySupported()).toBe('boolean');
+    if (process.platform === 'win32') {
+      expect(probeLiveFilesystemBoundarySupported()).toBe(false);
+    }
+    void APPROVED_MODEL_PROVIDER;
+    void APPROVED_WEB_SEARCH_MODE;
   });
 
   it('serializes requests without jsonrpc header', () => {

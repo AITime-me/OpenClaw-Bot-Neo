@@ -98,13 +98,12 @@ describe('codex-app-server client fake matrix', () => {
     const threadParams = fake.controller.threadStartParams[0] as Record<string, unknown>;
     const turnParams = fake.controller.turnStartParams[0] as Record<string, unknown>;
     expect(threadParams.sandboxPolicy).toBeUndefined();
+    expect(threadParams.sandbox).toBeUndefined();
     expect(threadParams.cwd).toBe(isolated.paths.probeCwd);
-    expect(threadParams.sandbox).toBe('read-only');
+    expect(threadParams.permissions).toBe('neo-probe-cwd-readonly');
     expect(threadParams.runtimeWorkspaceRoots).toEqual([isolated.paths.probeCwd]);
-    expect(turnParams.sandboxPolicy).toEqual({
-      type: 'readOnly',
-      networkAccess: false,
-    });
+    expect(turnParams.sandboxPolicy).toBeUndefined();
+    expect(turnParams.permissions).toBe('neo-probe-cwd-readonly');
     const initParams = fake.controller.initializeParams[0] as {
       capabilities: { optOutNotificationMethods: string[] };
     };

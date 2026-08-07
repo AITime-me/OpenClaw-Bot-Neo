@@ -17,6 +17,9 @@
       "remote_plugin": true,
       "tool_suggest": true
     },
+    "openai_base_url": null,
+    "chatgpt_base_url": null,
+    "experimental_use_unified_exec_tool": false,
     "model_context_window": 272000,
     "analytics": null,
     "desktop": null

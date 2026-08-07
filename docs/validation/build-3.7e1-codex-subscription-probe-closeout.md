@@ -25,11 +25,13 @@ LIVE_PROBE_STATUS: EXECUTED_FAIL
 LIVE_PROBE_OUTCOME: provider-unavailable
 LIVE_PROBE_FAILURE_STAGE: PRE_DISPATCH_COMPATIBILITY
 LIVE_PROBE_CODEX_CLI: 0.147.0
+LIVE_RETRY_STATUS: BLOCKED
+LIVE_RETRY_BLOCK_REASON: WINDOWS_FULL_FS_READ_NO_GUARANTEED_SPLIT_PERMISSIONS
 LIVE_PROBE: OWNER_APPROVAL_REQUIRED
 PRODUCTION_READY: FALSE
 SECURITY_APPROVED: FALSE
 PACKAGE_ROOT_EXPORTS: ABSENT
-NEXT_STAGE: CODEX_0147_COMPAT_THEN_OWNER_APPROVED_LIVE_RETRY
+NEXT_STAGE: NON_WINDOWS_OR_ELEVATED_SPLIT_FS_THEN_OWNER_APPROVED_LIVE_RETRY
 END_BUILD_3_7E1_MARKERS
 
 ## Implemented
@@ -73,16 +75,33 @@ credentials):
 - `forced_login_method = "chatgpt"`
 - `model_provider = "openai"`
 - `approval_policy = "never"` — **null is rejected**
-- `sandbox_mode = "read-only"` — **null is rejected**
+- **Do not set** `sandbox_mode` (including `"read-only"`): legacy sandbox implies **full filesystem
+  read** on Windows and disables permissions profiles. Config vocabulary token remains
+  `SandboxMode = "read-only"`; `SandboxPolicy.type` remains `"readOnly"` — distinct wire tokens.
+- Prefer permissions profile `neo-probe-cwd-readonly`:
+  - `default_permissions = "neo-probe-cwd-readonly"`
+  - filesystem `:minimal = "read"`, `:workspace_roots."." = "read"` (not write), no `:root` read
+  - `network.enabled = false`
 - `web_search = "disabled"` — **null is rejected**
 - `allow_login_shell = false` — **true/null rejected**
+- `openai_base_url` / `chatgpt_base_url` may be present as **null**; non-empty overrides rejected
+- `experimental_use_unified_exec_tool` must not be `true`
 - MCP / apps / hooks empty or fully disabled; `tools.web_search` null/absent
 - Disable agentic features: `features.remote_plugin`, `features.tool_suggest`,
   `features.auth_elicitation` must not be `true`
 - No custom base URL / API-key provider overrides
 
-Wire notes: `thread/start` uses `sandbox: "read-only"` and `runtimeWorkspaceRoots: [probeCwd]`;
-`turn/start` uses official `{ type: "readOnly", networkAccess: false }` sandboxPolicy.
+Wire notes: `thread/start` and `turn/start` use `permissions: "neo-probe-cwd-readonly"` with
+`runtimeWorkspaceRoots: [probeCwd]` (not legacy `sandbox` / `sandboxPolicy`). Fake rejects
+invalid `thread/start.sandbox` tokens such as camelCase `readOnly`.
+
+### LIVE_RETRY_STATUS: BLOCKED (Windows)
+
+Codex 0.147.0 docs: legacy `read-only` / `SandboxPolicy.readOnly` on Windows grants full
+filesystem read; exact readable roots require split filesystem / permissions with **elevated**
+Windows sandbox. Neo probe does not guarantee elevated sandbox readiness → live spawn fail-closed
+and **LIVE_RETRY_STATUS: BLOCKED** until a non-Windows Landlock path or proven elevated split-FS
+host is available.
 
 ## Still absent / blocked
 
