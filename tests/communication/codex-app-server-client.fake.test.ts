@@ -158,13 +158,51 @@ describe('codex-app-server client fake matrix', () => {
 
   it('5. dispatch/write race: delayed write, hung write, stdin fail', async () => {
     const delayed = await run('delayed-stdin-write');
-    expectOutcome(delayed.result, 'outcome-unknown', 'delayed-stdin-write');
+    expectOutcome(delayed.result, 'cancelled-before-invocation', 'delayed-stdin-write');
+    expect(delayed.fake.controller.rpcTrace.includes('turn/start')).toBe(false);
+    expect(delayed.fake.controller.rpcTrace.includes('turn/interrupt')).toBe(false);
+    expect(delayed.fake.controller.rpcTrace.includes('thread/unsubscribe')).toBe(false);
+    expect(delayed.fake.transport.isPoisoned()).toBe(true);
+    expect(delayed.fake.transport.isExited()).toBe(true);
+    if (delayed.result.kind === 'result') {
+      expect(delayed.result.cleanupTrace).toContain('poison-reap');
+      expect(delayed.result.cleanupTrace.includes('turn/interrupt')).toBe(false);
+      expect(delayed.result.cleanupTrace.includes('thread/unsubscribe')).toBe(false);
+    }
 
+    const hungStarted = Date.now();
     const hung = await run('hung-stdin-write');
-    expectOutcome(hung.result, 'outcome-unknown', 'hung-stdin-write');
+    expect(Date.now() - hungStarted).toBeLessThan(2_000);
+    expectOutcome(hung.result, 'known-timeout', 'hung-stdin-write');
+    expect(hung.fake.controller.rpcTrace.includes('turn/start')).toBe(false);
+    expect(hung.fake.controller.rpcTrace.includes('turn/interrupt')).toBe(false);
+    expect(hung.fake.controller.rpcTrace.includes('thread/unsubscribe')).toBe(false);
+    expect(hung.fake.transport.isPoisoned()).toBe(true);
+    expect(hung.fake.transport.isExited()).toBe(true);
+    if (hung.result.kind === 'result') {
+      expect(hung.result.cleanupTrace).toContain('poison-reap');
+      expect(hung.result.cleanupTrace.includes('turn/interrupt')).toBe(false);
+      expect(hung.result.cleanupTrace.includes('thread/unsubscribe')).toBe(false);
+    }
 
     const fail = await run('stdin-write-fail');
     expectOutcome(fail.result, 'provider-unavailable', 'stdin-write-fail');
+    expect(fail.fake.transport.isPoisoned()).toBe(false);
+    if (fail.result.kind === 'result') {
+      expect(fail.result.cleanupTrace.includes('poison-reap')).toBe(false);
+    }
+  });
+
+  it('5b. forbidden item types outrank correlation (correct/missing/mismatched ids)', async () => {
+    const forbiddenTypes = ['command', 'file', 'web', 'mcp'] as const;
+    const idVariants = ['', '-missing-ids', '-mismatched-ids'] as const;
+    for (const type of forbiddenTypes) {
+      for (const variant of idVariants) {
+        const scenario = `forbidden-item-${type}${variant}` as FakeCodexAppServerScenario;
+        const { result } = await run(scenario);
+        expectOutcome(result, 'policy-rejected', scenario);
+      }
+    }
   });
 
   it('7. protocol correlation: typed ids, order, forbidden exact policy-rejected', async () => {

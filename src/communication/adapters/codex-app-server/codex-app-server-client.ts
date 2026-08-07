@@ -56,6 +56,9 @@ export type CodexAppServerTransport = {
   kill(signal?: NodeJS.Signals): void;
   closeStdin(): void;
   dispose(): void;
+  /** Hard-stop: destroy stdin, kill child, reject further writes (ambiguous dispatch). */
+  poison(): void;
+  isPoisoned(): boolean;
   getStderrRedacted(): string;
   awaitReaped(timeoutMs: number): Promise<boolean>;
 };
@@ -127,9 +130,11 @@ export const createChildProcessTransport = (
   let exitCode: number | null = null;
   let exitSignal: NodeJS.Signals | null = null;
   let spawnFailed: string | null = null;
+  let poisoned = false;
   let stderrBuf = '';
   const lineHandlers: Array<(line: string) => void> = [];
   const exitHandlers: Array<(code: number | null, signal: NodeJS.Signals | null) => void> = [];
+  const pendingWriteRejects = new Set<(error: Error) => void>();
   const rl = createInterface({ input: child.stdout });
 
   child.stderr.on('data', (chunk: Buffer | string) => {
@@ -156,13 +161,49 @@ export const createChildProcessTransport = (
     for (const handler of exitHandlers) handler(code, signal);
   });
 
+  const hardStop = (markPoisoned: boolean): void => {
+    if (markPoisoned) {
+      if (poisoned) return;
+      poisoned = true;
+    }
+    for (const reject of pendingWriteRejects) reject(new Error('stdin-poisoned'));
+    pendingWriteRejects.clear();
+    try {
+      if (!child.stdin.destroyed) child.stdin.destroy();
+    } catch {
+      /* ignore */
+    }
+    try {
+      rl.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (!exited) child.kill('SIGKILL');
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const poison = (): void => {
+    hardStop(true);
+  };
+
   const transport: CodexAppServerTransport = {
     async writeLine(line) {
+      if (poisoned) throw new Error('stdin-poisoned');
       if (spawnFailed !== null) throw new Error(`spawn-error:${spawnFailed}`);
       if (exited || child.stdin.destroyed) throw new Error('stdin-closed');
       await new Promise<void>((resolve, reject) => {
+        if (poisoned) {
+          reject(new Error('stdin-poisoned'));
+          return;
+        }
+        pendingWriteRejects.add(reject);
         child.stdin.write(`${line}\n`, (error) => {
-          if (error) reject(new Error(`stdin-write-failed:${error.message}`));
+          pendingWriteRejects.delete(reject);
+          if (poisoned) reject(new Error('stdin-poisoned'));
+          else if (error) reject(new Error(`stdin-write-failed:${error.message}`));
           else resolve();
         });
       });
@@ -182,13 +223,10 @@ export const createChildProcessTransport = (
       if (!child.stdin.destroyed) child.stdin.end();
     },
     dispose() {
-      rl.close();
-      try {
-        if (!exited) child.kill('SIGKILL');
-      } catch {
-        /* ignore platform kill races */
-      }
+      hardStop(false);
     },
+    poison,
+    isPoisoned: () => poisoned,
     getStderrRedacted: () => stderrBuf,
     async awaitReaped(timeoutMs) {
       const started = Date.now();
@@ -269,6 +307,7 @@ export const runCapabilityProbeOnTransport = async (
   let threadId: string | null = null;
   let turnId: string | null = null;
   const dispatchState = { dispatched: false };
+  const poisonState = { poisoned: false, reaped: false };
   let classified: LlmCompletionResult | null = null;
   let outcomeLatched = false;
   const pendingRef: { current: Pending | null } = { current: null };
@@ -416,6 +455,7 @@ export const runCapabilityProbeOnTransport = async (
     params: unknown,
     timeoutMs: number,
   ): Promise<void> => {
+    if (poisonState.poisoned || transport.isPoisoned()) return;
     if (transport.isExited()) return;
     if (pendingRef.current !== null) {
       clearTimeout(pendingRef.current.timer);
@@ -498,13 +538,30 @@ export const runCapabilityProbeOnTransport = async (
       : { kind: 'known-failure', outcome };
 
   const cleanupState = (): CleanupState => {
+    if (poisonState.poisoned || transport.isPoisoned()) return 'child-already-crashed-exited';
     if (transport.isExited()) return 'child-already-crashed-exited';
     if (dispatchState.dispatched) return 'active-dispatched-turn';
     if (threadId !== null) return 'thread-created-turn-not-dispatched';
     return 'process-spawned-thread-absent';
   };
 
+  const poisonAndReap = async (): Promise<void> => {
+    poisonState.poisoned = true;
+    // Never mark dispatched on ambiguous write — late prompt must not be possible.
+    dispatchState.dispatched = false;
+    transport.poison();
+    if (!poisonState.reaped) {
+      cleanupTrace.push('poison-reap');
+      await transport.awaitReaped(timeouts.reapBudgetMs);
+      poisonState.reaped = true;
+    }
+  };
+
   const boundedClose = async (): Promise<void> => {
+    if (poisonState.poisoned || transport.isPoisoned()) {
+      await poisonAndReap();
+      return;
+    }
     if (transport.isExited()) {
       transport.dispose();
       await transport.awaitReaped(timeouts.reapBudgetMs);
@@ -523,6 +580,10 @@ export const runCapabilityProbeOnTransport = async (
   };
 
   const stateDependentCleanup = async (): Promise<void> => {
+    if (poisonState.poisoned || transport.isPoisoned()) {
+      await poisonAndReap();
+      return;
+    }
     const state = cleanupState();
     if (state === 'child-already-crashed-exited') {
       transport.dispose();
@@ -615,8 +676,14 @@ export const runCapabilityProbeOnTransport = async (
     // Prevent unhandled rejection if abort rejects before await.
     void response.catch(() => undefined);
 
+    const ambiguousState = { ambiguous: false };
+
     const writePromise = transport.writeLine(line).then(
       () => {
+        if (poisonState.poisoned || transport.isPoisoned() || ambiguousState.ambiguous) {
+          if (writeState.outcome === null) writeState.outcome = 'failed';
+          return;
+        }
         writeState.outcome = 'proven';
         // Proven full-frame write → irreversibly post-dispatch.
         dispatchState.dispatched = true;
@@ -628,6 +695,7 @@ export const runCapabilityProbeOnTransport = async (
         throw error instanceof Error ? error : new Error('stdin-write-failed');
       },
     );
+    void writePromise.catch(() => undefined);
 
     const settleWrite = async (budgetMs: number): Promise<void> => {
       const settleFlag = { settled: false };
@@ -643,8 +711,8 @@ export const runCapabilityProbeOnTransport = async (
         sleep(Math.max(1, budgetMs)).then(() => undefined),
       ]);
       if (!settleFlag.settled && writeState.outcome === null) {
-        // Hung stdin after deadline/abort: possible in-flight write → post-dispatch.
-        dispatchState.dispatched = true;
+        // Ambiguous hung write: do not mark dispatched; poison stdin so late prompt cannot run.
+        ambiguousState.ambiguous = true;
         writeState.outcome = 'failed';
       }
     };
@@ -662,11 +730,13 @@ export const runCapabilityProbeOnTransport = async (
 
     if (writeState.outcome !== 'proven') {
       clearPendingIfMatch(id);
+      if (ambiguousState.ambiguous) {
+        await poisonAndReap();
+      }
       if (outcomeLatched) throw new Error('outcome-latched');
-      // Possible/hung write already marked dispatched above.
-      if (dispatchState.dispatched) throw new Error('timeout');
       if (writeState.outcome === 'aborted' || Boolean(input.abortSignal?.aborted))
         throw new Error('aborted');
+      if (ambiguousState.ambiguous) throw new Error('timeout');
       if (writeState.outcome === 'failed') throw new Error('stdin-write-failed');
       throw new Error('timeout');
     }
@@ -850,14 +920,15 @@ export const runCapabilityProbeOnTransport = async (
           return await finish(known('policy-rejected'));
         if (method === 'item/agentMessage/delta') continue;
         if (method === 'item/started' || method === 'item/completed') {
+          const itemType = extractItemType(frame.value.params);
+          if (itemType === null) return await finish(known('outcome-unknown'));
+          // Forbidden types outrank correlation: missing/mismatched IDs still policy-rejected.
+          if (isForbiddenItemType(itemType)) return await finish(known('policy-rejected'));
           const itemThread = notificationThreadId(frame.value.params);
           const itemTurn = notificationTurnId(frame.value.params);
           if (itemThread !== threadId || itemTurn !== turnId)
             return await finish(known('outcome-unknown'));
-          const itemType = extractItemType(frame.value.params);
-          if (itemType === null) return await finish(known('outcome-unknown'));
-          if (isForbiddenItemType(itemType) || !isAllowedItemType(itemType))
-            return await finish(known('policy-rejected'));
+          if (!isAllowedItemType(itemType)) return await finish(known('policy-rejected'));
           if (method === 'item/completed') {
             const text = extractAgentMessageText(frame.value.params);
             if (text !== null) agentText = text;

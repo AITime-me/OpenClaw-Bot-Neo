@@ -44,6 +44,14 @@ export type FakeCodexAppServerScenario =
   | 'forbidden-item-file'
   | 'forbidden-item-web'
   | 'forbidden-item-mcp'
+  | 'forbidden-item-command-missing-ids'
+  | 'forbidden-item-file-missing-ids'
+  | 'forbidden-item-web-missing-ids'
+  | 'forbidden-item-mcp-missing-ids'
+  | 'forbidden-item-command-mismatched-ids'
+  | 'forbidden-item-file-mismatched-ids'
+  | 'forbidden-item-web-mismatched-ids'
+  | 'forbidden-item-mcp-mismatched-ids'
   | 'turn-failed'
   | 'turn-interrupted'
   | 'wrong-turn-id'
@@ -135,6 +143,7 @@ export const createFakeCodexAppServerTransport = (
   const exitHandlers: Array<(code: number | null, signal: NodeJS.Signals | null) => void> = [];
   let exited = false;
   let stdinClosed = false;
+  let poisoned = false;
   const abort = new AbortController();
   let threadId: string | null = null;
   const rpcTrace: string[] = [];
@@ -142,7 +151,9 @@ export const createFakeCodexAppServerTransport = (
   const turnStartParams: unknown[] = [];
   const threadStartParams: unknown[] = [];
   const stderrBuf = '';
-  let delayedWrite: Promise<void> | null = null;
+  let delayedWriteTimer: ReturnType<typeof setTimeout> | null = null;
+  let delayedWriteReject: ((error: Error) => void) | null = null;
+  const pendingWriteRejects = new Set<(error: Error) => void>();
 
   const emitLine = (line: string): void => {
     queueMicrotask(() => {
@@ -166,6 +177,46 @@ export const createFakeCodexAppServerTransport = (
     if (exited) return;
     exited = true;
     for (const handler of exitHandlers) handler(code, null);
+  };
+
+  const poison = (): void => {
+    if (poisoned) return;
+    poisoned = true;
+    if (delayedWriteTimer !== null) {
+      clearTimeout(delayedWriteTimer);
+      delayedWriteTimer = null;
+    }
+    if (delayedWriteReject !== null) {
+      delayedWriteReject(new Error('stdin-poisoned'));
+      delayedWriteReject = null;
+    }
+    for (const reject of pendingWriteRejects) reject(new Error('stdin-poisoned'));
+    pendingWriteRejects.clear();
+    forceExit(null);
+  };
+
+  const notifyForbiddenItem = (
+    type: 'commandExecution' | 'fileChange' | 'webSearch' | 'mcpToolCall',
+    ids: 'correct' | 'missing' | 'mismatched',
+  ): void => {
+    const item =
+      type === 'commandExecution'
+        ? { type, id: 'i1' }
+        : type === 'fileChange'
+          ? { type, id: 'i1', changes: [] }
+          : type === 'webSearch'
+            ? { type, id: 'i1', query: 'x' }
+            : { type, id: 'i1', server: 's', tool: 't', status: 'completed' };
+    const method = type === 'commandExecution' ? 'item/started' : 'item/completed';
+    if (ids === 'missing') {
+      notify(method, { item });
+      return;
+    }
+    if (ids === 'mismatched') {
+      notify(method, { item, threadId: 'thr_OTHER', turnId: 'turn_OTHER' });
+      return;
+    }
+    notify(method, { item, threadId, turnId: 'turn_1' });
   };
 
   const handleRequest = (method: string, id: JsonRpcId, params: unknown): void => {
@@ -421,35 +472,51 @@ export const createFakeCodexAppServerTransport = (
           return;
         }
         if (scenario === 'forbidden-item-command') {
-          notify('item/started', {
-            item: { type: 'commandExecution', id: 'i1' },
-            threadId,
-            turnId: 'turn_1',
-          });
+          notifyForbiddenItem('commandExecution', 'correct');
           return;
         }
         if (scenario === 'forbidden-item-file') {
-          notify('item/completed', {
-            item: { type: 'fileChange', id: 'i1', changes: [] },
-            threadId,
-            turnId: 'turn_1',
-          });
+          notifyForbiddenItem('fileChange', 'correct');
           return;
         }
         if (scenario === 'forbidden-item-web') {
-          notify('item/completed', {
-            item: { type: 'webSearch', id: 'i1', query: 'x' },
-            threadId,
-            turnId: 'turn_1',
-          });
+          notifyForbiddenItem('webSearch', 'correct');
           return;
         }
         if (scenario === 'forbidden-item-mcp') {
-          notify('item/completed', {
-            item: { type: 'mcpToolCall', id: 'i1', server: 's', tool: 't', status: 'completed' },
-            threadId,
-            turnId: 'turn_1',
-          });
+          notifyForbiddenItem('mcpToolCall', 'correct');
+          return;
+        }
+        if (scenario === 'forbidden-item-command-missing-ids') {
+          notifyForbiddenItem('commandExecution', 'missing');
+          return;
+        }
+        if (scenario === 'forbidden-item-file-missing-ids') {
+          notifyForbiddenItem('fileChange', 'missing');
+          return;
+        }
+        if (scenario === 'forbidden-item-web-missing-ids') {
+          notifyForbiddenItem('webSearch', 'missing');
+          return;
+        }
+        if (scenario === 'forbidden-item-mcp-missing-ids') {
+          notifyForbiddenItem('mcpToolCall', 'missing');
+          return;
+        }
+        if (scenario === 'forbidden-item-command-mismatched-ids') {
+          notifyForbiddenItem('commandExecution', 'mismatched');
+          return;
+        }
+        if (scenario === 'forbidden-item-file-mismatched-ids') {
+          notifyForbiddenItem('fileChange', 'mismatched');
+          return;
+        }
+        if (scenario === 'forbidden-item-web-mismatched-ids') {
+          notifyForbiddenItem('webSearch', 'mismatched');
+          return;
+        }
+        if (scenario === 'forbidden-item-mcp-mismatched-ids') {
+          notifyForbiddenItem('mcpToolCall', 'mismatched');
           return;
         }
         if (scenario === 'malformed-after-dispatch') {
@@ -549,12 +616,19 @@ export const createFakeCodexAppServerTransport = (
 
   const transport: CodexAppServerTransport = {
     writeLine(line) {
+      if (poisoned) return Promise.reject(new Error('stdin-poisoned'));
       if (scenario === 'stdin-write-fail')
         return Promise.reject(new Error('stdin-write-failed:test'));
-      if (scenario === 'hung-stdin-write' && line.includes('"method":"turn/start"')) {
-        return new Promise(() => {
-          /* never settles */
-        });
+      if (scenario === 'hung-stdin-write') {
+        if (
+          line.includes('"method":"turn/start"') ||
+          line.includes('"method":"turn/interrupt"') ||
+          line.includes('"method":"thread/unsubscribe"')
+        ) {
+          return new Promise((_resolve, reject) => {
+            pendingWriteRejects.add(reject);
+          });
+        }
       }
       if (scenario === 'cleanup-thread-no-dispatch' && line.includes('"method":"turn/start"')) {
         queueMicrotask(() => {
@@ -565,6 +639,7 @@ export const createFakeCodexAppServerTransport = (
       if (exited || stdinClosed) return Promise.reject(new Error('stdin-closed'));
 
       const run = (): void => {
+        if (poisoned) return;
         const frame = parseJsonlFrame(line);
         if (frame.kind === 'notification') return;
         if (frame.kind === 'success' || frame.kind === 'failure') return;
@@ -582,13 +657,20 @@ export const createFakeCodexAppServerTransport = (
       };
 
       if (scenario === 'delayed-stdin-write' && line.includes('"turn/start"')) {
-        delayedWrite = new Promise((resolve) => {
-          setTimeout(() => {
+        return new Promise<void>((resolve, reject) => {
+          delayedWriteReject = reject;
+          // Long delay so abort/poison always wins; late run() must not dispatch.
+          delayedWriteTimer = setTimeout(() => {
+            delayedWriteTimer = null;
+            delayedWriteReject = null;
+            if (poisoned) {
+              reject(new Error('stdin-poisoned'));
+              return;
+            }
             run();
             resolve();
-          }, 80);
+          }, 500);
         });
-        return delayedWrite;
       }
       run();
       return Promise.resolve();
@@ -611,6 +693,8 @@ export const createFakeCodexAppServerTransport = (
     dispose() {
       if (!exited) forceExit(null);
     },
+    poison,
+    isPoisoned: () => poisoned,
     getStderrRedacted: () => stderrBuf,
     awaitReaped() {
       return Promise.resolve(exited);
