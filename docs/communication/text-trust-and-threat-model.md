@@ -99,8 +99,10 @@ TTL ≤ 24h, and `forensicEraseGuaranteed=false`; caller booleans are not encryp
 **3.7G0** closes the architecture-only at-rest gate (`LIVE_ENCRYPTION: ARCHITECTURE_DECIDED`;
 `ENCRYPTION_IMPLEMENTATION: ABSENT`): encrypt
 `outbox_entries.plaintext_payload` + conversation `active_context_json` / `summary_json` only;
-AES-256-GCM via `node:crypto`; key solely from `NEO_COMMUNICATION_DATA_KEY_FILE`; schema v1
-plaintext offline-compatible / live-rejected; silent plaintext fallback forbidden. See
+AES-256-GCM via `node:crypto`; key file `BASE64_32` from `NEO_COMMUNICATION_DATA_KEY_FILE` with
+`keyId = SHA-256 hex`; offline schema v1 vs live encrypted schema v2 (existing v1 live-rejected; no
+automatic migration); live gate requires encryption-aware outbox + conversation-state ports; audit
+`metadata_json` plaintext only under exact allowlist; silent plaintext fallback forbidden. See
 [3.7G0 decisions](../validation/build-3.7g0-communication-encryption-decisions.md). Live factory and
 encryption implementation remain absent.
 

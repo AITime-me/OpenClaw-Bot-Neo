@@ -259,13 +259,18 @@ tests/build-3.7g0-communication-encryption-decisions-record.test.ts
 Status: **architecture-only**. Live mode must not store conversational plaintext in
 `neo-communication.sqlite`. Encrypt-at-rest fields: `outbox_entries.plaintext_payload`,
 `conversation_snapshots.active_context_json`, `conversation_snapshots.summary_json`. Machine /
-FIFO / recovery / idempotency / TTL / audit metadata remain plaintext-open. AEAD =
+FIFO / recovery / idempotency / TTL fields remain plaintext-open. Live audit `metadata_json` is
+plaintext only under an exact operationKind/phase allowlist (scanner alone insufficient). AEAD =
 `AES_256_GCM_NODE_CRYPTO` via `node:crypto` only; versioned envelope with unique nonce, tag, and
-AAD bound to record/table/field identity. Sole key source:
-`NEO_COMMUNICATION_DATA_KEY_FILE` (never in SQLite/logs/audit/tracked config). Schema v1 plaintext
-compatible offline, rejected live; silent plaintext fallback forbidden. Encryption implementation
-absent; package-root exports absent; 3.7F / Telegram / OpenClaw / production composition absent.
-`IMPLEMENTATION_READY: TRUE`; `PRODUCTION_READY: FALSE`; durable live integration
+AAD bound to record/table/field identity. Key file format `BASE64_32`; `keyId = SHA-256 hex` of
+key bytes; sole source `NEO_COMMUNICATION_DATA_KEY_FILE` (absolute/canonical regular file outside
+repo and communication storage root; never in SQLite/logs/audit/diagnostics). Offline factory stays
+schema v1 plaintext; live factory uses separate encrypted schema v2 (empty live DB created as v2;
+existing v1 rejected; no automatic v1→v2 migration in first 3.7G). Live gate requires constructed
+encryption-aware outbox + conversation-state ports (standalone AEAD self-check insufficient).
+Silent plaintext fallback forbidden. Encryption implementation absent; package-root exports
+absent; 3.7F / Telegram / OpenClaw / production composition absent. `IMPLEMENTATION_READY: TRUE`;
+`PRODUCTION_READY: FALSE`; durable live integration
 `BLOCKED_PENDING_ENCRYPTION_IMPLEMENTATION`. Next stage: `3.7G_ENCRYPTION_IMPLEMENTATION`.
 
 ### 3.7F — blocked pending E1 live gates, encryption implementation, operational approval

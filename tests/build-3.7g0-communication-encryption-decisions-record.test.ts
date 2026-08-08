@@ -5,7 +5,10 @@ import { describe, expect, it } from 'vitest';
 
 const REPO_ROOT = process.cwd();
 const BUILD_BASE = '7f3d69a37b1783429d27f1b9e0d5ce650c28e7cb';
-const BUILD_SUBJECT = 'docs(communication): decide Build 3.7G0 encryption at-rest gate';
+const BUILD_SUBJECTS = [
+  'docs(communication): decide Build 3.7G0 encryption at-rest gate',
+  'docs(communication): correct Build 3.7G0 encryption at-rest gate',
+] as const;
 
 const CLOSEOUT_REL = 'docs/validation/build-3.7g0-communication-encryption-decisions.md';
 const CLOSEOUT_PATH = join(REPO_ROOT, CLOSEOUT_REL);
@@ -55,9 +58,15 @@ const EXPECTED_MARKERS: ReadonlyArray<readonly [string, string]> = [
   ['ENCRYPTION_ALGORITHM', 'AES_256_GCM_NODE_CRYPTO'],
   ['KEY_IN_SQLITE', 'FORBIDDEN'],
   ['KEY_SOURCE', 'NEO_COMMUNICATION_DATA_KEY_FILE'],
+  ['KEY_FILE_FORMAT', 'BASE64_32'],
+  ['KEY_ID_DERIVATION', 'SHA256_HEX_OF_KEY_BYTES'],
   ['SILENT_PLAINTEXT_FALLBACK', 'FORBIDDEN'],
   ['SCHEMA_V1_PLAINTEXT_OFFLINE', 'COMPATIBLE'],
   ['SCHEMA_V1_PLAINTEXT_LIVE', 'REJECTED'],
+  ['SCHEMA_V2_LIVE_ENCRYPTED', 'REQUIRED'],
+  ['AUTOMATIC_V1_TO_V2_MIGRATION', 'FORBIDDEN'],
+  ['LIVE_GATE_REQUIRES_ENCRYPTION_AWARE_PORTS', 'TRUE'],
+  ['AUDIT_METADATA_POLICY', 'EXACT_ALLOWLIST'],
   ['MEMORY_COMMUNICATION_DB_MERGE', 'FORBIDDEN'],
   ['PACKAGE_ROOT_EXPORTS', 'ABSENT'],
   ['PRODUCTION_COMPOSITION', 'ABSENT'],
@@ -78,15 +87,15 @@ const REQUIRED_CONTRACT_HEADINGS = [
   '## Decision 2 — Exact encrypted vs plaintext-open inventory (schema v1 basis)',
   '## Decision 3 — Algorithm and dependency boundary',
   '## Decision 4 — Versioned AEAD envelope',
-  '## Decision 5 — Sole runtime key boundary',
+  '## Decision 5 — Sole runtime key boundary (frozen format)',
   '## Decision 6 — Missing / invalid key ⇒ fail-closed readiness',
   '## Decision 7 — Decrypt / auth failure ⇒ fail-closed',
-  '## Decision 8 — Schema v1 plaintext policy (offline compatible / live rejected)',
+  '## Decision 8 — Schema split: offline v1 vs live encrypted v2 (no automatic migration)',
   '## Decision 9 — Key / version rotation contract (no rotation service yet)',
   '## Decision 10 — Scanner / policy before encrypt; persistence encrypts before SQLite',
-  '## Decision 11 — Port-specific treatment (not “all TEXT columns”)',
+  '## Decision 11 — Port-specific treatment and unified conversation field codec',
   '## Decision 12 — Package-private encryption implementation',
-  '## Decision 13 — Live gate satisfaction criteria (architecture)',
+  '## Decision 13 — Live gate satisfaction criteria (encryption-aware ports required)',
   '## Decision 14 — Exact implementation map (next encryption implementation commit)',
 ] as const;
 
@@ -98,6 +107,8 @@ const REQUIRED_CONTRACT_TOKENS = [
   'audit_start.metadata_json',
   'AES_256_GCM_NODE_CRYPTO',
   'node:crypto',
+  '12-byte nonce',
+  '16-byte authentication tag',
   'envelopeVersion',
   'keyId',
   'nonce',
@@ -105,14 +116,26 @@ const REQUIRED_CONTRACT_TOKENS = [
   'tag',
   'neo-communication|',
   'NEO_COMMUNICATION_DATA_KEY_FILE',
+  'BASE64_32',
+  'SHA256_HEX_OF_KEY_BYTES',
   'SILENT_PLAINTEXT_FALLBACK',
+  'SCHEMA_V2_LIVE_ENCRYPTED',
+  'AUTOMATIC_V1_TO_V2_MIGRATION',
+  'LIVE_GATE_REQUIRES_ENCRYPTION_AWARE_PORTS',
+  'AUDIT_METADATA_POLICY',
   'encryptionLiveGateSatisfied',
   'ENCRYPTION_LIVE_GATE_BLOCKED',
   'create-live-sqlite-communication-ports.ts',
   'communication-aead-envelope.ts',
   'communication-data-key.ts',
   'communication-field-cipher.ts',
+  'communication-conversation-field-codec.ts',
   'createOfflineSqliteCommunicationPorts',
+  'recordCheckpointBarrier',
+  'reconcileCheckpoint',
+  'process-text-turn.service.ts',
+  'checkpoint-finalization.ts',
+  'recover-communication-turns.service.ts',
   'neo-memory.sqlite',
   'neo-communication.sqlite',
   'PACKAGE_ROOT_EXPORTS',
@@ -134,6 +157,12 @@ const REQUIRED_PLAINTEXT_OPEN_TOKENS = [
   'output_digest',
   'expires_at',
   'fingerprint',
+] as const;
+
+const FORBIDDEN_MIGRATION_PROMISES = [
+  'Add schema **v1 → v2** migration',
+  'schema v1 → v2 migration (or equivalent live schema)',
+  'automatic/silent v1→v2 migration in the first 3.7G implementation commit is required',
 ] as const;
 
 function git(args: readonly string[]): string {
@@ -205,6 +234,8 @@ function parseCanonicalMarkers(record: string): Map<string, string> {
 }
 
 function resolveBuildTip(): { tip: string; includeWorkingTree: boolean } {
+  // Newest-first log; tip pins to the latest G0 architecture/corrective commit so successor
+  // implementation Builds do not expand this package's path set.
   const matches = git(['log', `${BUILD_BASE}..HEAD`, '--format=%H%x09%s'])
     .split('\n')
     .map((line) => line.trim())
@@ -215,18 +246,12 @@ function resolveBuildTip(): { tip: string; includeWorkingTree: boolean } {
         ? { hash: line, subject: '' }
         : { hash: line.slice(0, tab), subject: line.slice(tab + 1) };
     })
-    .filter((entry) => entry.subject === BUILD_SUBJECT);
+    .filter((entry) => (BUILD_SUBJECTS as readonly string[]).includes(entry.subject));
 
-  if (matches.length > 1) {
-    throw new Error(
-      `expected at most one build commit with subject "${BUILD_SUBJECT}", found ${String(matches.length)}`,
-    );
-  }
-
-  if (matches.length === 1) {
-    const only = matches[0];
-    if (!only) throw new Error('build commit match missing');
-    return { tip: only.hash, includeWorkingTree: false };
+  if (matches.length > 0) {
+    const newest = matches[0];
+    if (!newest) throw new Error('G0 build commit match missing');
+    return { tip: newest.hash, includeWorkingTree: false };
   }
 
   return { tip: git(['rev-parse', 'HEAD']), includeWorkingTree: true };
@@ -301,14 +326,20 @@ describe('Build 3.7G0 communication encryption decisions record', () => {
     expect(markers.get('PRODUCTION_READY')).toBe('FALSE');
   });
 
-  it('freezes fail-closed encryption and key-boundary markers', () => {
+  it('freezes fail-closed encryption, schema split, key, audit, and gate markers', () => {
     const markers = parseCanonicalMarkers(record);
     expect(markers.get('ENCRYPTION_ALGORITHM')).toBe('AES_256_GCM_NODE_CRYPTO');
     expect(markers.get('KEY_IN_SQLITE')).toBe('FORBIDDEN');
     expect(markers.get('KEY_SOURCE')).toBe('NEO_COMMUNICATION_DATA_KEY_FILE');
+    expect(markers.get('KEY_FILE_FORMAT')).toBe('BASE64_32');
+    expect(markers.get('KEY_ID_DERIVATION')).toBe('SHA256_HEX_OF_KEY_BYTES');
     expect(markers.get('SILENT_PLAINTEXT_FALLBACK')).toBe('FORBIDDEN');
     expect(markers.get('SCHEMA_V1_PLAINTEXT_OFFLINE')).toBe('COMPATIBLE');
     expect(markers.get('SCHEMA_V1_PLAINTEXT_LIVE')).toBe('REJECTED');
+    expect(markers.get('SCHEMA_V2_LIVE_ENCRYPTED')).toBe('REQUIRED');
+    expect(markers.get('AUTOMATIC_V1_TO_V2_MIGRATION')).toBe('FORBIDDEN');
+    expect(markers.get('LIVE_GATE_REQUIRES_ENCRYPTION_AWARE_PORTS')).toBe('TRUE');
+    expect(markers.get('AUDIT_METADATA_POLICY')).toBe('EXACT_ALLOWLIST');
     expect(markers.get('MEMORY_COMMUNICATION_DB_MERGE')).toBe('FORBIDDEN');
     expect(markers.get('DURABLE_LIVE_INTEGRATION')).toBe(
       'BLOCKED_PENDING_ENCRYPTION_IMPLEMENTATION',
@@ -336,7 +367,73 @@ describe('Build 3.7G0 communication encryption decisions record', () => {
     expect(record).toMatch(/Encrypt-at-rest[\s\S]*?plaintext_payload/);
     expect(record).toMatch(/Plaintext-open[\s\S]*?FIFO/);
     expect(record).toContain('metadata_json');
-    expect(record).toMatch(/remain \*\*plaintext-open\*\*/);
+  });
+
+  it('freezes live gate to encryption-aware ports, not standalone AEAD self-check', () => {
+    expect(record).toMatch(
+      /not\*\* satisfied by a standalone AEAD self-check|not\*\* satisfied by a standalone AEAD/,
+    );
+    expect(record).toMatch(/standalone AEAD self-check alone/);
+    expect(record).toContain('LIVE_GATE_REQUIRES_ENCRYPTION_AWARE_PORTS');
+    expect(record).toMatch(/encryption-aware \*\*outbox\*\* and \*\*conversation-state\*\*/);
+    expect(record).toMatch(/legacy \/ offline plaintext ports injected/);
+    expect(record).toMatch(/raw SQLite inspection shows plaintext absent and envelope present/);
+    expect(record).toMatch(/legacy\/plaintext port injection cannot produce ready gate/);
+  });
+
+  it('freezes offline v1 vs live v2 schema split without automatic migration', () => {
+    expect(record).toContain('SCHEMA_V2_LIVE_ENCRYPTED: REQUIRED');
+    expect(record).toContain('AUTOMATIC_V1_TO_V2_MIGRATION: FORBIDDEN');
+    expect(record).toMatch(/Created \*\*directly as v2\*\*/);
+    expect(record).toMatch(/Existing v1 DB opened by live factory[\s\S]*?\*\*REJECTED\*\*/);
+    expect(record).toMatch(/No\*\* automatic\/silent v1→v2 migration code/);
+    expect(record).toMatch(/Separate future Build\*\* only/);
+    expect(record).toMatch(/Do not\*\* ship automatic\/silent v1→v2 migration/);
+    for (const phrase of FORBIDDEN_MIGRATION_PROMISES) {
+      expect(record.includes(phrase), `forbidden migration promise present: ${phrase}`).toBe(false);
+    }
+  });
+
+  it('freezes exact live audit metadata allowlist from proven call sites', () => {
+    expect(record).toContain('AUDIT_METADATA_POLICY: EXACT_ALLOWLIST');
+    expect(record).toContain('process-text-turn.service.ts');
+    expect(record).toContain('checkpoint-finalization.ts');
+    expect(record).toContain('recover-communication-turns.service.ts');
+    expect(record).toContain("{ phase: 'start' }");
+    expect(record).toContain('phase = start');
+    expect(record).toContain('phase = completion');
+    expect(record).toContain('checkpointStatus ∈ { succeeded, failed }');
+    expect(record).toContain('deliveryStatus ∈ { delivered, failed, outcome_unknown }');
+    expect(record).toMatch(
+      /SensitiveDataScanner[\s\S]*?not\*\* sufficient|alone is \*\*not\*\* sufficient/,
+    );
+    expect(record).toMatch(/arbitrary non-secret sentence/);
+    expect(record).toMatch(/deterministic-notice[\s\S]*?REJECT/);
+    expect(record).toMatch(/checkpoint-reconciliation[\s\S]*?REJECT/);
+  });
+
+  it('freezes unified conversation field codec across load/checkpoint/barrier/reconcile', () => {
+    expect(record).toContain('communication-conversation-field-codec.ts');
+    expect(record).toContain('Unified encryption-aware conversation codec');
+    expect(record).toContain('`load`');
+    expect(record).toContain('`checkpoint`');
+    expect(record).toContain('`recordCheckpointBarrier`');
+    expect(record).toContain('`reconcileCheckpoint`');
+    expect(record).toMatch(/barrier and recovery operate on encrypted snapshots/);
+    expect(record).toMatch(/tampered ciphertext fails closed|tampered ciphertext fail-closed/);
+  });
+
+  it('freezes canonical BASE64_32 key file and SHA-256 keyId derivation', () => {
+    expect(record).toContain('KEY_FILE_FORMAT: BASE64_32');
+    expect(record).toContain('KEY_ID_DERIVATION: SHA256_HEX_OF_KEY_BYTES');
+    expect(record).toMatch(/exactly 32 bytes/);
+    expect(record).toMatch(/Raw binary key files are \*\*rejected\*\*/);
+    expect(record).toMatch(/lowercase hex SHA-256 of[\s\S]*?decoded 32 key bytes/);
+    expect(record).toMatch(/absolute path/);
+    expect(record).toMatch(/canonical\/real path/);
+    expect(record).toMatch(/outside the repository root/);
+    expect(record).toMatch(/outside the communication DB \/ storage root/);
+    expect(record).toMatch(/no silent alternate source/i);
   });
 
   it('freezes AEAD envelope, AAD binding, and scanner-before-encrypt order', () => {
@@ -367,7 +464,6 @@ describe('Build 3.7G0 communication encryption decisions record', () => {
   it('requires the exact architecture package file set', () => {
     const committed = changedPathsBetween(BUILD_BASE, tipInfo.tip);
     const working = tipInfo.includeWorkingTree ? workingTreePaths() : [];
-    // Ignore unrelated untracked review patches outside the architecture package.
     const filteredWorking = working.filter(
       (pathValue) =>
         ARCHITECTURE_PACKAGE_FILES.includes(

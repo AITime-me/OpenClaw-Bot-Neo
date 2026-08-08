@@ -299,8 +299,10 @@ must not disclose internal provider/security details.
   while `encryptionEnabled=false` (or until an approved alternative). Offline reference simulation
   may proceed. Build **3.7G0** freezes the architecture-only at-rest gate
   (`LIVE_ENCRYPTION: ARCHITECTURE_DECIDED`; `ENCRYPTION_IMPLEMENTATION: ABSENT`): AES-256-GCM via
-  `node:crypto`, versioned envelope + AAD, key only from `NEO_COMMUNICATION_DATA_KEY_FILE`, schema
-  v1 plaintext offline-compatible / live-rejected, no silent plaintext fallback. See
+  `node:crypto`, versioned envelope + AAD, key file `BASE64_32` from
+  `NEO_COMMUNICATION_DATA_KEY_FILE` with `keyId = SHA-256 hex`, offline schema v1 plaintext vs live
+  encrypted schema v2 (no automatic migration), encryption-aware ports required for gate evidence,
+  exact live audit metadata allowlist, no silent plaintext fallback. See
   [3.7G0 decisions](../validation/build-3.7g0-communication-encryption-decisions.md).
 
 ## 11. Subscription route — Build 3.7E0 (closed research)
