@@ -182,6 +182,89 @@ describe('codex-app-server protocol', () => {
     ).toBe('policy-rejected');
   });
 
+  it('rejects widened probe permissions profiles (extra path, workspace root, extends)', () => {
+    const withProfile = (
+      mutate: (profile: Record<string, unknown>) => void,
+    ): Record<string, unknown> => {
+      const base = compliantBase();
+      const permissions = structuredClone(base.permissions) as Record<string, unknown>;
+      const profile = permissions['neo-probe-cwd-readonly'] as Record<string, unknown>;
+      mutate(profile);
+      return { ...base, permissions };
+    };
+
+    expect(decodeConfigPreflight(compliantBase(), null).kind).toBe('ok');
+    expect(
+      decodeConfigPreflight(
+        withProfile((profile) => {
+          profile.description = 'benign metadata';
+        }),
+        null,
+      ).kind,
+    ).toBe('ok');
+
+    expect(
+      decodeConfigPreflight(
+        withProfile((profile) => {
+          const filesystem = profile.filesystem as Record<string, unknown>;
+          filesystem['C:\\Users\\Admin'] = 'read';
+        }),
+        null,
+      ).kind,
+    ).toBe('policy-rejected');
+
+    expect(
+      decodeConfigPreflight(
+        withProfile((profile) => {
+          profile.workspace_roots = { 'C:\\extra\\root': true };
+        }),
+        null,
+      ).kind,
+    ).toBe('policy-rejected');
+
+    expect(
+      decodeConfigPreflight(
+        withProfile((profile) => {
+          profile.extends = ':read-only';
+        }),
+        null,
+      ).kind,
+    ).toBe('policy-rejected');
+
+    expect(
+      decodeConfigPreflight(
+        withProfile((profile) => {
+          const filesystem = profile.filesystem as Record<string, unknown>;
+          filesystem[':tmpdir'] = 'read';
+        }),
+        null,
+      ).kind,
+    ).toBe('policy-rejected');
+
+    expect(
+      decodeConfigPreflight(
+        withProfile((profile) => {
+          const filesystem = profile.filesystem as Record<string, unknown>;
+          const workspace = filesystem[':workspace_roots'] as Record<string, unknown>;
+          workspace['docs'] = 'read';
+        }),
+        null,
+      ).kind,
+    ).toBe('policy-rejected');
+
+    expect(
+      decodeConfigPreflight(
+        withProfile((profile) => {
+          profile.network = {
+            enabled: false,
+            domains: { 'api.openai.com': 'allow' },
+          };
+        }),
+        null,
+      ).kind,
+    ).toBe('policy-rejected');
+  });
+
   it('rejects observed 0.147.0 live config/read and parses remoteControl notification fixture', () => {
     const observed = fixture('codex-0.147.0-observed-config-read.json') as {
       config: Record<string, unknown>;

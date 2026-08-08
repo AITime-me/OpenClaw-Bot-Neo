@@ -505,14 +505,55 @@ const probePermissionsProfileOk = (config: Record<string, unknown>): boolean => 
   if (!isPlainObject(config.permissions)) return false;
   const profile = config.permissions[PROBE_PERMISSIONS_PROFILE_ID];
   if (!isPlainObject(profile)) return false;
-  if (!isPlainObject(profile.filesystem)) return false;
-  if (profile.filesystem[':root'] === 'read' || profile.filesystem[':root'] === 'write')
+
+  // Inheritance widens the effective grant set — forbidden for the probe profile.
+  if ('extends' in profile && profile.extends !== undefined && profile.extends !== null)
     return false;
-  if (profile.filesystem[':minimal'] !== 'read') return false;
-  const workspace = profile.filesystem[':workspace_roots'];
+
+  // Profile-defined workspace roots would expand readable/writable scope beyond probeCwd.
+  if ('workspace_roots' in profile && profile.workspace_roots !== undefined) {
+    if (profile.workspace_roots === null) {
+      /* null is vacuous */
+    } else if (!isPlainObject(profile.workspace_roots)) {
+      return false;
+    } else if (Object.keys(profile.workspace_roots).length > 0) {
+      return false;
+    }
+  }
+
+  for (const key of Object.keys(profile)) {
+    if (key === 'filesystem' || key === 'network' || key === 'description') continue;
+    if (key === 'workspace_roots') continue; // empty/null already validated
+    return false;
+  }
+  if (
+    'description' in profile &&
+    profile.description !== undefined &&
+    profile.description !== null &&
+    typeof profile.description !== 'string'
+  )
+    return false;
+
+  if (!isPlainObject(profile.filesystem)) return false;
+  const filesystem = profile.filesystem;
+  const fsKeys = Object.keys(filesystem);
+  // Exact shape: only :minimal and :workspace_roots — no :root/:tmpdir/:slash_tmp/abs paths.
+  if (fsKeys.length !== 2) return false;
+  if (!fsKeys.includes(':minimal') || !fsKeys.includes(':workspace_roots')) return false;
+  if (filesystem[':minimal'] !== 'read') return false;
+
+  const workspace = filesystem[':workspace_roots'];
   if (!isPlainObject(workspace)) return false;
+  const workspaceKeys = Object.keys(workspace);
+  if (workspaceKeys.length !== 1 || workspaceKeys[0] !== '.') return false;
   if (workspace['.'] !== 'read') return false;
-  if (!isPlainObject(profile.network) || profile.network.enabled !== false) return false;
+
+  if (!isPlainObject(profile.network)) return false;
+  // Strict disabled network: only { enabled: false }, no domains/sockets/local-binding.
+  const networkKeys = Object.keys(profile.network);
+  if (networkKeys.length !== 1 || networkKeys[0] !== 'enabled') return false;
+  if (profile.network.enabled !== false) return false;
+
   return true;
 };
 
