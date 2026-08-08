@@ -153,12 +153,13 @@
 - Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: EXECUTED_FAIL / provider-unavailable / pre-dispatch compatibility on codex-cli 0.147.0; durable 3.7D wiring BLOCKED_BY_ENCRYPTION)
 - Build 3.7E1 implementation status: IMPLEMENTED
 - LIVE_PROBE_STATUS: EXECUTED_FAIL
+- Build 3.7G0 status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; LIVE_ENCRYPTION: ARCHITECTURE_DECIDED; ENCRYPTION_IMPLEMENTATION: ABSENT; durable live integration BLOCKED_PENDING_ENCRYPTION_IMPLEMENTATION)
 - Build 3.7F status: BLOCKED
 - Build 3.7E0 next stage: 3.7B
 - 3.7B is offline only
 - Acceptance of live text chat requires later implementation Builds, owner-approved capability
-  probe, encryption gate, and independent review; 3.7A/3.7E0/3.7E1A/3.7E1 alone do not satisfy
-  channel/LLM runtime acceptance.
+  probe, encryption gate implementation, and independent review; 3.7A/3.7E0/3.7E1A/3.7E1/3.7G0
+  alone do not satisfy channel/LLM runtime acceptance.
 
 ## Text communication (Build 3.7B contracts)
 
@@ -176,15 +177,18 @@
 - Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: EXECUTED_FAIL / provider-unavailable / pre-dispatch compatibility on codex-cli 0.147.0; durable 3.7D wiring BLOCKED_BY_ENCRYPTION)
 - Build 3.7E1 implementation status: IMPLEMENTED
 - LIVE_PROBE_STATUS: EXECUTED_FAIL
+- Build 3.7G0 status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; LIVE_ENCRYPTION: ARCHITECTURE_DECIDED; ENCRYPTION_IMPLEMENTATION: ABSENT; durable live integration BLOCKED_PENDING_ENCRYPTION_IMPLEMENTATION)
 - Build 3.7F status: BLOCKED
 - Build 3.7D next stage: 3.7E1A (architecture closed) → 3.7E1 probe implementation (present;
-  LIVE_PROBE_STATUS: EXECUTED_FAIL) → owner-approved live retry after 0.147.0 compat → encryption gate
+  LIVE_PROBE_STATUS: EXECUTED_FAIL) → owner-approved live retry after 0.147.0 compat → 3.7G0
+  encryption gate (architecture closed) → 3.7G encryption implementation
 - See [3.7B closeout](validation/build-3.7b-communication-contracts-closeout.md).
 - See [3.7C closeout](validation/build-3.7c-communication-persistence-closeout.md).
 - See [3.7D0 decisions](validation/build-3.7d0-communication-runtime-decisions.md).
 - See [3.7D closeout](validation/build-3.7d-communication-runtime-closeout.md).
 - See [3.7E1A decisions](validation/build-3.7e1a-codex-subscription-probe-decisions.md).
 - See [3.7E1 closeout](validation/build-3.7e1-codex-subscription-probe-closeout.md).
+- See [3.7G0 encryption decisions](validation/build-3.7g0-communication-encryption-decisions.md).
 
 ## Deployment
 

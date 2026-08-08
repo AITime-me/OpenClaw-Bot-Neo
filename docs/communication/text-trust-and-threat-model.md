@@ -7,7 +7,11 @@ Build 3.7B status: offline contracts implemented; live runtime absent.
 
 Build 3.7E1 status: BLOCKED
 
+Build 3.7G0 status: ARCHITECTURE_ONLY (LIVE_ENCRYPTION: ARCHITECTURE_DECIDED; ENCRYPTION_IMPLEMENTATION: ABSENT; durable live integration BLOCKED_PENDING_ENCRYPTION_IMPLEMENTATION)
+
 Build 3.7F status: BLOCKED
+
+PRODUCTION_READY: FALSE
 
 Build 3.7B next stage: 3.7C
 
@@ -91,8 +95,14 @@ Text composition must not import connector/infrastructure registries or tool exe
 conversational content while `encryptionEnabled=false` (or until approved alternative). Offline
 reference simulation may proceed. Build 3.7C0 documents an offline-only future factory
 (`createOfflineSqliteCommunicationPorts`) with fixed `encryptionEnabled=false`, scrubbed plaintext
-TTL ≤ 24h, and `forensicEraseGuaranteed=false`; caller booleans are not encryption evidence. Live
-factory and encryption implementation remain absent.
+TTL ≤ 24h, and `forensicEraseGuaranteed=false`; caller booleans are not encryption evidence. Build
+**3.7G0** closes the architecture-only at-rest gate (`LIVE_ENCRYPTION: ARCHITECTURE_DECIDED`;
+`ENCRYPTION_IMPLEMENTATION: ABSENT`): encrypt
+`outbox_entries.plaintext_payload` + conversation `active_context_json` / `summary_json` only;
+AES-256-GCM via `node:crypto`; key solely from `NEO_COMMUNICATION_DATA_KEY_FILE`; schema v1
+plaintext offline-compatible / live-rejected; silent plaintext fallback forbidden. See
+[3.7G0 decisions](../validation/build-3.7g0-communication-encryption-decisions.md). Live factory and
+encryption implementation remain absent.
 
 ### Kill-switch bypass
 
@@ -129,7 +139,7 @@ Snapshot fields: `ingressEnabled`, `communicationEnabled`, `llmEnabled`, `delive
 
 | Severity | ID | Risk | Design response |
 |----------|----|------|-----------------|
-| BLOCKER | TC-B01 | Live route with plaintext conversational persistence | Encryption live gate |
+| BLOCKER | TC-B01 | Live route with plaintext conversational persistence | Encryption live gate (3.7G0 architecture decided; implementation absent) |
 | BLOCKER | TC-B02 | Subscription route without E0 | Mandatory 3.7E0 |
 | BLOCKER | TC-B03 | Collapsing communication/memory capabilities | Separate opaque families |
 | HIGH | TC-H01 | Duplicate LLM on redelivery | Atomic observed admission before binding |

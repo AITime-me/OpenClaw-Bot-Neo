@@ -14,9 +14,11 @@
    ready; live probe not run; OpenClaw out of scope).
 7. **3.7E1** — Codex app-server probe **implementation package** present (probe-only; fake matrix;
    `LIVE_PROBE_STATUS: EXECUTED_FAIL`); durable 3.7D live wiring **BLOCKED_BY_ENCRYPTION**.
-8. **3.7F** — temporary owner-only Telegram adapter **BLOCKED** pending E1 live gates, encryption,
-   operational approval.
-9. Later: files/images → voice input → masculine voice output → plans/reminders → private mobile
+8. **3.7G0** — durable communication **encryption at-rest gate** architecture decisions closed
+   (`LIVE_ENCRYPTION: ARCHITECTURE_DECIDED`; `ENCRYPTION_IMPLEMENTATION: ABSENT`).
+9. **3.7F** — temporary owner-only Telegram adapter **BLOCKED** pending E1 live gates, encryption
+   implementation, operational approval.
+10. Later: files/images → voice input → masculine voice output → plans/reminders → private mobile
    app → Telegram removal → read-only eyes → safe hands.
 
 Build 3.7B–D are offline only
@@ -28,6 +30,8 @@ Build 3.7E1 status: PROBE_IMPLEMENTED (LIVE_PROBE_STATUS: EXECUTED_FAIL / provid
 Build 3.7E1 implementation status: IMPLEMENTED
 
 LIVE_PROBE_STATUS: EXECUTED_FAIL
+
+Build 3.7G0 status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; LIVE_ENCRYPTION: ARCHITECTURE_DECIDED; ENCRYPTION_IMPLEMENTATION: ABSENT; durable live integration BLOCKED_PENDING_ENCRYPTION_IMPLEMENTATION)
 
 Build 3.7F status: BLOCKED
 
@@ -47,10 +51,12 @@ subscription route remains PASS; live operational approval remains UNRESOLVED. S
 
 Offline B–D work may proceed. Build 3.7E1A architecture decisions are closed. Build 3.7E1
 implements the probe-only Codex app-server stdio adapter with fake coverage;
-`LIVE_PROBE_STATUS: EXECUTED_FAIL`; durable 3.7D live wiring and production remain blocked. OpenClaw
-remains a separate unverified / out-of-scope route. See
-[3.7E1A decisions](../validation/build-3.7e1a-codex-subscription-probe-decisions.md) and
-[3.7E1 closeout](../validation/build-3.7e1-codex-subscription-probe-closeout.md).
+`LIVE_PROBE_STATUS: EXECUTED_FAIL`; durable 3.7D live wiring and production remain blocked. Build
+3.7G0 closes the encryption at-rest architecture gate (`ENCRYPTION_IMPLEMENTATION: ABSENT`).
+OpenClaw remains a separate unverified / out-of-scope route. See
+[3.7E1A decisions](../validation/build-3.7e1a-codex-subscription-probe-decisions.md),
+[3.7E1 closeout](../validation/build-3.7e1-codex-subscription-probe-closeout.md), and
+[3.7G0 encryption decisions](../validation/build-3.7g0-communication-encryption-decisions.md).
 
 ## 2. Public API / barrel rule (B37A-004)
 
@@ -171,7 +177,8 @@ src/communication/reference/index.ts
 ```
 
 Build 3.7D next stage: 3.7E1A architecture (closed) → 3.7E1 probe implementation (present;
-LIVE_PROBE_STATUS: EXECUTED_FAIL) → owner-approved live probe → encryption gate.
+LIVE_PROBE_STATUS: EXECUTED_FAIL) → owner-approved live probe → 3.7G0 encryption gate
+(architecture closed) → 3.7G encryption implementation.
 
 ### 3.7E0
 
@@ -242,7 +249,26 @@ blocked by encryption. PRODUCTION_READY: FALSE.
 OpenClaw runtime compatibility remains **UNVERIFIED**. No OpenClaw adapter path is authorized by
 Build 3.7E1A. Any future OpenClaw route requires its own decision package and runtime proof.
 
-### 3.7F — blocked pending E1 live gates, encryption, operational approval
+### 3.7G0 — Communication encryption at-rest gate (architecture closed)
+
+```text
+docs/validation/build-3.7g0-communication-encryption-decisions.md
+tests/build-3.7g0-communication-encryption-decisions-record.test.ts
+```
+
+Status: **architecture-only**. Live mode must not store conversational plaintext in
+`neo-communication.sqlite`. Encrypt-at-rest fields: `outbox_entries.plaintext_payload`,
+`conversation_snapshots.active_context_json`, `conversation_snapshots.summary_json`. Machine /
+FIFO / recovery / idempotency / TTL / audit metadata remain plaintext-open. AEAD =
+`AES_256_GCM_NODE_CRYPTO` via `node:crypto` only; versioned envelope with unique nonce, tag, and
+AAD bound to record/table/field identity. Sole key source:
+`NEO_COMMUNICATION_DATA_KEY_FILE` (never in SQLite/logs/audit/tracked config). Schema v1 plaintext
+compatible offline, rejected live; silent plaintext fallback forbidden. Encryption implementation
+absent; package-root exports absent; 3.7F / Telegram / OpenClaw / production composition absent.
+`IMPLEMENTATION_READY: TRUE`; `PRODUCTION_READY: FALSE`; durable live integration
+`BLOCKED_PENDING_ENCRYPTION_IMPLEMENTATION`. Next stage: `3.7G_ENCRYPTION_IMPLEMENTATION`.
+
+### 3.7F — blocked pending E1 live gates, encryption implementation, operational approval
 
 ```text
 src/communication/adapters/telegram/telegram-update-parser.ts

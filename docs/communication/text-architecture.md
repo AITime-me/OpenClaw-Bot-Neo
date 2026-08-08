@@ -18,13 +18,16 @@ Build 3.7E1 implementation status: IMPLEMENTED
 
 LIVE_PROBE_STATUS: EXECUTED_FAIL
 
+Build 3.7G0 status: ARCHITECTURE_ONLY (IMPLEMENTATION_READY; LIVE_ENCRYPTION: ARCHITECTURE_DECIDED; ENCRYPTION_IMPLEMENTATION: ABSENT)
+
 Build 3.7F status: BLOCKED
 
 PRODUCTION_READY: FALSE
 
 See [3.7B closeout](../validation/build-3.7b-communication-contracts-closeout.md),
-[3.7E1A decisions](../validation/build-3.7e1a-codex-subscription-probe-decisions.md), and
-[3.7E1 closeout](../validation/build-3.7e1-codex-subscription-probe-closeout.md).
+[3.7E1A decisions](../validation/build-3.7e1a-codex-subscription-probe-decisions.md),
+[3.7E1 closeout](../validation/build-3.7e1-codex-subscription-probe-closeout.md), and
+[3.7G0 encryption decisions](../validation/build-3.7g0-communication-encryption-decisions.md).
 
 ## 1. Executive design
 
@@ -294,7 +297,11 @@ must not disclose internal provider/security details.
   order by `conversationSequence` only.
 - Encryption live gate: live Telegram/model routes that persist conversational content are blocked
   while `encryptionEnabled=false` (or until an approved alternative). Offline reference simulation
-  may proceed. Encryption is not implemented in 3.7A.
+  may proceed. Build **3.7G0** freezes the architecture-only at-rest gate
+  (`LIVE_ENCRYPTION: ARCHITECTURE_DECIDED`; `ENCRYPTION_IMPLEMENTATION: ABSENT`): AES-256-GCM via
+  `node:crypto`, versioned envelope + AAD, key only from `NEO_COMMUNICATION_DATA_KEY_FILE`, schema
+  v1 plaintext offline-compatible / live-rejected, no silent plaintext fallback. See
+  [3.7G0 decisions](../validation/build-3.7g0-communication-encryption-decisions.md).
 
 ## 11. Subscription route — Build 3.7E0 (closed research)
 
@@ -353,9 +360,10 @@ root.
    not run; OpenClaw out of scope).
 7. **3.7E1** — Codex app-server probe implementation (**present**; `LIVE_PROBE_STATUS: EXECUTED_FAIL`);
    durable 3.7D live wiring blocked by encryption.
-8. **3.7F** — temporary Telegram adapter **blocked** pending E1 live gates, encryption, operational
-   approval.
-9. Later: files/images → voice → masculine TTS → plans/reminders → private mobile → Telegram
+8. **3.7G0** — encryption at-rest gate architecture (**closed**; `ENCRYPTION_IMPLEMENTATION: ABSENT`).
+9. **3.7F** — temporary Telegram adapter **blocked** pending E1 live gates, encryption
+   implementation, operational approval.
+10. Later: files/images → voice → masculine TTS → plans/reminders → private mobile → Telegram
    removal → read-only eyes → safe hands.
 
 ## 14. Future diagnostics (absent in 3.7A)
